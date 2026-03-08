@@ -1,0 +1,400 @@
+---
+title: System Module (sysmodule)
+description: Dynamic system module loading and management
+---
+
+The system module API provides functions to load and unload PS3 system libraries at runtime. Many PSL1GHT APIs require their corresponding system module to be loaded before use.
+
+## Overview
+
+System modules are dynamic libraries that provide functionality for various hardware and software features. Instead of linking all libraries statically, you can load only the modules you need at runtime, reducing memory usage.
+
+<Note>
+Some modules may already be loaded by the system or other libraries. Use `sysModuleIsLoaded()` to check before loading.
+</Note>
+
+## Error Codes
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `SYSMODULE_OK` | 0x00 | Operation successful |
+| `SYSMODULE_LOADED` | 0x00 | Module is loaded |
+| `SYSMODULE_ERR_DUPLICATE` | 0x80012001 | Module already loaded |
+| `SYSMODULE_ERR_UNKNOWN` | 0x80012002 | Unknown module ID |
+| `SYSMODULE_ERR_UNLOADED` | 0x80012003 | Module already unloaded |
+| `SYSMODULE_ERR_INVALID_MEM` | 0x80012004 | Invalid memory container |
+| `SYSMODULE_ERR_FATAL` | 0x800120ff | Fatal error occurred |
+
+## Module IDs
+
+<ParamField path="sysModuleId" type="enum">
+  Available system modules that can be loaded.
+</ParamField>
+
+### Network Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_NET` | 0x0 | Network library |
+| `SYSMODULE_HTTP` | 0x1 | HTTP client library |
+| `SYSMODULE_HTTP_UTIL` | 0x2 | HTTP utility functions |
+| `SYSMODULE_SSL` | 0x3 | SSL/TLS library |
+| `SYSMODULE_HTTPS` | 0x4 | HTTPS client library |
+| `SYSMODULE_NETCTL` | 0x14 | Network control library |
+| `SYSMODULE_RUDP` | 0x57 | Reliable UDP library |
+
+### Multimedia Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_VDEC` | 0x5 | Video decoder base |
+| `SYSMODULE_ADEC` | 0x6 | Audio decoder base |
+| `SYSMODULE_DMUX` | 0x7 | Demultiplexer |
+| `SYSMODULE_VPOST` | 0x8 | Video post-processing |
+| `SYSMODULE_PAMF` | 0x12 | PAMF container format |
+
+### Video Codec Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_VDEC_MPEG2` | 0x24 | MPEG-2 video decoder |
+| `SYSMODULE_VDEC_H264` | 0x25 | H.264/AVC video decoder |
+| `SYSMODULE_VDEC_DIVX` | 0x3c | DivX video decoder |
+
+### Audio Codec Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_ADEC_LPCM` | 0x26 | LPCM audio decoder |
+| `SYSMODULE_ADEC_AC3` | 0x27 | AC-3 audio decoder |
+| `SYSMODULE_ADEC_ATX` | 0x28 | ATRAC-X audio decoder |
+| `SYSMODULE_ADEC_AT3` | 0x29 | ATRAC3 audio decoder |
+| `SYSMODULE_ADEC_PAMF` | 0x2a | PAMF audio decoder |
+| `SYSMODULE_ADEC_MP3` | 0xf01e | MP3 audio decoder |
+| `SYSMODULE_ADEC_CELP8` | 0x47 | CELP8 audio decoder |
+| `SYSMODULE_ATRAC3` | 0x13 | ATRAC3 encoder/decoder |
+
+### Image Codec Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_JPGDEC` | 0xf | JPEG decoder |
+| `SYSMODULE_JPGENC` | 0x3d | JPEG encoder |
+| `SYSMODULE_PNGDEC` | 0x18 | PNG decoder |
+| `SYSMODULE_PNGENC` | 0x52 | PNG encoder |
+| `SYSMODULE_GIFDEC` | 0xf0a0 | GIF decoder |
+
+### Graphics Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_GCM_SYS` | 0x10 | GCM graphics library |
+| `SYSMODULE_RESC` | 0x1f | Resolution scaler |
+| `SYSMODULE_SAIL` | 0x1d | SAIL graphics utility |
+
+### Font Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_FONT` | 0x19 | Font rendering |
+| `SYSMODULE_FONTFT` | 0x1a | FreeType font rendering |
+| `SYSMODULE_FREETYPE` | 0x1b | FreeType library |
+| `SYSMODULE_FREETYPE_TT` | 0x40 | TrueType support |
+
+### System Utility Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_SYSUTIL` | 0x15 | System utility library |
+| `SYSMODULE_SYSUTIL_NP` | 0x16 | Network Platform utilities |
+| `SYSMODULE_USERINFO` | 0x32 | User information |
+| `SYSMODULE_SAVEDATA` | 0x33 | Save data management |
+
+### I/O Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_IO` | 0x17 | I/O library |
+| `SYSMODULE_FS` | 0xe | File system library |
+| `SYSMODULE_USB` | 0x1c | USB device support |
+
+### Audio Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_AUDIO` | 0x11 | Audio output library |
+| `SYSMODULE_MIC` | 0x22 | Microphone input |
+| `SYSMODULE_VOICE` | 0x46 | Voice processing |
+| `SYSMODULE_MUSIC2` | 0x4a | Music player v2 |
+| `SYSMODULE_MUSIC_DEC` | 0x4f | Music decoder |
+| `SYSMODULE_MUSIC_DEC2` | 0x53 | Music decoder v2 |
+
+### Threading Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_SPURS` | 0xa | SPURS job system |
+| `SYSMODULE_SPURS_JQ` | 0x50 | SPURS job queue |
+| `SYSMODULE_FIBER` | 0x43 | Fiber library |
+| `SYSMODULE_SYNC` | 0xd | Synchronization primitives |
+| `SYSMODULE_SYNC2` | 0x55 | Synchronization v2 |
+
+### Miscellaneous Modules
+
+| Module ID | Value | Description |
+|-----------|-------|-------------|
+| `SYSMODULE_RTC` | 0x9 | Real-time clock |
+| `SYSMODULE_OVIS` | 0xb | OVIS library |
+| `SYSMODULE_SHEAP` | 0xc | Shared heap |
+| `SYSMODULE_CAMERA` | 0x23 | PlayStation Eye camera |
+| `SYSMODULE_GEM` | 0x5a | PlayStation Move |
+| `SYSMODULE_KEY2CHAR` | 0x21 | Key to character conversion |
+| `SYSMODULE_DAISY` | 0x20 | DAISY audio book |
+| `SYSMODULE_LV2DBG` | 0x2e | LV2 debugging |
+| `SYSMODULE_CELP8ENC` | 0x48 | CELP8 encoder |
+
+## Core Functions
+
+### sysModuleLoad
+
+```c
+s32 sysModuleLoad(sysModuleId id);
+```
+
+Loads a system module.
+
+<ParamField path="id" type="sysModuleId">
+  Module ID to load (see Module IDs section).
+</ParamField>
+
+**Returns:** `SYSMODULE_OK` on success, error code otherwise.
+
+<Note>
+Loading an already-loaded module returns `SYSMODULE_ERR_DUPLICATE`, which can usually be ignored.
+</Note>
+
+### sysModuleUnload
+
+```c
+s32 sysModuleUnload(sysModuleId id);
+```
+
+Unloads a system module.
+
+<ParamField path="id" type="sysModuleId">
+  Module ID to unload.
+</ParamField>
+
+**Returns:** `SYSMODULE_OK` on success, error code otherwise.
+
+<Warning>
+Only unload modules when you're completely done with them. Unloading a module that's still in use will cause crashes.
+</Warning>
+
+### sysModuleIsLoaded
+
+```c
+s32 sysModuleIsLoaded(sysModuleId id);
+```
+
+Checks if a system module is currently loaded.
+
+<ParamField path="id" type="sysModuleId">
+  Module ID to check.
+</ParamField>
+
+**Returns:** `SYSMODULE_LOADED` (0) if loaded, `SYSMODULE_ERR_UNLOADED` if not loaded, or other error code.
+
+## Usage Example
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <stdio.h>
+
+int main() {
+    s32 ret;
+
+    // Check if module is already loaded
+    ret = sysModuleIsLoaded(SYSMODULE_JPGDEC);
+    if (ret == SYSMODULE_LOADED) {
+        printf("JPGDEC module already loaded\n");
+    } else {
+        // Load JPEG decoder module
+        ret = sysModuleLoad(SYSMODULE_JPGDEC);
+        if (ret == SYSMODULE_OK || ret == SYSMODULE_ERR_DUPLICATE) {
+            printf("JPGDEC module loaded successfully\n");
+        } else {
+            printf("Failed to load JPGDEC module: 0x%x\n", ret);
+            return -1;
+        }
+    }
+
+    // Use JPEG decoder functions...
+    // ...
+
+    // Unload module when done
+    ret = sysModuleUnload(SYSMODULE_JPGDEC);
+    if (ret == SYSMODULE_OK) {
+        printf("JPGDEC module unloaded\n");
+    }
+
+    return 0;
+}
+```
+
+## Multiple Module Example
+
+Loading multiple related modules:
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <stdio.h>
+
+int load_video_modules(void) {
+    s32 ret;
+
+    // Load base video decoder
+    ret = sysModuleLoad(SYSMODULE_VDEC);
+    if (ret != SYSMODULE_OK && ret != SYSMODULE_ERR_DUPLICATE) {
+        printf("Failed to load VDEC: 0x%x\n", ret);
+        return -1;
+    }
+
+    // Load H.264 codec
+    ret = sysModuleLoad(SYSMODULE_VDEC_H264);
+    if (ret != SYSMODULE_OK && ret != SYSMODULE_ERR_DUPLICATE) {
+        printf("Failed to load H.264 decoder: 0x%x\n", ret);
+        sysModuleUnload(SYSMODULE_VDEC);
+        return -1;
+    }
+
+    // Load demuxer for container formats
+    ret = sysModuleLoad(SYSMODULE_DMUX);
+    if (ret != SYSMODULE_OK && ret != SYSMODULE_ERR_DUPLICATE) {
+        printf("Failed to load DMUX: 0x%x\n", ret);
+        sysModuleUnload(SYSMODULE_VDEC_H264);
+        sysModuleUnload(SYSMODULE_VDEC);
+        return -1;
+    }
+
+    printf("Video modules loaded successfully\n");
+    return 0;
+}
+
+void unload_video_modules(void) {
+    sysModuleUnload(SYSMODULE_DMUX);
+    sysModuleUnload(SYSMODULE_VDEC_H264);
+    sysModuleUnload(SYSMODULE_VDEC);
+}
+```
+
+## Network Stack Example
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <stdio.h>
+
+int init_network(void) {
+    s32 ret;
+
+    // Load base network module
+    ret = sysModuleLoad(SYSMODULE_NET);
+    if (ret != SYSMODULE_OK && ret != SYSMODULE_ERR_DUPLICATE) {
+        return -1;
+    }
+
+    // Load SSL for secure connections
+    ret = sysModuleLoad(SYSMODULE_SSL);
+    if (ret != SYSMODULE_OK && ret != SYSMODULE_ERR_DUPLICATE) {
+        sysModuleUnload(SYSMODULE_NET);
+        return -1;
+    }
+
+    // Load HTTP client
+    ret = sysModuleLoad(SYSMODULE_HTTP);
+    if (ret != SYSMODULE_OK && ret != SYSMODULE_ERR_DUPLICATE) {
+        sysModuleUnload(SYSMODULE_SSL);
+        sysModuleUnload(SYSMODULE_NET);
+        return -1;
+    }
+
+    // Load HTTPS (combines HTTP + SSL)
+    ret = sysModuleLoad(SYSMODULE_HTTPS);
+    if (ret != SYSMODULE_OK && ret != SYSMODULE_ERR_DUPLICATE) {
+        sysModuleUnload(SYSMODULE_HTTP);
+        sysModuleUnload(SYSMODULE_SSL);
+        sysModuleUnload(SYSMODULE_NET);
+        return -1;
+    }
+
+    printf("Network modules loaded\n");
+    return 0;
+}
+```
+
+## Module Dependencies
+
+Some modules have dependencies on other modules:
+
+<Accordion title="Video Decoding">
+  - Base: `SYSMODULE_VDEC`
+  - Codec: `SYSMODULE_VDEC_MPEG2`, `SYSMODULE_VDEC_H264`, or `SYSMODULE_VDEC_DIVX`
+  - Optional: `SYSMODULE_DMUX` (for container formats), `SYSMODULE_VPOST` (for post-processing)
+</Accordion>
+
+<Accordion title="Audio Decoding">
+  - Base: `SYSMODULE_ADEC`
+  - Codec: `SYSMODULE_ADEC_LPCM`, `SYSMODULE_ADEC_AC3`, `SYSMODULE_ADEC_MP3`, etc.
+  - Optional: `SYSMODULE_DMUX` (for container formats)
+</Accordion>
+
+<Accordion title="Network Stack">
+  - Base: `SYSMODULE_NET`
+  - HTTP: `SYSMODULE_HTTP` + `SYSMODULE_HTTP_UTIL`
+  - Secure: `SYSMODULE_SSL` + `SYSMODULE_HTTPS`
+  - Control: `SYSMODULE_NETCTL`
+</Accordion>
+
+<Accordion title="Font Rendering">
+  - Base: `SYSMODULE_FONT`
+  - FreeType: `SYSMODULE_FREETYPE` + `SYSMODULE_FONTFT`
+  - TrueType: `SYSMODULE_FREETYPE_TT`
+</Accordion>
+
+## Best Practices
+
+<Warning>
+**Important**: Always load modules in the correct order, with base modules before dependent modules.
+</Warning>
+
+1. **Check for duplicates**: It's safe to ignore `SYSMODULE_ERR_DUPLICATE` errors
+2. **Load early**: Load modules during initialization, not during time-critical operations
+3. **Unload late**: Only unload modules during cleanup or when completely done
+4. **Error handling**: Always check return values and handle failures appropriately
+5. **Module lifetime**: Keep modules loaded for the duration they're needed
+
+## Common Module Groups
+
+Frequently used module combinations:
+
+```c
+// Image decoding
+sysModuleLoad(SYSMODULE_JPGDEC);
+sysModuleLoad(SYSMODULE_PNGDEC);
+
+// Video playback
+sysModuleLoad(SYSMODULE_VDEC);
+sysModuleLoad(SYSMODULE_VDEC_H264);
+sysModuleLoad(SYSMODULE_ADEC);
+sysModuleLoad(SYSMODULE_ADEC_AC3);
+sysModuleLoad(SYSMODULE_DMUX);
+
+// Graphics
+sysModuleLoad(SYSMODULE_GCM_SYS);
+sysModuleLoad(SYSMODULE_RESC);
+
+// System UI
+sysModuleLoad(SYSMODULE_SYSUTIL);
+sysModuleLoad(SYSMODULE_SAVEDATA);
+sysModuleLoad(SYSMODULE_USERINFO);
+```

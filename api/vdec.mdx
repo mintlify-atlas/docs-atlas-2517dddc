@@ -1,0 +1,552 @@
+---
+title: Video Decoder (vdec)
+description: Hardware-accelerated video decoding library
+---
+
+The video decoder library provides hardware-accelerated video decoding for MPEG2 and H.264 video streams on the PlayStation 3. It utilizes the SPU for efficient decoding.
+
+## Overview
+
+The vdec library allows you to decode video streams in real-time. It's commonly used for video playback in games and applications. The decoder operates asynchronously using callbacks to notify when frames are ready.
+
+<Note>
+Before using vdec functions, you must load the appropriate system modules:
+- `SYSMODULE_VDEC` - Base video decoder module
+- `SYSMODULE_VDEC_MPEG2` or `SYSMODULE_VDEC_H264` - Codec-specific modules
+</Note>
+
+## Error Codes
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `VDEC_ERROR_ARG` | 0x80610101 | Invalid argument |
+| `VDEC_ERROR_SEQ` | 0x80610102 | Invalid sequence |
+| `VDEC_ERROR_BUSY` | 0x80610103 | Decoder is busy |
+| `VDEC_ERROR_EMPTY` | 0x80610104 | No data available |
+| `VDEC_ERROR_AU` | 0x80610105 | Access unit error |
+| `VDEC_ERROR_PIC` | 0x80610106 | Picture error |
+
+## Codec Types
+
+<ParamField path="codec_type" type="u32">
+  Supported video codec types.
+
+  - `VDEC_CODEC_TYPE_MPEG2` (0) - MPEG-2 video
+  - `VDEC_CODEC_TYPE_H264` (1) - H.264/AVC video
+</ParamField>
+
+## Decoder Modes
+
+<ParamField path="mode" type="u32">
+  Decoder operation modes.
+
+  - `VDEC_DECODER_MODE_NORMAL` (0) - Decode all frames
+  - `VDEC_DECODER_MODE_SKIP_NON_REF` (1) - Skip non-reference frames (faster)
+</ParamField>
+
+## Picture Formats
+
+<ParamField path="format_type" type="u32">
+  Output pixel formats.
+
+  - `VDEC_PICFMT_ARGB32` (0) - 32-bit ARGB format
+  - `VDEC_PICFMT_RGBA32` (1) - 32-bit RGBA format
+  - `VDEC_PICFMT_UYVY422` (2) - YUV 4:2:2 format
+  - `VDEC_PICFMT_YUV420P` (3) - YUV 4:2:0 planar format
+</ParamField>
+
+## Callback Types
+
+<ParamField path="msgtype" type="u32">
+  Decoder callback message types.
+
+  - `VDEC_CALLBACK_AUDONE` (0) - Access unit decoded
+  - `VDEC_CALLBACK_PICOUT` (1) - Picture output ready
+  - `VDEC_CALLBACK_SEQDONE` (2) - Sequence complete
+  - `VDEC_CALLBACK_ERROR` (3) - Decoder error occurred
+</ParamField>
+
+## Core Functions
+
+### vdecQueryAttr
+
+```c
+s32 vdecQueryAttr(const vdecType *type, vdecAttr *attr);
+```
+
+Queries the decoder attributes for a specific codec type.
+
+<ParamField path="type" type="const vdecType*">
+  Codec type information.
+
+  <ResponseField name="codec_type" type="u32">
+    Codec type (VDEC_CODEC_TYPE_MPEG2 or VDEC_CODEC_TYPE_H264).
+  </ResponseField>
+
+  <ResponseField name="profile_level" type="u32">
+    Codec profile and level.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="attr" type="vdecAttr*">
+  Pointer to receive decoder attributes.
+
+  <ResponseField name="mem_size" type="u32">
+    Required memory size for decoder.
+  </ResponseField>
+
+  <ResponseField name="cmd_depth" type="u8">
+    Command queue depth.
+  </ResponseField>
+
+  <ResponseField name="ver_major" type="u32">
+    Decoder major version.
+  </ResponseField>
+
+  <ResponseField name="ver_minor" type="u32">
+    Decoder minor version.
+  </ResponseField>
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+### vdecOpen
+
+```c
+s32 vdecOpen(const vdecType *type, const vdecConfig *config, 
+             const vdecClosure *c, u32 *handleptr);
+```
+
+Opens a video decoder instance.
+
+<ParamField path="type" type="const vdecType*">
+  Codec type information.
+</ParamField>
+
+<ParamField path="config" type="const vdecConfig*">
+  Decoder configuration.
+
+  <ResponseField name="mem_addr" type="u32">
+    Memory address for decoder use.
+  </ResponseField>
+
+  <ResponseField name="mem_size" type="u32">
+    Size of memory region (from vdecQueryAttr).
+  </ResponseField>
+
+  <ResponseField name="ppu_thread_prio" type="u32">
+    PPU thread priority.
+  </ResponseField>
+
+  <ResponseField name="ppu_thread_stack_size" type="u32">
+    PPU thread stack size.
+  </ResponseField>
+
+  <ResponseField name="spu_thread_prio" type="u32">
+    SPU thread priority.
+  </ResponseField>
+
+  <ResponseField name="num_spus" type="u32">
+    Number of SPUs to use (1-6).
+  </ResponseField>
+</ParamField>
+
+<ParamField path="c" type="const vdecClosure*">
+  Callback closure.
+
+  <ResponseField name="fn" type="u32">
+    Callback function pointer (cast to u32).
+  </ResponseField>
+
+  <ResponseField name="arg" type="u32">
+    User argument passed to callback (cast to u32).
+  </ResponseField>
+</ParamField>
+
+<ParamField path="handleptr" type="u32*">
+  Pointer to receive the decoder handle.
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+### vdecClose
+
+```c
+s32 vdecClose(u32 handle);
+```
+
+Closes a video decoder instance.
+
+<ParamField path="handle" type="u32">
+  Decoder handle to close.
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+### vdecStartSequence
+
+```c
+s32 vdecStartSequence(u32 handle);
+```
+
+Starts a decoding sequence.
+
+<ParamField path="handle" type="u32">
+  Decoder handle.
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+<Note>
+You must call this before submitting access units for decoding.
+</Note>
+
+### vdecEndSequence
+
+```c
+s32 vdecEndSequence(u32 handle);
+```
+
+Ends the current decoding sequence and flushes pending frames.
+
+<ParamField path="handle" type="u32">
+  Decoder handle.
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+### vdecDecodeAu
+
+```c
+s32 vdecDecodeAu(u32 handle, s32 mode, const vdecAU *auInfo);
+```
+
+Submits an access unit (frame) for decoding.
+
+<ParamField path="handle" type="u32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="mode" type="s32">
+  Decoder mode (VDEC_DECODER_MODE_NORMAL or VDEC_DECODER_MODE_SKIP_NON_REF).
+</ParamField>
+
+<ParamField path="auInfo" type="const vdecAU*">
+  Access unit information.
+
+  <ResponseField name="packet_addr" type="u32">
+    Address of encoded video data.
+  </ResponseField>
+
+  <ResponseField name="packet_size" type="u32">
+    Size of encoded data in bytes.
+  </ResponseField>
+
+  <ResponseField name="pts" type="vdecTS">
+    Presentation timestamp.
+  </ResponseField>
+
+  <ResponseField name="dts" type="vdecTS">
+    Decode timestamp.
+  </ResponseField>
+
+  <ResponseField name="userdata" type="u64">
+    User data passed through to output.
+  </ResponseField>
+
+  <ResponseField name="reserved" type="u64">
+    Reserved, set to 0.
+  </ResponseField>
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+<Note>
+The decoder operates asynchronously. Use callbacks to know when decoding completes.
+</Note>
+
+### vdecGetPicture
+
+```c
+s32 vdecGetPicture(u32 handle, const vdecPictureFormat *format, void *buffer);
+```
+
+Retrieves a decoded picture and converts it to the specified format.
+
+<ParamField path="handle" type="u32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="format" type="const vdecPictureFormat*">
+  Desired output picture format.
+
+  <ResponseField name="format_type" type="u32">
+    Output pixel format (VDEC_PICFMT_*).
+  </ResponseField>
+
+  <ResponseField name="color_matrix" type="u32">
+    Color matrix for YUV to RGB conversion (VDEC_COLOR_MATRIX_BT601 or VDEC_COLOR_MATRIX_BT709).
+  </ResponseField>
+
+  <ResponseField name="alpha" type="u8">
+    Alpha value for ARGB/RGBA output.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="buffer" type="void*">
+  Output buffer for converted picture data.
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+### vdecGetPicItem
+
+```c
+s32 vdecGetPicItem(u32 handle, u32 *pic_item_addr_p);
+```
+
+Retrieves a decoded picture item without format conversion.
+
+<ParamField path="handle" type="u32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="pic_item_addr_p" type="u32*">
+  Pointer to receive the picture item address (cast to vdecPicture*).
+</ParamField>
+
+**Returns:** 0 on success, error code otherwise.
+
+## Data Structures
+
+### vdecTS
+
+```c
+typedef struct _vdec_ts {
+    u32 low, hi;
+} vdecTS;
+```
+
+64-bit timestamp structure. Use `VDEC_TS_INVALID` (0xffffffff) for both fields when timestamp is not available.
+
+### vdecPicture
+
+```c
+typedef struct _vdec_picture {
+    u32 codec_type;
+    u32 picture_addr;
+    u32 picture_size;
+    u8 access_units;
+    vdecTS pts[2];
+    vdecTS dts[2];
+    u64 userdata[2];
+    u32 status;
+    u32 attr;
+    u32 codec_specific_addr;
+} vdecPicture;
+```
+
+Contains information about a decoded picture.
+
+### Callback Function
+
+```c
+typedef u32 (*vdecCallback)(u32 handle, u32 msgtype, u32 msgdata, u32 arg);
+```
+
+Callback function prototype for decoder events.
+
+<ParamField path="handle" type="u32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="msgtype" type="u32">
+  Message type (VDEC_CALLBACK_*).
+</ParamField>
+
+<ParamField path="msgdata" type="u32">
+  Message-specific data.
+</ParamField>
+
+<ParamField path="arg" type="u32">
+  User argument from vdecClosure.
+</ParamField>
+
+## Usage Example
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <codec/vdec.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Callback for decoder events
+static u32 vdec_callback(u32 handle, u32 msgtype, u32 msgdata, u32 arg) {
+    switch (msgtype) {
+        case VDEC_CALLBACK_AUDONE:
+            printf("Access unit decoded\n");
+            break;
+        case VDEC_CALLBACK_PICOUT:
+            printf("Picture ready for output\n");
+            break;
+        case VDEC_CALLBACK_SEQDONE:
+            printf("Sequence complete\n");
+            break;
+        case VDEC_CALLBACK_ERROR:
+            printf("Decoder error: 0x%x\n", msgdata);
+            break;
+    }
+    return 0;
+}
+
+int main() {
+    s32 ret;
+    u32 handle;
+    vdecType type;
+    vdecAttr attr;
+    vdecConfig config;
+    vdecClosure closure;
+    void *decoder_mem;
+
+    // Load video decoder modules
+    ret = sysModuleLoad(SYSMODULE_VDEC);
+    if (ret != 0) {
+        printf("Failed to load VDEC module\n");
+        return -1;
+    }
+
+    ret = sysModuleLoad(SYSMODULE_VDEC_H264);
+    if (ret != 0) {
+        printf("Failed to load H264 decoder\n");
+        return -1;
+    }
+
+    // Query decoder attributes
+    type.codec_type = VDEC_CODEC_TYPE_H264;
+    type.profile_level = 0x42;  // Baseline profile
+
+    ret = vdecQueryAttr(&type, &attr);
+    if (ret != 0) {
+        printf("vdecQueryAttr failed: 0x%x\n", ret);
+        return -1;
+    }
+
+    printf("Decoder requires %u bytes\n", attr.mem_size);
+
+    // Allocate memory for decoder
+    decoder_mem = memalign(128, attr.mem_size);
+    if (!decoder_mem) {
+        printf("Failed to allocate decoder memory\n");
+        return -1;
+    }
+    memset(decoder_mem, 0, attr.mem_size);
+
+    // Configure decoder
+    config.mem_addr = (u32)decoder_mem;
+    config.mem_size = attr.mem_size;
+    config.ppu_thread_prio = 1000;
+    config.ppu_thread_stack_size = 0x4000;
+    config.spu_thread_prio = 200;
+    config.num_spus = 1;
+
+    // Set up callback
+    closure.fn = (u32)vdec_callback;
+    closure.arg = 0;
+
+    // Open decoder
+    ret = vdecOpen(&type, &config, &closure, &handle);
+    if (ret != 0) {
+        printf("vdecOpen failed: 0x%x\n", ret);
+        free(decoder_mem);
+        return -1;
+    }
+
+    // Start decoding sequence
+    ret = vdecStartSequence(handle);
+    if (ret != 0) {
+        printf("vdecStartSequence failed: 0x%x\n", ret);
+        vdecClose(handle);
+        free(decoder_mem);
+        return -1;
+    }
+
+    // Decode video frames
+    // (In a real application, you would read encoded data from a file or stream)
+    vdecAU au;
+    u8 *encoded_data = /* ... get encoded frame data ... */;
+    
+    au.packet_addr = (u32)encoded_data;
+    au.packet_size = /* size of encoded data */;
+    au.pts.low = VDEC_TS_INVALID;
+    au.pts.hi = VDEC_TS_INVALID;
+    au.dts.low = VDEC_TS_INVALID;
+    au.dts.hi = VDEC_TS_INVALID;
+    au.userdata = 0;
+    au.reserved = 0;
+
+    ret = vdecDecodeAu(handle, VDEC_DECODER_MODE_NORMAL, &au);
+    if (ret != 0) {
+        printf("vdecDecodeAu failed: 0x%x\n", ret);
+    }
+
+    // Get decoded picture (called after VDEC_CALLBACK_PICOUT)
+    vdecPictureFormat format;
+    format.format_type = VDEC_PICFMT_ARGB32;
+    format.color_matrix = VDEC_COLOR_MATRIX_BT709;
+    format.alpha = 0xFF;
+
+    u8 *picture_buffer = malloc(1920 * 1080 * 4);  // ARGB buffer
+    ret = vdecGetPicture(handle, &format, picture_buffer);
+    if (ret == 0) {
+        printf("Picture retrieved\n");
+        // Use picture_buffer...
+    }
+
+    // End sequence when done
+    vdecEndSequence(handle);
+
+    // Cleanup
+    free(picture_buffer);
+    vdecClose(handle);
+    free(decoder_mem);
+    sysModuleUnload(SYSMODULE_VDEC_H264);
+    sysModuleUnload(SYSMODULE_VDEC);
+
+    return 0;
+}
+```
+
+## MPEG-2 Specific Information
+
+<Accordion title="MPEG-2 Profile Levels">
+  - `VDEC_MPEG2_MP_LL` (0) - Main Profile @ Low Level
+  - `VDEC_MPEG2_MP_ML` (1) - Main Profile @ Main Level
+  - `VDEC_MPEG2_MP_H14` (2) - Main Profile @ High-1440 Level
+  - `VDEC_MPEG2_MP_HL` (3) - Main Profile @ High Level
+</Accordion>
+
+<Accordion title="MPEG-2 Aspect Ratios">
+  - `VDEC_MPEG2_ARI_SAR_1_1` (1) - Square pixels (1:1)
+  - `VDEC_MPEG2_ARI_DAR_4_3` (2) - 4:3 display aspect ratio
+  - `VDEC_MPEG2_ARI_DAR_16_9` (3) - 16:9 display aspect ratio
+  - `VDEC_MPEG2_ARI_DAR_2P21_1` (4) - 2.21:1 display aspect ratio
+</Accordion>
+
+## Performance Tips
+
+<Warning>
+- Allocate decoder memory with 128-byte alignment for optimal performance
+- Use more SPUs (2-4) for HD video decoding
+- Use `VDEC_DECODER_MODE_SKIP_NON_REF` when seeking to improve performance
+- Pre-allocate picture buffers to avoid allocation during playback
+</Warning>
+
+## Color Matrix Selection
+
+When converting YUV to RGB, choose the appropriate color matrix:
+
+- **BT.601**: Standard definition video (SD, 480p, 576p)
+- **BT.709**: High definition video (HD, 720p, 1080p, 1080i)
+
+Using the wrong matrix will result in incorrect colors.

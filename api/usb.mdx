@@ -1,0 +1,766 @@
+---
+title: USB Device API (usb)
+description: Low-level USB device management and communication
+---
+
+The USB library provides low-level access to USB devices connected to the PlayStation 3. It allows you to enumerate devices, open pipes, and perform USB transfers.
+
+## Overview
+
+The USB API follows the USB 2.0 specification and provides access to USB devices through a Logical Device Driver (LDD) interface. You can register drivers for specific USB device classes or vendor-specific devices.
+
+<Note>
+Before using USB functions, you must load the SYSMODULE_USB system module using `sysModuleLoad()`.
+</Note>
+
+## Error Codes
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `USB_OK` | 0x00 | Operation successful |
+| `USB_ERR_NOT_INITIALIZED` | 0x80110001 | USB subsystem not initialized |
+| `USB_ERR_ALREADY_INITIALIZED` | 0x80110002 | Already initialized |
+| `USB_ERR_NO_MEMORY` | 0x80110003 | Out of memory |
+| `USB_ERR_INVALID_PARAM` | 0x80110004 | Invalid parameter |
+| `USB_ERR_INVALID_TRANSFER_TYPE` | 0x80110005 | Invalid transfer type |
+| `USB_ERR_LDD_ALREADY_REGISTERED` | 0x80110006 | LDD already registered |
+| `USB_ERR_LDD_NOT_ALLOCATED` | 0x80110007 | LDD not allocated |
+| `USB_ERR_LDD_NOT_RELEASED` | 0x80110008 | LDD not released |
+| `USB_ERR_LDD_NOT_FOUND` | 0x80110009 | LDD not found |
+| `USB_ERR_DEVICE_NOT_FOUND` | 0x8011000a | Device not found |
+| `USB_ERR_PIPE_NOT_ALLOCATED` | 0x8011000b | Pipe not allocated |
+| `USB_ERR_PIPE_NOT_RELEASED` | 0x8011000c | Pipe not released |
+| `USB_ERR_PIPE_NOT_FOUND` | 0x8011000d | Pipe not found |
+| `USB_ERR_IOREQ_NOT_ALLOCATED` | 0x8011000e | I/O request not allocated |
+| `USB_ERR_IOREQ_NOT_RELEASED` | 0x8011000f | I/O request not released |
+| `USB_ERR_IOREQ_NOT_FOUND` | 0x80110010 | I/O request not found |
+| `USB_ERR_CANNOT_GET_DESCRIPTOR` | 0x80110011 | Cannot get descriptor |
+| `USB_ERR_FATAL` | 0x801100ff | Fatal error |
+
+## Device Classes
+
+<ParamField path="bDeviceClass" type="u8">
+  Standard USB device classes.
+
+  - `USB_CLASS_PER_INTERFACE` (0x00) - Class defined per interface
+  - `USB_CLASS_AUDIO` (0x01) - Audio device
+  - `USB_CLASS_COMM` (0x02) - Communications device
+  - `USB_CLASS_HID` (0x03) - Human Interface Device
+  - `USB_CLASS_MONITOR` (0x04) - Monitor device
+  - `USB_CLASS_PHYSICAL` (0x05) - Physical interface device
+  - `USB_CLASS_PTP` (0x06) - Picture Transfer Protocol
+  - `USB_CLASS_PRINTER` (0x07) - Printer device
+  - `USB_CLASS_STORAGE` (0x08) - Mass storage device
+  - `USB_CLASS_HUB` (0x09) - USB hub
+  - `USB_CLASS_DATA` (0x0a) - CDC data interface
+  - `USB_CLASS_CHIP` (0x0b) - Smart card device
+  - `USB_CLASS_SECURITY` (0x0d) - Security device
+  - `USB_CLASS_VIDEO` (0x0e) - Video device
+  - `USB_CLASS_WIRELESS` (0xe0) - Wireless controller
+  - `USB_CLASS_MISC` (0xef) - Miscellaneous device
+  - `USB_CLASS_APPLICATION` (0xfe) - Application specific
+  - `USB_CLASS_VENDOR_SPEC` (0xff) - Vendor specific
+</ParamField>
+
+## Transfer Types
+
+<ParamField path="bmAttributes" type="u8">
+  USB endpoint transfer types.
+
+  - `USB_ENDPOINT_TRANSFER_TYPE_CONTROL` (0x00) - Control transfer
+  - `USB_ENDPOINT_TRANSFER_TYPE_ISOCHRONOUS` (0x01) - Isochronous transfer
+  - `USB_ENDPOINT_TRANSFER_TYPE_BULK` (0x02) - Bulk transfer
+  - `USB_ENDPOINT_TRANSFER_TYPE_INTERRUPT` (0x03) - Interrupt transfer
+</ParamField>
+
+## Device Speed
+
+<ParamField path="speed" type="u8">
+  USB device speed.
+
+  - `USB_DEVICE_SPEED_LS` (0) - Low speed (1.5 Mbps)
+  - `USB_DEVICE_SPEED_FS` (1) - Full speed (12 Mbps)
+  - `USB_DEVICE_SPEED_HS` (2) - High speed (480 Mbps)
+</ParamField>
+
+## Core Functions
+
+### usbInit
+
+```c
+s32 usbInit(void);
+```
+
+Initializes the USB subsystem.
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+<Note>
+This is automatically called by the system in most cases. Only call explicitly if needed.
+</Note>
+
+### usbEnd
+
+```c
+s32 usbEnd(void);
+```
+
+Shuts down the USB subsystem.
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbRegisterLdd
+
+```c
+s32 usbRegisterLdd(usbLddOps *lddops);
+```
+
+Registers a Logical Device Driver for USB device class.
+
+<ParamField path="lddops" type="usbLddOps*">
+  LDD operations structure.
+
+  <ResponseField name="name" type="const char*">
+    Driver name string.
+  </ResponseField>
+
+  <ResponseField name="probe" type="s32 (*)(s32 dev_id)">
+    Probe function called when device is detected. Return USB_PROBE_SUCCEEDED to claim device.
+  </ResponseField>
+
+  <ResponseField name="attach" type="s32 (*)(s32 dev_id)">
+    Attach function called when driver claims device. Perform initialization here.
+  </ResponseField>
+
+  <ResponseField name="detach" type="s32 (*)(s32 dev_id)">
+    Detach function called when device is disconnected. Perform cleanup here.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbUnregisterLdd
+
+```c
+s32 usbUnregisterLdd(usbLddOps *lddops);
+```
+
+Unregisters a previously registered LDD.
+
+<ParamField path="lddops" type="usbLddOps*">
+  LDD operations structure to unregister.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbRegisterExtraLdd
+
+```c
+s32 usbRegisterExtraLdd(usbLddOps *lddops, u16 vendor_id, u16 product_id);
+```
+
+Registers a vendor-specific LDD for a specific USB device.
+
+<ParamField path="lddops" type="usbLddOps*">
+  LDD operations structure.
+</ParamField>
+
+<ParamField path="vendor_id" type="u16">
+  USB Vendor ID to match.
+</ParamField>
+
+<ParamField path="product_id" type="u16">
+  USB Product ID to match.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbRegisterExtraLdd2
+
+```c
+s32 usbRegisterExtraLdd2(usbLddOps *lddops, u16 vendor_id, 
+                         u16 product_id_min, u16 product_id_max);
+```
+
+Registers a vendor-specific LDD for a range of product IDs.
+
+<ParamField path="lddops" type="usbLddOps*">
+  LDD operations structure.
+</ParamField>
+
+<ParamField path="vendor_id" type="u16">
+  USB Vendor ID to match.
+</ParamField>
+
+<ParamField path="product_id_min" type="u16">
+  Minimum Product ID (inclusive).
+</ParamField>
+
+<ParamField path="product_id_max" type="u16">
+  Maximum Product ID (inclusive).
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbUnregisterExtraLdd
+
+```c
+s32 usbUnregisterExtraLdd(usbLddOps *lddops);
+```
+
+Unregisters a vendor-specific LDD.
+
+<ParamField path="lddops" type="usbLddOps*">
+  LDD operations structure to unregister.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+## Pipe Functions
+
+### usbOpenPipe
+
+```c
+s32 usbOpenPipe(s32 device_id, usbEndpointDescriptor *end_desc);
+```
+
+Opens a communication pipe to an endpoint.
+
+<ParamField path="device_id" type="s32">
+  Device ID from probe/attach callback.
+</ParamField>
+
+<ParamField path="end_desc" type="usbEndpointDescriptor*">
+  Endpoint descriptor pointer (from usbScanStaticDescriptor).
+</ParamField>
+
+**Returns:** Pipe ID (&gt;= 0) on success, error code (&lt; 0) otherwise.
+
+### usbClosePipe
+
+```c
+s32 usbClosePipe(s32 pipe_id);
+```
+
+Closes a previously opened pipe.
+
+<ParamField path="pipe_id" type="s32">
+  Pipe ID from usbOpenPipe.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+## Transfer Functions
+
+### usbBulkTransfer
+
+```c
+s32 usbBulkTransfer(s32 pipe_id, void *buf, s32 len, 
+                    usbDoneCallback cb, void* arg);
+```
+
+Performs a bulk transfer on a pipe.
+
+<ParamField path="pipe_id" type="s32">
+  Pipe ID for bulk endpoint.
+</ParamField>
+
+<ParamField path="buf" type="void*">
+  Data buffer (allocated with usbAllocateMemory).
+</ParamField>
+
+<ParamField path="len" type="s32">
+  Length of data to transfer.
+</ParamField>
+
+<ParamField path="cb" type="usbDoneCallback">
+  Callback function called when transfer completes.
+</ParamField>
+
+<ParamField path="arg" type="void*">
+  User argument passed to callback.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbControlTransfer
+
+```c
+s32 usbControlTransfer(s32 pipe_id, usbDeviceRequest *req, void *buf, 
+                       usbDoneCallback cb, void *arg);
+```
+
+Performs a control transfer on a pipe.
+
+<ParamField path="pipe_id" type="s32">
+  Pipe ID (typically control pipe 0).
+</ParamField>
+
+<ParamField path="req" type="usbDeviceRequest*">
+  Control request structure.
+
+  <ResponseField name="bmRequestType" type="u8">
+    Request type and direction.
+  </ResponseField>
+
+  <ResponseField name="bRequest" type="u8">
+    Specific request.
+  </ResponseField>
+
+  <ResponseField name="wValue" type="u16">
+    Request-specific value.
+  </ResponseField>
+
+  <ResponseField name="wIndex" type="u16">
+    Request-specific index.
+  </ResponseField>
+
+  <ResponseField name="wLength" type="u16">
+    Length of data stage.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="buf" type="void*">
+  Data buffer for data stage (can be NULL if wLength is 0).
+</ParamField>
+
+<ParamField path="cb" type="usbDoneCallback">
+  Callback function called when transfer completes.
+</ParamField>
+
+<ParamField path="arg" type="void*">
+  User argument passed to callback.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbInterruptTransfer
+
+```c
+s32 usbInterruptTransfer(s32 pipe_id, void *buf, s32 len, 
+                         usbDoneCallback cb, void *arg);
+```
+
+Performs an interrupt transfer on a pipe.
+
+<ParamField path="pipe_id" type="s32">
+  Pipe ID for interrupt endpoint.
+</ParamField>
+
+<ParamField path="buf" type="void*">
+  Data buffer (allocated with usbAllocateMemory).
+</ParamField>
+
+<ParamField path="len" type="s32">
+  Length of data to transfer.
+</ParamField>
+
+<ParamField path="cb" type="usbDoneCallback">
+  Callback function called when transfer completes.
+</ParamField>
+
+<ParamField path="arg" type="void*">
+  User argument passed to callback.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbIsochronousTransfer
+
+```c
+s32 usbIsochronousTransfer(s32 pipe_id, usbIsochRequest *req, 
+                           usbIsochDoneCallback cb, void *arg);
+```
+
+Performs an isochronous transfer (for full-speed devices).
+
+<ParamField path="pipe_id" type="s32">
+  Pipe ID for isochronous endpoint.
+</ParamField>
+
+<ParamField path="req" type="usbIsochRequest*">
+  Isochronous transfer request structure.
+
+  <ResponseField name="buffer_base" type="void*">
+    Base address of transfer buffer.
+  </ResponseField>
+
+  <ResponseField name="relative_start_frame" type="s32">
+    Frame number to start transfer (relative).
+  </ResponseField>
+
+  <ResponseField name="num_packets" type="s32">
+    Number of packets (max 8).
+  </ResponseField>
+
+  <ResponseField name="packets" type="usbIsochPswLen[]">
+    Array of packet descriptors.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="cb" type="usbIsochDoneCallback">
+  Callback function called when transfer completes.
+</ParamField>
+
+<ParamField path="arg" type="void*">
+  User argument passed to callback.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbHSIsochronousTransfer
+
+```c
+s32 usbHSIsochronousTransfer(s32 pipe_id, usbHSIsochRequest *req, 
+                             usbHSIsochDoneCallback cb, void *arg);
+```
+
+Performs an isochronous transfer (for high-speed devices).
+
+<ParamField path="pipe_id" type="s32">
+  Pipe ID for isochronous endpoint.
+</ParamField>
+
+<ParamField path="req" type="usbHSIsochRequest*">
+  High-speed isochronous transfer request structure.
+</ParamField>
+
+<ParamField path="cb" type="usbHSIsochDoneCallback">
+  Callback function called when transfer completes.
+</ParamField>
+
+<ParamField path="arg" type="void*">
+  User argument passed to callback.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+## Device Information Functions
+
+### usbGetDeviceLocation
+
+```c
+s32 usbGetDeviceLocation(s32 device_id, unsigned char *location);
+```
+
+Gets the physical location (port) of a USB device.
+
+<ParamField path="device_id" type="s32">
+  Device ID.
+</ParamField>
+
+<ParamField path="location" type="unsigned char*">
+  Pointer to receive location array.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbGetDeviceSpeed
+
+```c
+s32 usbGetDeviceSpeed(s32 device_id, u8 *speed);
+```
+
+Gets the speed of a USB device.
+
+<ParamField path="device_id" type="s32">
+  Device ID.
+</ParamField>
+
+<ParamField path="speed" type="u8*">
+  Pointer to receive speed (USB_DEVICE_SPEED_*).
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+### usbScanStaticDescriptor
+
+```c
+void *usbScanStaticDescriptor(s32 device_id, void *ptr, unsigned char type);
+```
+
+Scans for a specific descriptor type in device configuration.
+
+<ParamField path="device_id" type="s32">
+  Device ID.
+</ParamField>
+
+<ParamField path="ptr" type="void*">
+  Current descriptor pointer (NULL to start from beginning).
+</ParamField>
+
+<ParamField path="type" type="unsigned char">
+  Descriptor type to find (USB_DESCRIPTOR_TYPE_*).
+</ParamField>
+
+**Returns:** Pointer to next descriptor of specified type, or NULL if not found.
+
+## Memory Management
+
+### usbAllocateMemory
+
+```c
+s32 usbAllocateMemory(void **ptr, size_t size);
+```
+
+Allocates memory for USB transfers.
+
+<ParamField path="ptr" type="void**">
+  Pointer to receive allocated memory address.
+</ParamField>
+
+<ParamField path="size" type="size_t">
+  Size of memory to allocate.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+<Warning>
+All transfer buffers must be allocated with this function, not with malloc().
+</Warning>
+
+### usbFreeMemory
+
+```c
+s32 usbFreeMemory(void *ptr);
+```
+
+Frees memory allocated with usbAllocateMemory.
+
+<ParamField path="ptr" type="void*">
+  Memory pointer to free.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+## Private Data
+
+### usbGetPrivateData
+
+```c
+void *usbGetPrivateData(s32 device_id);
+```
+
+Gets private data associated with a device.
+
+<ParamField path="device_id" type="s32">
+  Device ID.
+</ParamField>
+
+**Returns:** Private data pointer, or NULL if none set.
+
+### usbSetPrivateData
+
+```c
+s32 usbSetPrivateData(s32 device_id, void *priv);
+```
+
+Sets private data for a device.
+
+<ParamField path="device_id" type="s32">
+  Device ID.
+</ParamField>
+
+<ParamField path="priv" type="void*">
+  Private data pointer.
+</ParamField>
+
+**Returns:** `USB_OK` on success, error code otherwise.
+
+## Usage Example
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <usb/usb.h>
+#include <stdio.h>
+
+// Transfer completion callback
+static void transfer_done(s32 result, s32 count, void* arg) {
+    printf("Transfer completed: result=0x%x, count=%d\n", result, count);
+}
+
+// USB device probe
+static s32 my_usb_probe(s32 dev_id) {
+    usbDeviceDescriptor *dev_desc;
+    
+    // Get device descriptor
+    dev_desc = (usbDeviceDescriptor*)usbScanStaticDescriptor(
+        dev_id, NULL, USB_DESCRIPTOR_TYPE_DEVICE);
+    
+    if (dev_desc) {
+        printf("USB Device: VID=0x%04x PID=0x%04x\n",
+               dev_desc->idVendor, dev_desc->idProduct);
+        
+        // Check if this is our device
+        if (dev_desc->idVendor == 0x1234 && 
+            dev_desc->idProduct == 0x5678) {
+            return USB_PROBE_SUCCEEDED;
+        }
+    }
+    
+    return USB_PROBE_FAILED;
+}
+
+// USB device attach
+static s32 my_usb_attach(s32 dev_id) {
+    usbConfigDescriptor *config_desc;
+    usbInterfaceDescriptor *if_desc;
+    usbEndpointDescriptor *ep_desc;
+    s32 pipe_id;
+    void *buffer;
+    s32 ret;
+    
+    printf("Device attached: %d\n", dev_id);
+    
+    // Get configuration descriptor
+    config_desc = (usbConfigDescriptor*)usbScanStaticDescriptor(
+        dev_id, NULL, USB_DESCRIPTOR_TYPE_CONFIG);
+    
+    // Get first interface
+    if_desc = (usbInterfaceDescriptor*)usbScanStaticDescriptor(
+        dev_id, (void*)config_desc, USB_DESCRIPTOR_TYPE_INTERFACE);
+    
+    // Find bulk IN endpoint
+    ep_desc = (usbEndpointDescriptor*)usbScanStaticDescriptor(
+        dev_id, (void*)if_desc, USB_DESCRIPTOR_TYPE_ENDPOINT);
+    
+    while (ep_desc) {
+        if ((ep_desc->bmAttributes & USB_ENDPOINT_TRANSFER_TYPE_BITS) == 
+            USB_ENDPOINT_TRANSFER_TYPE_BULK &&
+            (ep_desc->bEndpointAddress & USB_ENDPOINT_DIRECTION_BITS) == 
+            USB_ENDPOINT_DIRECTION_IN) {
+            // Found bulk IN endpoint
+            break;
+        }
+        ep_desc = (usbEndpointDescriptor*)usbScanStaticDescriptor(
+            dev_id, (void*)ep_desc, USB_DESCRIPTOR_TYPE_ENDPOINT);
+    }
+    
+    if (!ep_desc) {
+        printf("No bulk IN endpoint found\n");
+        return USB_ATTACH_FAILED;
+    }
+    
+    // Open pipe to endpoint
+    pipe_id = usbOpenPipe(dev_id, ep_desc);
+    if (pipe_id < 0) {
+        printf("Failed to open pipe: 0x%x\n", pipe_id);
+        return USB_ATTACH_FAILED;
+    }
+    
+    printf("Opened pipe: %d\n", pipe_id);
+    
+    // Allocate transfer buffer
+    ret = usbAllocateMemory(&buffer, 512);
+    if (ret != USB_OK) {
+        printf("Failed to allocate memory\n");
+        usbClosePipe(pipe_id);
+        return USB_ATTACH_FAILED;
+    }
+    
+    // Perform bulk transfer
+    ret = usbBulkTransfer(pipe_id, buffer, 512, transfer_done, NULL);
+    if (ret != USB_OK) {
+        printf("Bulk transfer failed: 0x%x\n", ret);
+        usbFreeMemory(buffer);
+        usbClosePipe(pipe_id);
+        return USB_ATTACH_FAILED;
+    }
+    
+    // Store pipe_id in private data for cleanup
+    usbSetPrivateData(dev_id, (void*)(intptr_t)pipe_id);
+    
+    return USB_ATTACH_SUCCEEDED;
+}
+
+// USB device detach
+static s32 my_usb_detach(s32 dev_id) {
+    s32 pipe_id;
+    
+    printf("Device detached: %d\n", dev_id);
+    
+    // Get pipe_id from private data
+    pipe_id = (s32)(intptr_t)usbGetPrivateData(dev_id);
+    if (pipe_id > 0) {
+        usbClosePipe(pipe_id);
+    }
+    
+    return USB_DETACH_SUCCEEDED;
+}
+
+// LDD operations
+static usbLddOps my_ldd_ops = {
+    .name = "my_usb_driver",
+    .probe = my_usb_probe,
+    .attach = my_usb_attach,
+    .detach = my_usb_detach
+};
+
+int main() {
+    s32 ret;
+    
+    // Load USB module
+    ret = sysModuleLoad(SYSMODULE_USB);
+    if (ret != 0) {
+        printf("Failed to load USB module\n");
+        return -1;
+    }
+    
+    // Register our USB driver
+    ret = usbRegisterExtraLdd(&my_ldd_ops, 0x1234, 0x5678);
+    if (ret != USB_OK) {
+        printf("Failed to register LDD: 0x%x\n", ret);
+        return -1;
+    }
+    
+    printf("USB driver registered. Waiting for devices...\n");
+    
+    // Wait for device events (in real app, use proper event loop)
+    // ...
+    
+    // Cleanup
+    usbUnregisterExtraLdd(&my_ldd_ops);
+    sysModuleUnload(SYSMODULE_USB);
+    
+    return 0;
+}
+```
+
+## Standard Control Transfer Macros
+
+The USB library provides convenience macros for standard control requests:
+
+- `usbGetDescriptor()` - Get device, configuration, or string descriptor
+- `usbSetConfiguration()` - Set device configuration
+- `usbGetConfiguration()` - Get current configuration
+- `usbSetInterface()` - Set alternate interface
+- `usbGetInterface()` - Get current alternate interface
+- `usbClearEndpointFeature()` - Clear endpoint halt
+- `usbGetDeviceStatus()` - Get device status
+- `usbSetAddress()` - Set device address (for USB host mode)
+
+See the header file for complete list and usage.
+
+## Descriptor Structures
+
+Key USB descriptor structures:
+
+### usbDeviceDescriptor
+
+Contains device information including vendor/product IDs, device class, and configuration count.
+
+### usbConfigDescriptor
+
+Describes a device configuration including power requirements and interface count.
+
+### usbInterfaceDescriptor
+
+Describes an interface within a configuration, including class and endpoint count.
+
+### usbEndpointDescriptor
+
+Describes an endpoint including direction, transfer type, and maximum packet size.
+
+<Note>
+Use `usbScanStaticDescriptor()` to iterate through descriptors rather than parsing them manually.
+</Note>

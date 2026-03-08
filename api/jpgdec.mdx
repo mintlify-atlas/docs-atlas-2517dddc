@@ -1,0 +1,594 @@
+---
+title: JPEG Decoder (jpgdec)
+description: Hardware-accelerated JPEG decoding library
+---
+
+The JPEG decoder library provides hardware-accelerated JPEG image decoding capabilities on the PlayStation 3. It supports various color spaces and decoding modes with SPU acceleration.
+
+## Overview
+
+The jpgdec library allows you to decode JPEG images from files or memory buffers. It supports standard JPEG features including multiple color spaces, downscaling, and both basic and extended decoding modes.
+
+<Note>
+Before using jpgdec functions, you must load the SYSMODULE_JPGDEC system module using `sysModuleLoad()`.
+</Note>
+
+## Error Codes
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `JPGDEC_ERROR_OK` | 0x00 | Operation successful |
+| `JPGDEC_ERROR_HEADER` | 0x80611101 | Invalid JPEG header |
+| `JPGDEC_ERROR_STREAM_FORMAT` | 0x80611102 | Invalid stream format |
+| `JPGDEC_ERROR_ARG` | 0x80611103 | Invalid argument |
+| `JPGDEC_ERROR_SEQ` | 0x80611104 | Invalid sequence |
+| `JPGDEC_ERROR_BUSY` | 0x80611105 | Decoder is busy |
+| `JPGDEC_ERROR_FATAL` | 0x80611106 | Fatal error |
+| `JPGDEC_ERROR_OPEN_FILE` | 0x80611107 | Failed to open file |
+| `JPGDEC_ERROR_SPU_UNSUPPORT` | 0x80611108 | SPU acceleration unsupported |
+| `JPGDEC_ERROR_CB_PARAM` | 0x80611109 | Invalid callback parameter |
+
+## Color Spaces
+
+<ParamField path="jpgColorSpace" type="enum">
+  Supported color space formats for JPEG decoding.
+
+  - `JPGDEC_GRAYSCALE` (1) - Grayscale output
+  - `JPGDEC_RGB` (2) - RGB color output
+  - `JPGDEC_YCBCR` (3) - YCbCr color output
+  - `JPGDEC_RGBA` (10) - RGBA color output
+  - `JPGDEC_UPSTREAM` (11) - Upstream format
+  - `JPGDEC_ARGB` (20) - ARGB color output
+</ParamField>
+
+## Stream Selection
+
+<ParamField path="jpgStreamSel" type="enum">
+  Input source selection for JPEG data.
+
+  - `JPGDEC_FILE` (0) - Decode from file
+  - `JPGDEC_BUFFER` (1) - Decode from memory buffer
+</ParamField>
+
+## Core Functions
+
+### jpgDecCreate
+
+```c
+s32 jpgDecCreate(s32 *handle, jpgDecThreadInParam *in, jpgDecThreadOutParam *out);
+```
+
+Creates a JPEG decoder instance.
+
+<ParamField path="handle" type="s32*">
+  Pointer to receive the decoder handle.
+</ParamField>
+
+<ParamField path="in" type="jpgDecThreadInParam*">
+  Input parameters for decoder creation.
+
+  <ResponseField name="spu_enable" type="u32">
+    Enable SPU acceleration (JPGDEC_SPU_THREAD_ENABLE or JPGDEC_SPU_THREAD_DISABLE).
+  </ResponseField>
+
+  <ResponseField name="ppu_prio" type="u32">
+    PPU thread priority.
+  </ResponseField>
+
+  <ResponseField name="spu_prio" type="u32">
+    SPU thread priority (if SPU enabled).
+  </ResponseField>
+
+  <ResponseField name="malloc_func" type="jpgCbCtrlMalloc">
+    Custom memory allocation function (optional, can be NULL).
+  </ResponseField>
+
+  <ResponseField name="malloc_arg" type="void*">
+    Argument passed to malloc function.
+  </ResponseField>
+
+  <ResponseField name="free_func" type="jpgCbCtrlFree">
+    Custom memory free function (optional, can be NULL).
+  </ResponseField>
+
+  <ResponseField name="free_arg" type="void*">
+    Argument passed to free function.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="out" type="jpgDecThreadOutParam*">
+  Output parameters from decoder creation.
+
+  <ResponseField name="version" type="u32">
+    Decoder library version.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+### jpgDecOpen
+
+```c
+s32 jpgDecOpen(s32 handle, s32 *subhandle, const jpgDecSource *src, jpgDecOpnInfo *openInfo);
+```
+
+Opens a JPEG stream for decoding.
+
+<ParamField path="handle" type="s32">
+  Decoder handle from jpgDecCreate.
+</ParamField>
+
+<ParamField path="subhandle" type="s32*">
+  Pointer to receive the stream subhandle.
+</ParamField>
+
+<ParamField path="src" type="const jpgDecSource*">
+  Source configuration for the JPEG data.
+
+  <ResponseField name="stream_sel" type="u32">
+    Input stream selection (JPGDEC_FILE or JPGDEC_BUFFER).
+  </ResponseField>
+
+  <ResponseField name="file_name" type="const char*">
+    File path (if stream_sel is JPGDEC_FILE).
+  </ResponseField>
+
+  <ResponseField name="file_offset" type="s64">
+    Offset in file to start reading.
+  </ResponseField>
+
+  <ResponseField name="file_size" type="u32">
+    Size of JPEG data in file.
+  </ResponseField>
+
+  <ResponseField name="stream_ptr" type="void*">
+    Pointer to JPEG data in memory (if stream_sel is JPGDEC_BUFFER).
+  </ResponseField>
+
+  <ResponseField name="stream_size" type="u32">
+    Size of JPEG data in memory.
+  </ResponseField>
+
+  <ResponseField name="spu_enable" type="u32">
+    Enable SPU acceleration for this stream.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="openInfo" type="jpgDecOpnInfo*">
+  Information about the opened stream.
+
+  <ResponseField name="init_space_allocated" type="u32">
+    Amount of memory allocated for initialization.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+### jpgDecReadHeader
+
+```c
+s32 jpgDecReadHeader(s32 handle, s32 subhandle, jpgDecInfo *info);
+```
+
+Reads the JPEG header and retrieves image information.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle from jpgDecOpen.
+</ParamField>
+
+<ParamField path="info" type="jpgDecInfo*">
+  Pointer to receive image information.
+
+  <ResponseField name="width" type="u32">
+    Image width in pixels.
+  </ResponseField>
+
+  <ResponseField name="height" type="u32">
+    Image height in pixels.
+  </ResponseField>
+
+  <ResponseField name="num_comp" type="u32">
+    Number of color components (1 for grayscale, 3 for RGB/YCbCr).
+  </ResponseField>
+
+  <ResponseField name="color_space" type="u32">
+    Original color space of the JPEG image.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+### jpgDecSetParameter
+
+```c
+s32 jpgDecSetParameter(s32 handle, s32 subhandle, const jpgDecInParam *in, jpgDecOutParam *out);
+```
+
+Sets decoding parameters and prepares the decoder.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle.
+</ParamField>
+
+<ParamField path="in" type="const jpgDecInParam*">
+  Input decoding parameters.
+
+  <ResponseField name="cmd_ptr" type="vu32*">
+    Pointer to command variable for decoder control (can be NULL).
+  </ResponseField>
+
+  <ResponseField name="down_scale" type="u32">
+    Downscaling factor (1, 2, 4, or 8).
+  </ResponseField>
+
+  <ResponseField name="quality_mode" type="u32">
+    Quality mode (JPGDEC_QUALITY or JPGDEC_FAST).
+  </ResponseField>
+
+  <ResponseField name="output_mode" type="u32">
+    Output scanline order (JPGDEC_TOP_TO_BOTTOM or JPGDEC_BOTTOM_TO_TOP).
+  </ResponseField>
+
+  <ResponseField name="color_space" type="u32">
+    Desired output color space.
+  </ResponseField>
+
+  <ResponseField name="alpha" type="u8">
+    Alpha value for RGBA/ARGB output (0-255).
+  </ResponseField>
+</ParamField>
+
+<ParamField path="out" type="jpgDecOutParam*">
+  Output parameters after configuration.
+
+  <ResponseField name="width_bytes" type="u64">
+    Width of output in bytes (including padding).
+  </ResponseField>
+
+  <ResponseField name="width" type="u32">
+    Output image width in pixels.
+  </ResponseField>
+
+  <ResponseField name="height" type="u32">
+    Output image height in pixels.
+  </ResponseField>
+
+  <ResponseField name="num_comp" type="u32">
+    Number of output color components.
+  </ResponseField>
+
+  <ResponseField name="output_mode" type="u32">
+    Actual output mode being used.
+  </ResponseField>
+
+  <ResponseField name="color_space" type="u32">
+    Actual output color space.
+  </ResponseField>
+
+  <ResponseField name="down_scale" type="u32">
+    Actual downscale factor being used.
+  </ResponseField>
+
+  <ResponseField name="use_memory_space" type="u32">
+    Memory required for decoding.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+### jpgDecDecodeData
+
+```c
+s32 jpgDecDecodeData(s32 handle, s32 subhandle, u8 *data, 
+                     const jpgDecDataCtrlParam *dataCtrlParam, jpgDecDataInfo *info);
+```
+
+Decodes the JPEG image data.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle.
+</ParamField>
+
+<ParamField path="data" type="u8*">
+  Pointer to output buffer for decoded image data.
+</ParamField>
+
+<ParamField path="dataCtrlParam" type="const jpgDecDataCtrlParam*">
+  Data control parameters.
+
+  <ResponseField name="output_bytes_per_line" type="u64">
+    Bytes per line in output buffer (for custom stride).
+  </ResponseField>
+</ParamField>
+
+<ParamField path="info" type="jpgDecDataInfo*">
+  Information about the decoded data.
+
+  <ResponseField name="value" type="f32">
+    Progress value (0.0 to 1.0).
+  </ResponseField>
+
+  <ResponseField name="output_lines" type="u32">
+    Number of lines decoded.
+  </ResponseField>
+
+  <ResponseField name="decode_status" type="u32">
+    Decode status (JPGDEC_STATUS_FINISH or JPGDEC_STATUS_STOP).
+  </ResponseField>
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+### jpgDecClose
+
+```c
+s32 jpgDecClose(s32 handle, s32 subhandle);
+```
+
+Closes a JPEG stream.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle to close.
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+### jpgDecDestroy
+
+```c
+s32 jpgDecDestroy(s32 handle);
+```
+
+Destroys a JPEG decoder instance.
+
+<ParamField path="handle" type="s32">
+  Decoder handle to destroy.
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+## Helper Functions
+
+### jpgLoadFromFile
+
+```c
+s32 jpgLoadFromFile(const char *filename, jpgData *out);
+```
+
+Simple helper function to load a JPEG image from a file.
+
+<ParamField path="filename" type="const char*">
+  Path to the JPEG file.
+</ParamField>
+
+<ParamField path="out" type="jpgData*">
+  Pointer to receive the decoded image data.
+
+  <ResponseField name="bmp_out" type="void*">
+    Pointer to decoded image buffer (must be freed by caller).
+  </ResponseField>
+
+  <ResponseField name="pitch" type="u32">
+    Bytes per scanline.
+  </ResponseField>
+
+  <ResponseField name="width" type="u32">
+    Image width in pixels.
+  </ResponseField>
+
+  <ResponseField name="height" type="u32">
+    Image height in pixels.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+### jpgLoadFromBuffer
+
+```c
+s32 jpgLoadFromBuffer(const void *buffer, u32 size, jpgData *out);
+```
+
+Simple helper function to load a JPEG image from a memory buffer.
+
+<ParamField path="buffer" type="const void*">
+  Pointer to JPEG data in memory.
+</ParamField>
+
+<ParamField path="size" type="u32">
+  Size of JPEG data in bytes.
+</ParamField>
+
+<ParamField path="out" type="jpgData*">
+  Pointer to receive the decoded image data (same structure as jpgLoadFromFile).
+</ParamField>
+
+**Returns:** `JPGDEC_ERROR_OK` on success, error code otherwise.
+
+## Usage Example
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <jpgdec/jpgdec.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    s32 ret;
+    s32 handle;
+    s32 subhandle;
+    jpgDecThreadInParam in_param;
+    jpgDecThreadOutParam out_param;
+    jpgDecSource src;
+    jpgDecOpnInfo open_info;
+    jpgDecInfo info;
+    jpgDecInParam dec_in;
+    jpgDecOutParam dec_out;
+    jpgDecDataCtrlParam data_ctrl;
+    jpgDecDataInfo data_info;
+    u8 *output_buffer;
+
+    // Load JPEG decoder module
+    ret = sysModuleLoad(SYSMODULE_JPGDEC);
+    if (ret != 0) {
+        printf("Failed to load JPGDEC module: 0x%x\n", ret);
+        return -1;
+    }
+
+    // Create decoder
+    in_param.spu_enable = JPGDEC_SPU_THREAD_DISABLE;
+    in_param.ppu_prio = 1000;
+    in_param.spu_prio = 200;
+    in_param.malloc_func = NULL;
+    in_param.malloc_arg = NULL;
+    in_param.free_func = NULL;
+    in_param.free_arg = NULL;
+
+    ret = jpgDecCreate(&handle, &in_param, &out_param);
+    if (ret != JPGDEC_ERROR_OK) {
+        printf("jpgDecCreate failed: 0x%x\n", ret);
+        return -1;
+    }
+
+    // Open JPEG file
+    src.stream_sel = JPGDEC_FILE;
+    src.file_name = "/dev_hdd0/image.jpg";
+    src.file_offset = 0;
+    src.file_size = 0;  // 0 = read entire file
+    src.spu_enable = JPGDEC_SPU_THREAD_DISABLE;
+
+    ret = jpgDecOpen(handle, &subhandle, &src, &open_info);
+    if (ret != JPGDEC_ERROR_OK) {
+        printf("jpgDecOpen failed: 0x%x\n", ret);
+        jpgDecDestroy(handle);
+        return -1;
+    }
+
+    // Read header
+    ret = jpgDecReadHeader(handle, subhandle, &info);
+    if (ret != JPGDEC_ERROR_OK) {
+        printf("jpgDecReadHeader failed: 0x%x\n", ret);
+        jpgDecClose(handle, subhandle);
+        jpgDecDestroy(handle);
+        return -1;
+    }
+
+    printf("Image: %dx%d, %d components\n", 
+           info.width, info.height, info.num_comp);
+
+    // Set decode parameters
+    dec_in.cmd_ptr = NULL;
+    dec_in.down_scale = 1;  // No downscaling
+    dec_in.quality_mode = JPGDEC_QUALITY;
+    dec_in.output_mode = JPGDEC_TOP_TO_BOTTOM;
+    dec_in.color_space = JPGDEC_ARGB;
+    dec_in.alpha = 0xFF;
+
+    ret = jpgDecSetParameter(handle, subhandle, &dec_in, &dec_out);
+    if (ret != JPGDEC_ERROR_OK) {
+        printf("jpgDecSetParameter failed: 0x%x\n", ret);
+        jpgDecClose(handle, subhandle);
+        jpgDecDestroy(handle);
+        return -1;
+    }
+
+    // Allocate output buffer
+    output_buffer = (u8*)malloc(dec_out.width_bytes * dec_out.height);
+    if (!output_buffer) {
+        printf("Failed to allocate output buffer\n");
+        jpgDecClose(handle, subhandle);
+        jpgDecDestroy(handle);
+        return -1;
+    }
+
+    // Decode image
+    data_ctrl.output_bytes_per_line = dec_out.width_bytes;
+    ret = jpgDecDecodeData(handle, subhandle, output_buffer, 
+                          &data_ctrl, &data_info);
+    if (ret != JPGDEC_ERROR_OK) {
+        printf("jpgDecDecodeData failed: 0x%x\n", ret);
+        free(output_buffer);
+        jpgDecClose(handle, subhandle);
+        jpgDecDestroy(handle);
+        return -1;
+    }
+
+    printf("Decode complete: %d lines\n", data_info.output_lines);
+
+    // Use the decoded image data...
+    // output_buffer now contains ARGB pixel data
+
+    // Cleanup
+    free(output_buffer);
+    jpgDecClose(handle, subhandle);
+    jpgDecDestroy(handle);
+    sysModuleUnload(SYSMODULE_JPGDEC);
+
+    return 0;
+}
+```
+
+## Simple Usage Example
+
+For basic use cases, the helper functions provide a simpler interface:
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <jpgdec/jpgdec.h>
+#include <stdio.h>
+
+int main() {
+    jpgData jpg;
+    s32 ret;
+
+    // Load JPEG decoder module
+    sysModuleLoad(SYSMODULE_JPGDEC);
+
+    // Load and decode JPEG in one call
+    ret = jpgLoadFromFile("/dev_hdd0/image.jpg", &jpg);
+    if (ret == JPGDEC_ERROR_OK) {
+        printf("Image loaded: %dx%d\n", jpg.width, jpg.height);
+        printf("Pitch: %d bytes\n", jpg.pitch);
+        
+        // Use jpg.bmp_out (ARGB format)
+        // ...
+        
+        // Free the image data
+        free(jpg.bmp_out);
+    }
+
+    sysModuleUnload(SYSMODULE_JPGDEC);
+    return 0;
+}
+```
+
+<Warning>
+Always free the memory returned in `jpgData.bmp_out` when using the helper functions to avoid memory leaks.
+</Warning>
+
+## Extended API
+
+The jpgdec library also provides extended functions for advanced use cases:
+
+- `jpgDecExtOpen()` - Opens a stream with callback support for streaming data
+- `jpgDecExtReadHeader()` - Reads header with extended information
+- `jpgDecExtSetParameter()` - Sets parameters with extended options (MCU mode, line mode)
+- `jpgDecExtDecodeData()` - Decodes with display callback support for progressive rendering
+
+These functions allow for more control over the decoding process, including progressive decoding and custom data streaming.

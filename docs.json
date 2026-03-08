@@ -173,10 +173,25 @@
             "group": "System Utility APIs",
             "pages": [
               "api/sysutil",
+              "api/sysmodule",
               "api/msg-dialog",
               "api/osk",
               "api/save",
               "api/video"
+            ]
+          },
+          {
+            "group": "Media APIs",
+            "pages": [
+              "api/jpgdec",
+              "api/pngdec",
+              "api/vdec"
+            ]
+          },
+          {
+            "group": "Device APIs",
+            "pages": [
+              "api/usb"
             ]
           },
           {

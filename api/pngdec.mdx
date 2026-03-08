@@ -1,0 +1,643 @@
+---
+title: PNG Decoder (pngdec)
+description: Hardware-accelerated PNG decoding library
+---
+
+The PNG decoder library provides hardware-accelerated PNG image decoding capabilities on the PlayStation 3. It supports various color spaces, interlaced images, and decoding modes with SPU acceleration.
+
+## Overview
+
+The pngdec library allows you to decode PNG images from files or memory buffers. It supports PNG features including transparency, interlacing, multiple color spaces, and various bit depths.
+
+<Note>
+Before using pngdec functions, you must load the SYSMODULE_PNGDEC system module using `sysModuleLoad()`.
+</Note>
+
+## Error Codes
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `PNGDEC_ERROR_OK` | 0x00 | Operation successful |
+| `PNGDEC_ERROR_HEADER` | 0x80611201 | Invalid PNG header |
+| `PNGDEC_ERROR_STREAM_FORMAT` | 0x80611202 | Invalid stream format |
+| `PNGDEC_ERROR_ARG` | 0x80611203 | Invalid argument |
+| `PNGDEC_ERROR_SEQ` | 0x80611204 | Invalid sequence |
+| `PNGDEC_ERROR_BUSY` | 0x80611205 | Decoder is busy |
+| `PNGDEC_ERROR_FATAL` | 0x80611206 | Fatal error |
+| `PNGDEC_ERROR_OPEN_FILE` | 0x80611207 | Failed to open file |
+| `PNGDEC_ERROR_SPU_UNSUPPORT` | 0x80611208 | SPU acceleration unsupported |
+| `PNGDEC_ERROR_SPU_ERROR` | 0x80611209 | SPU error |
+| `PNGDEC_ERROR_CB_PARAM` | 0x8061120a | Invalid callback parameter |
+
+## Color Spaces
+
+<ParamField path="pngColorSpace" type="enum">
+  Supported color space formats for PNG decoding.
+
+  - `PNGDEC_GRAYSCALE` (1) - Grayscale output
+  - `PNGDEC_RGB` (2) - RGB color output
+  - `PNGDEC_PALETTE` (4) - Palette-indexed color
+  - `PNGDEC_GRAYSCALE_ALPHA` (9) - Grayscale with alpha channel
+  - `PNGDEC_RGBA` (10) - RGBA color output
+  - `PNGDEC_ARGB` (20) - ARGB color output
+</ParamField>
+
+## Stream Selection
+
+<ParamField path="pngStreamSel" type="enum">
+  Input source selection for PNG data.
+
+  - `PNGDEC_FILE` (0) - Decode from file
+  - `PNGDEC_BUFFER` (1) - Decode from memory buffer
+</ParamField>
+
+## Interlace Modes
+
+<ParamField path="pngInterlaceMode" type="enum">
+  PNG interlacing methods.
+
+  - `PNGDEC_NO_INTERLACE` (0) - Standard sequential image
+  - `PNGDEC_ADAM7_INTERLACE` (1) - Adam7 interlaced image
+</ParamField>
+
+## Core Functions
+
+### pngDecCreate
+
+```c
+s32 pngDecCreate(s32 *handle, pngDecThreadInParam *in, pngDecThreadOutParam *out);
+```
+
+Creates a PNG decoder instance.
+
+<ParamField path="handle" type="s32*">
+  Pointer to receive the decoder handle.
+</ParamField>
+
+<ParamField path="in" type="pngDecThreadInParam*">
+  Input parameters for decoder creation.
+
+  <ResponseField name="spu_enable" type="u32">
+    Enable SPU acceleration (PNGDEC_SPU_THREAD_ENABLE or PNGDEC_SPU_THREAD_DISABLE).
+  </ResponseField>
+
+  <ResponseField name="ppu_prio" type="u32">
+    PPU thread priority.
+  </ResponseField>
+
+  <ResponseField name="spu_prio" type="u32">
+    SPU thread priority (if SPU enabled).
+  </ResponseField>
+
+  <ResponseField name="malloc_func" type="pngCbCtrlMalloc">
+    Custom memory allocation function (optional, can be NULL).
+  </ResponseField>
+
+  <ResponseField name="malloc_arg" type="void*">
+    Argument passed to malloc function.
+  </ResponseField>
+
+  <ResponseField name="free_func" type="pngCbCtrlFree">
+    Custom memory free function (optional, can be NULL).
+  </ResponseField>
+
+  <ResponseField name="free_arg" type="void*">
+    Argument passed to free function.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="out" type="pngDecThreadOutParam*">
+  Output parameters from decoder creation.
+
+  <ResponseField name="version" type="u32">
+    Decoder library version.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+### pngDecOpen
+
+```c
+s32 pngDecOpen(s32 handle, s32 *subhandle, const pngDecSource *src, pngDecOpnInfo *open_info);
+```
+
+Opens a PNG stream for decoding.
+
+<ParamField path="handle" type="s32">
+  Decoder handle from pngDecCreate.
+</ParamField>
+
+<ParamField path="subhandle" type="s32*">
+  Pointer to receive the stream subhandle.
+</ParamField>
+
+<ParamField path="src" type="const pngDecSource*">
+  Source configuration for the PNG data.
+
+  <ResponseField name="stream_sel" type="u32">
+    Input stream selection (PNGDEC_FILE or PNGDEC_BUFFER).
+  </ResponseField>
+
+  <ResponseField name="file_name" type="const char*">
+    File path (if stream_sel is PNGDEC_FILE).
+  </ResponseField>
+
+  <ResponseField name="file_offset" type="s64">
+    Offset in file to start reading.
+  </ResponseField>
+
+  <ResponseField name="file_size" type="u32">
+    Size of PNG data in file.
+  </ResponseField>
+
+  <ResponseField name="stream_ptr" type="void*">
+    Pointer to PNG data in memory (if stream_sel is PNGDEC_BUFFER).
+  </ResponseField>
+
+  <ResponseField name="stream_size" type="u32">
+    Size of PNG data in memory.
+  </ResponseField>
+
+  <ResponseField name="spu_enable" type="u32">
+    Enable SPU acceleration for this stream.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="open_info" type="pngDecOpnInfo*">
+  Information about the opened stream.
+
+  <ResponseField name="init_space_allocated" type="u32">
+    Amount of memory allocated for initialization.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+### pngDecReadHeader
+
+```c
+s32 pngDecReadHeader(s32 handle, s32 subhandle, pngDecInfo *info);
+```
+
+Reads the PNG header and retrieves image information.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle from pngDecOpen.
+</ParamField>
+
+<ParamField path="info" type="pngDecInfo*">
+  Pointer to receive image information.
+
+  <ResponseField name="width" type="u32">
+    Image width in pixels.
+  </ResponseField>
+
+  <ResponseField name="height" type="u32">
+    Image height in pixels.
+  </ResponseField>
+
+  <ResponseField name="num_comp" type="u32">
+    Number of color components.
+  </ResponseField>
+
+  <ResponseField name="color_space" type="u32">
+    Original color space of the PNG image.
+  </ResponseField>
+
+  <ResponseField name="bit_depth" type="u32">
+    Bit depth per channel (1, 2, 4, 8, or 16).
+  </ResponseField>
+
+  <ResponseField name="interlace_mode" type="u32">
+    Interlace method used (PNGDEC_NO_INTERLACE or PNGDEC_ADAM7_INTERLACE).
+  </ResponseField>
+
+  <ResponseField name="chunk_info" type="u32">
+    Information about chunks present in the PNG.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+### pngDecSetParameter
+
+```c
+s32 pngDecSetParameter(s32 handle, s32 subhandle, const pngDecInParam *in, pngDecOutParam *out);
+```
+
+Sets decoding parameters and prepares the decoder.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle.
+</ParamField>
+
+<ParamField path="in" type="const pngDecInParam*">
+  Input decoding parameters.
+
+  <ResponseField name="cmd_ptr" type="vu32*">
+    Pointer to command variable for decoder control (can be NULL).
+  </ResponseField>
+
+  <ResponseField name="output_mode" type="u32">
+    Output scanline order (PNGDEC_TOP_TO_BOTTOM or PNGDEC_BOTTOM_TO_TOP).
+  </ResponseField>
+
+  <ResponseField name="color_space" type="u32">
+    Desired output color space.
+  </ResponseField>
+
+  <ResponseField name="bit_depth" type="u32">
+    Desired output bit depth.
+  </ResponseField>
+
+  <ResponseField name="pack_flag" type="u32">
+    Pixel packing flag (PNGDEC_1BYTE_PER_NPIXEL or PNGDEC_1BYTE_PER_1PIXEL).
+  </ResponseField>
+
+  <ResponseField name="alpha_select" type="u32">
+    Alpha channel handling (PNGDEC_STREAM_ALPHA or PNGDEC_FIX_ALPHA).
+  </ResponseField>
+
+  <ResponseField name="alpha" type="u32">
+    Fixed alpha value if alpha_select is PNGDEC_FIX_ALPHA.
+  </ResponseField>
+</ParamField>
+
+<ParamField path="out" type="pngDecOutParam*">
+  Output parameters after configuration.
+
+  <ResponseField name="width_byte" type="u64">
+    Width of output in bytes (including padding).
+  </ResponseField>
+
+  <ResponseField name="width" type="u32">
+    Output image width in pixels.
+  </ResponseField>
+
+  <ResponseField name="height" type="u32">
+    Output image height in pixels.
+  </ResponseField>
+
+  <ResponseField name="num_comp" type="u32">
+    Number of output color components.
+  </ResponseField>
+
+  <ResponseField name="bit_depth" type="u32">
+    Actual output bit depth.
+  </ResponseField>
+
+  <ResponseField name="output_mode" type="u32">
+    Actual output mode being used.
+  </ResponseField>
+
+  <ResponseField name="color_space" type="u32">
+    Actual output color space.
+  </ResponseField>
+
+  <ResponseField name="use_memory_space" type="u32">
+    Memory required for decoding.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+### pngDecDecodeData
+
+```c
+s32 pngDecDecodeData(s32 handle, s32 subhandle, u8 *data, 
+                     const pngDecDataCtrlParam *dataCtrlParam, pngDecDataInfo *info);
+```
+
+Decodes the PNG image data.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle.
+</ParamField>
+
+<ParamField path="data" type="u8*">
+  Pointer to output buffer for decoded image data.
+</ParamField>
+
+<ParamField path="dataCtrlParam" type="const pngDecDataCtrlParam*">
+  Data control parameters.
+
+  <ResponseField name="output_bytes_per_line" type="u64">
+    Bytes per line in output buffer (for custom stride).
+  </ResponseField>
+</ParamField>
+
+<ParamField path="info" type="pngDecDataInfo*">
+  Information about the decoded data.
+
+  <ResponseField name="chunk_info" type="u32">
+    Chunk information.
+  </ResponseField>
+
+  <ResponseField name="num_text" type="u32">
+    Number of text chunks.
+  </ResponseField>
+
+  <ResponseField name="num_unk_chunk" type="u32">
+    Number of unknown chunks.
+  </ResponseField>
+
+  <ResponseField name="decode_status" type="u32">
+    Decode status (PNGDEC_STATUS_FINISH or PNGDEC_STATUS_STOP).
+  </ResponseField>
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+### pngDecClose
+
+```c
+s32 pngDecClose(s32 handle, s32 subhandle);
+```
+
+Closes a PNG stream.
+
+<ParamField path="handle" type="s32">
+  Decoder handle.
+</ParamField>
+
+<ParamField path="subhandle" type="s32">
+  Stream subhandle to close.
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+### pngDecDestroy
+
+```c
+s32 pngDecDestroy(s32 handle);
+```
+
+Destroys a PNG decoder instance.
+
+<ParamField path="handle" type="s32">
+  Decoder handle to destroy.
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+## Helper Functions
+
+### pngLoadFromFile
+
+```c
+s32 pngLoadFromFile(const char *filename, pngData *out);
+```
+
+Simple helper function to load a PNG image from a file.
+
+<ParamField path="filename" type="const char*">
+  Path to the PNG file.
+</ParamField>
+
+<ParamField path="out" type="pngData*">
+  Pointer to receive the decoded image data.
+
+  <ResponseField name="bmp_out" type="void*">
+    Pointer to decoded image buffer (must be freed by caller).
+  </ResponseField>
+
+  <ResponseField name="pitch" type="u32">
+    Bytes per scanline.
+  </ResponseField>
+
+  <ResponseField name="width" type="u32">
+    Image width in pixels.
+  </ResponseField>
+
+  <ResponseField name="height" type="u32">
+    Image height in pixels.
+  </ResponseField>
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+### pngLoadFromBuffer
+
+```c
+s32 pngLoadFromBuffer(const void *buffer, u32 size, pngData *out);
+```
+
+Simple helper function to load a PNG image from a memory buffer.
+
+<ParamField path="buffer" type="const void*">
+  Pointer to PNG data in memory.
+</ParamField>
+
+<ParamField path="size" type="u32">
+  Size of PNG data in bytes.
+</ParamField>
+
+<ParamField path="out" type="pngData*">
+  Pointer to receive the decoded image data (same structure as pngLoadFromFile).
+</ParamField>
+
+**Returns:** `PNGDEC_ERROR_OK` on success, error code otherwise.
+
+## Usage Example
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <pngdec/pngdec.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    s32 ret;
+    s32 handle;
+    s32 subhandle;
+    pngDecThreadInParam in_param;
+    pngDecThreadOutParam out_param;
+    pngDecSource src;
+    pngDecOpnInfo open_info;
+    pngDecInfo info;
+    pngDecInParam dec_in;
+    pngDecOutParam dec_out;
+    pngDecDataCtrlParam data_ctrl;
+    pngDecDataInfo data_info;
+    u8 *output_buffer;
+
+    // Load PNG decoder module
+    ret = sysModuleLoad(SYSMODULE_PNGDEC);
+    if (ret != 0) {
+        printf("Failed to load PNGDEC module: 0x%x\n", ret);
+        return -1;
+    }
+
+    // Create decoder
+    in_param.spu_enable = PNGDEC_SPU_THREAD_DISABLE;
+    in_param.ppu_prio = 1000;
+    in_param.spu_prio = 200;
+    in_param.malloc_func = NULL;
+    in_param.malloc_arg = NULL;
+    in_param.free_func = NULL;
+    in_param.free_arg = NULL;
+
+    ret = pngDecCreate(&handle, &in_param, &out_param);
+    if (ret != PNGDEC_ERROR_OK) {
+        printf("pngDecCreate failed: 0x%x\n", ret);
+        return -1;
+    }
+
+    // Open PNG file
+    src.stream_sel = PNGDEC_FILE;
+    src.file_name = "/dev_hdd0/image.png";
+    src.file_offset = 0;
+    src.file_size = 0;  // 0 = read entire file
+    src.spu_enable = PNGDEC_SPU_THREAD_DISABLE;
+
+    ret = pngDecOpen(handle, &subhandle, &src, &open_info);
+    if (ret != PNGDEC_ERROR_OK) {
+        printf("pngDecOpen failed: 0x%x\n", ret);
+        pngDecDestroy(handle);
+        return -1;
+    }
+
+    // Read header
+    ret = pngDecReadHeader(handle, subhandle, &info);
+    if (ret != PNGDEC_ERROR_OK) {
+        printf("pngDecReadHeader failed: 0x%x\n", ret);
+        pngDecClose(handle, subhandle);
+        pngDecDestroy(handle);
+        return -1;
+    }
+
+    printf("Image: %dx%d, %d-bit, %d components\n", 
+           info.width, info.height, info.bit_depth, info.num_comp);
+    printf("Interlaced: %s\n", 
+           info.interlace_mode ? "Yes (Adam7)" : "No");
+
+    // Set decode parameters
+    dec_in.cmd_ptr = NULL;
+    dec_in.output_mode = PNGDEC_TOP_TO_BOTTOM;
+    dec_in.color_space = PNGDEC_ARGB;
+    dec_in.bit_depth = 8;
+    dec_in.pack_flag = PNGDEC_1BYTE_PER_1PIXEL;
+    dec_in.alpha_select = PNGDEC_STREAM_ALPHA;  // Use PNG's alpha
+    dec_in.alpha = 0xFF;
+
+    ret = pngDecSetParameter(handle, subhandle, &dec_in, &dec_out);
+    if (ret != PNGDEC_ERROR_OK) {
+        printf("pngDecSetParameter failed: 0x%x\n", ret);
+        pngDecClose(handle, subhandle);
+        pngDecDestroy(handle);
+        return -1;
+    }
+
+    // Allocate output buffer
+    output_buffer = (u8*)malloc(dec_out.width_byte * dec_out.height);
+    if (!output_buffer) {
+        printf("Failed to allocate output buffer\n");
+        pngDecClose(handle, subhandle);
+        pngDecDestroy(handle);
+        return -1;
+    }
+
+    // Decode image
+    data_ctrl.output_bytes_per_line = dec_out.width_byte;
+    ret = pngDecDecodeData(handle, subhandle, output_buffer, 
+                          &data_ctrl, &data_info);
+    if (ret != PNGDEC_ERROR_OK) {
+        printf("pngDecDecodeData failed: 0x%x\n", ret);
+        free(output_buffer);
+        pngDecClose(handle, subhandle);
+        pngDecDestroy(handle);
+        return -1;
+    }
+
+    printf("Decode complete\n");
+
+    // Use the decoded image data...
+    // output_buffer now contains ARGB pixel data
+
+    // Cleanup
+    free(output_buffer);
+    pngDecClose(handle, subhandle);
+    pngDecDestroy(handle);
+    sysModuleUnload(SYSMODULE_PNGDEC);
+
+    return 0;
+}
+```
+
+## Simple Usage Example
+
+For basic use cases, the helper functions provide a simpler interface:
+
+```c
+#include <sysmodule/sysmodule.h>
+#include <pngdec/pngdec.h>
+#include <stdio.h>
+
+int main() {
+    pngData png;
+    s32 ret;
+
+    // Load PNG decoder module
+    sysModuleLoad(SYSMODULE_PNGDEC);
+
+    // Load and decode PNG in one call
+    ret = pngLoadFromFile("/dev_hdd0/image.png", &png);
+    if (ret == PNGDEC_ERROR_OK) {
+        printf("Image loaded: %dx%d\n", png.width, png.height);
+        printf("Pitch: %d bytes\n", png.pitch);
+        
+        // Use png.bmp_out (ARGB format)
+        // ...
+        
+        // Free the image data
+        free(png.bmp_out);
+    }
+
+    sysModuleUnload(SYSMODULE_PNGDEC);
+    return 0;
+}
+```
+
+<Warning>
+Always free the memory returned in `pngData.bmp_out` when using the helper functions to avoid memory leaks.
+</Warning>
+
+## Extended API
+
+The pngdec library also provides extended functions for advanced use cases:
+
+- `pngDecExtOpen()` - Opens a stream with callback support for streaming data
+- `pngDecExtReadHeader()` - Reads header with extended information
+- `pngDecExtSetParameter()` - Sets parameters with extended options (line mode, progressive)
+- `pngDecExtDecodeData()` - Decodes with display callback support for progressive rendering
+
+These functions allow for more control over the decoding process, including progressive decoding for interlaced images and custom data streaming.
+
+## Transparency Handling
+
+PNG images can contain transparency information in several ways:
+
+<Accordion title="Alpha Channel">
+  For RGBA and Grayscale+Alpha images, the alpha channel is decoded directly when using `PNGDEC_RGBA` or `PNGDEC_ARGB` output modes with `PNGDEC_STREAM_ALPHA`.
+</Accordion>
+
+<Accordion title="tRNS Chunk">
+  For images with a tRNS chunk (transparent color), the decoder automatically converts the transparent color to alpha values in the output.
+</Accordion>
+
+<Accordion title="Fixed Alpha">
+  You can use `PNGDEC_FIX_ALPHA` to ignore the PNG's transparency and use a fixed alpha value for all pixels.
+</Accordion>
