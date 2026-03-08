@@ -1,0 +1,888 @@
+---
+title: Font
+description: Font loading, rendering, and text drawing for PlayStation 3 applications
+---
+
+The Font library provides comprehensive text rendering capabilities for PlayStation 3 applications, supporting TrueType fonts, system fonts, and advanced text layout features.
+
+## Overview
+
+The font library supports:
+- System font sets (Japanese, Latin, Korean, Chinese)
+- TrueType/FreeType font loading
+- Glyph rendering and caching
+- Horizontal and vertical text layout
+- Kerning and advanced typography
+- Custom memory management
+- Multiple font renderers
+
+## Initialization
+
+### fontInit
+
+Initialize the font library.
+
+```c
+static inline s32 fontInit(fontConfig *config);
+```
+
+<ParamField path="config" type="fontConfig*" required>
+  Pointer to font configuration structure
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="fontConfig Structure">
+```c
+typedef struct _font_config {
+    struct {
+        u32 *buffer;        // File cache buffer
+        u32 size;           // Cache size
+    } fileCache;
+    
+    u32 userFontEntryMax;              // Max user font entries
+    fontEntry *userFontEntries;        // User font entry array
+    u32 flags;                         // Configuration flags
+} fontConfig;
+```
+</Accordion>
+
+```c Example
+fontConfig config;
+fontConfig_initialize(&config);
+
+// Optional: Set up file cache
+config.fileCache.buffer = malloc(1024 * 1024);
+config.fileCache.size = 1024 * 1024;
+
+if (fontInit(&config) != 0) {
+    // Handle error
+}
+```
+
+### fontConfig_initialize
+
+Initialize a font configuration structure with defaults.
+
+```c
+static inline void fontConfig_initialize(fontConfig *config);
+```
+
+<ParamField path="config" type="fontConfig*" required>
+  Pointer to configuration structure to initialize
+</ParamField>
+
+Sets all fields to default values (NULL pointers, zero sizes).
+
+### fontEnd
+
+Shutdown the font library.
+
+```c
+s32 fontEnd();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+Call this before exiting to free all font resources.
+
+## Font Loading
+
+### fontOpenFontset
+
+Open a system fontset.
+
+```c
+s32 fontOpenFontset(const fontLibrary *lib, fontType *type, font *f);
+```
+
+<ParamField path="lib" type="const fontLibrary*" required>
+  Pointer to font library
+</ParamField>
+
+<ParamField path="type" type="fontType*" required>
+  Pointer to font type specification
+</ParamField>
+
+<ParamField path="f" type="font*" required>
+  Pointer to receive opened font handle
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="fontType Structure">
+```c
+typedef struct _font_type {
+    u32 type;    // Font type (FONT_TYPE_RODIN_SANS_SERIF_LATIN, etc.)
+    u32 map;     // Font map (FONT_MAP_FONT or FONT_MAP_UNICODE)
+} fontType;
+```
+</Accordion>
+
+```c Example
+// Open Latin sans-serif system font
+fontLibraryConfigFT ftConfig;
+fontLibraryConfigFT_initialize(&ftConfig);
+
+const fontLibrary *lib;
+fontInitLibraryFreeType(&ftConfig, &lib);
+
+fontType type;
+type.type = FONT_TYPE_RODIN_SANS_SERIF_LATIN;
+type.map = FONT_MAP_UNICODE;
+
+font f;
+fontOpenFontset(lib, &type, &f);
+```
+
+### fontOpenFontFile
+
+Open a font from file.
+
+```c
+s32 fontOpenFontFile(const fontLibrary *lib, const char *fontPath, u32 subNum, 
+                     s32 uniqueID, font *f);
+```
+
+<ParamField path="lib" type="const fontLibrary*" required>
+  Pointer to font library
+</ParamField>
+
+<ParamField path="fontPath" type="const char*" required>
+  Path to font file (TTF, OTF, etc.)
+</ParamField>
+
+<ParamField path="subNum" type="u32" required>
+  Sub-font index (0 for single fonts)
+</ParamField>
+
+<ParamField path="uniqueID" type="s32" required>
+  Unique identifier for this font
+</ParamField>
+
+<ParamField path="f" type="font*" required>
+  Pointer to receive opened font handle
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+```c Example
+font customFont;
+fontOpenFontFile(lib, "/dev_hdd0/game/fonts/custom.ttf", 0, 1, &customFont);
+```
+
+### fontOpenFontMemory
+
+Open a font from memory.
+
+```c
+s32 fontOpenFontMemory(const fontLibrary *lib, void *fontAddr, u32 fontSize, 
+                       u32 subNum, s32 uniqueID, font *f);
+```
+
+<ParamField path="lib" type="const fontLibrary*" required>
+  Pointer to font library
+</ParamField>
+
+<ParamField path="fontAddr" type="void*" required>
+  Pointer to font data in memory
+</ParamField>
+
+<ParamField path="fontSize" type="u32" required>
+  Size of font data in bytes
+</ParamField>
+
+<ParamField path="subNum" type="u32" required>
+  Sub-font index (0 for single fonts)
+</ParamField>
+
+<ParamField path="uniqueID" type="s32" required>
+  Unique identifier for this font
+</ParamField>
+
+<ParamField path="f" type="font*" required>
+  Pointer to receive opened font handle
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### fontCloseFont
+
+Close an opened font.
+
+```c
+s32 fontCloseFont(font *cf);
+```
+
+<ParamField path="cf" type="font*" required>
+  Pointer to font handle to close
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+## Font Configuration
+
+### fontSetScalePixel
+
+Set font scale in pixels.
+
+```c
+s32 fontSetScalePixel(font *f, f32 w, f32 h);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="w" type="f32" required>
+  Width in pixels
+</ParamField>
+
+<ParamField path="h" type="f32" required>
+  Height in pixels
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+```c Example
+// Set font to 24 pixel height
+fontSetScalePixel(&myFont, 24.0f, 24.0f);
+```
+
+### fontSetScalePoint
+
+Set font scale in points.
+
+```c
+s32 fontSetScalePoint(font *f, f32 w, f32 h);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="w" type="f32" required>
+  Width in points
+</ParamField>
+
+<ParamField path="h" type="f32" required>
+  Height in points
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### fontSetResolutionDpi
+
+Set font resolution in DPI.
+
+```c
+s32 fontSetResolutionDpi(font *f, u32 hDpi, u32 vDpi);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="hDpi" type="u32" required>
+  Horizontal DPI
+</ParamField>
+
+<ParamField path="vDpi" type="u32" required>
+  Vertical DPI
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+```c Example
+// Set to 96 DPI (standard screen resolution)
+fontSetResolutionDpi(&myFont, 96, 96);
+```
+
+### fontSetEffectWeight
+
+Set font weight effect (boldness).
+
+```c
+s32 fontSetEffectWeight(font *f, f32 effectWeight);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="effectWeight" type="f32" required>
+  Weight value (0.0 = normal, positive = bolder)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### fontSetEffectSlant
+
+Set font slant effect (italic).
+
+```c
+s32 fontSetEffectSlant(font *f, f32 effectSlant);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="effectSlant" type="f32" required>
+  Slant value (0.0 = normal, positive = italic)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+## Glyph Metrics
+
+### fontGetCharGlyphMetrics
+
+Get metrics for a character glyph.
+
+```c
+s32 fontGetCharGlyphMetrics(font *f, u32 code, fontGlyphMetrics *metrics);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="code" type="u32" required>
+  Character code (Unicode)
+</ParamField>
+
+<ParamField path="metrics" type="fontGlyphMetrics*" required>
+  Pointer to receive glyph metrics
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="fontGlyphMetrics Structure">
+```c
+typedef struct _font_glyph_metrics {
+    f32 width;     // Glyph width
+    f32 height;    // Glyph height
+    
+    struct {
+        f32 bearingX;   // Horizontal bearing X
+        f32 bearingY;   // Horizontal bearing Y
+        f32 advance;    // Horizontal advance
+    } horizontal;
+    
+    struct {
+        f32 bearingX;   // Vertical bearing X
+        f32 bearingY;   // Vertical bearing Y
+        f32 advance;    // Vertical advance
+    } vertical;
+} fontGlyphMetrics;
+```
+</Accordion>
+
+```c Example
+fontGlyphMetrics metrics;
+fontGetCharGlyphMetrics(&myFont, 'A', &metrics);
+printf("Character width: %.2f\n", metrics.width);
+printf("Advance: %.2f\n", metrics.horizontal.advance);
+```
+
+### fontGetKerning
+
+Get kerning adjustment between two characters.
+
+```c
+s32 fontGetKerning(font *f, u32 preCode, u32 code, fontKerning *kerning);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="preCode" type="u32" required>
+  Previous character code
+</ParamField>
+
+<ParamField path="code" type="u32" required>
+  Current character code
+</ParamField>
+
+<ParamField path="kerning" type="fontKerning*" required>
+  Pointer to receive kerning values
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="fontKerning Structure">
+```c
+typedef struct _font_kerning {
+    f32 offsetX;    // X offset adjustment
+    f32 offsetY;    // Y offset adjustment
+} fontKerning;
+```
+</Accordion>
+
+### fontGetHorizontalLayout
+
+Get horizontal layout metrics.
+
+```c
+s32 fontGetHorizontalLayout(font *f, fontHorizontalLayout *layout);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="layout" type="fontHorizontalLayout*" required>
+  Pointer to receive layout metrics
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="fontHorizontalLayout Structure">
+```c
+typedef struct _font_horizontal_layout {
+    f32 baseLineY;      // Baseline Y position
+    f32 lineHeight;     // Total line height
+    f32 effectHeight;   // Effective height
+} fontHorizontalLayout;
+```
+</Accordion>
+
+### fontGetVerticalLayout
+
+Get vertical layout metrics.
+
+```c
+s32 fontGetVerticalLayout(font *f, fontVerticalLayout *layout);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="layout" type="fontVerticalLayout*" required>
+  Pointer to receive layout metrics
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+## Font Renderer
+
+### fontCreateRenderer
+
+Create a font renderer.
+
+```c
+s32 fontCreateRenderer(const fontLibrary *lib, fontRendererConfig *config, 
+                       fontRenderer *renderer);
+```
+
+<ParamField path="lib" type="const fontLibrary*" required>
+  Pointer to font library
+</ParamField>
+
+<ParamField path="config" type="fontRendererConfig*" required>
+  Pointer to renderer configuration
+</ParamField>
+
+<ParamField path="renderer" type="fontRenderer*" required>
+  Pointer to receive renderer handle
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="fontRendererConfig Structure">
+```c
+typedef struct _font_renderer_config {
+    struct {
+        void* buffer;        // Buffer for glyph cache
+        u32 initSize;        // Initial buffer size
+        u32 maxSize;         // Maximum buffer size
+        u32 expandSize;      // Size to expand by
+        u32 resetSize;       // Reset threshold size
+    } bufferingPolicy;
+} fontRendererConfig;
+```
+</Accordion>
+
+```c Example
+fontRenderer renderer;
+fontRendererConfig config;
+config.bufferingPolicy.buffer = NULL;
+config.bufferingPolicy.initSize = 1024 * 1024;
+config.bufferingPolicy.maxSize = 4 * 1024 * 1024;
+config.bufferingPolicy.expandSize = 512 * 1024;
+config.bufferingPolicy.resetSize = 2 * 1024 * 1024;
+
+fontCreateRenderer(lib, &config, &renderer);
+```
+
+### fontBindRenderer
+
+Bind a renderer to a font.
+
+```c
+s32 fontBindRenderer(font *f, fontRenderer *renderer);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="renderer" type="fontRenderer*" required>
+  Pointer to renderer to bind
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### fontUnbindRenderer
+
+Unbind a renderer from a font.
+
+```c
+s32 fontUnbindRenderer(font *f);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### fontDestroyRenderer
+
+Destroy a font renderer.
+
+```c
+s32 fontDestroyRenderer(fontRenderer *renderer);
+```
+
+<ParamField path="renderer" type="fontRenderer*" required>
+  Pointer to renderer to destroy
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+## Glyph Rendering
+
+### fontRenderSurfaceInit
+
+Initialize a render surface.
+
+```c
+void fontRenderSurfaceInit(fontRenderSurface *surface, void *buffer, 
+                           s32 bufWidthByte, s32 pixelSizeByte, s32 w, s32 h);
+```
+
+<ParamField path="surface" type="fontRenderSurface*" required>
+  Pointer to surface structure to initialize
+</ParamField>
+
+<ParamField path="buffer" type="void*" required>
+  Pointer to pixel buffer
+</ParamField>
+
+<ParamField path="bufWidthByte" type="s32" required>
+  Buffer width in bytes (pitch)
+</ParamField>
+
+<ParamField path="pixelSizeByte" type="s32" required>
+  Bytes per pixel (1, 2, or 4)
+</ParamField>
+
+<ParamField path="w" type="s32" required>
+  Surface width in pixels
+</ParamField>
+
+<ParamField path="h" type="s32" required>
+  Surface height in pixels
+</ParamField>
+
+### fontRenderSurfaceSetScissor
+
+Set scissor rectangle for rendering.
+
+```c
+void fontRenderSurfaceSetScissor(fontRenderSurface *surface, s32 x0, s32 y0, 
+                                 u32 w, u32 h);
+```
+
+<ParamField path="surface" type="fontRenderSurface*" required>
+  Pointer to render surface
+</ParamField>
+
+<ParamField path="x0" type="s32" required>
+  Scissor X origin
+</ParamField>
+
+<ParamField path="y0" type="s32" required>
+  Scissor Y origin
+</ParamField>
+
+<ParamField path="w" type="u32" required>
+  Scissor width
+</ParamField>
+
+<ParamField path="h" type="u32" required>
+  Scissor height
+</ParamField>
+
+### fontRenderCharGlyphImage
+
+Render a character glyph to a surface.
+
+```c
+s32 fontRenderCharGlyphImage(font *f, u32 code, fontRenderSurface *surface, 
+                             f32 x, f32 y, fontGlyphMetrics *metrics, 
+                             fontImageTransInfo *transInfo);
+```
+
+<ParamField path="f" type="font*" required>
+  Pointer to font handle
+</ParamField>
+
+<ParamField path="code" type="u32" required>
+  Character code to render
+</ParamField>
+
+<ParamField path="surface" type="fontRenderSurface*" required>
+  Pointer to render surface
+</ParamField>
+
+<ParamField path="x" type="f32" required>
+  X position
+</ParamField>
+
+<ParamField path="y" type="f32" required>
+  Y position
+</ParamField>
+
+<ParamField path="metrics" type="fontGlyphMetrics*" required>
+  Pointer to receive glyph metrics (can be NULL)
+</ParamField>
+
+<ParamField path="transInfo" type="fontImageTransInfo*" required>
+  Pointer to image transfer info (can be NULL)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+```c Example
+// Initialize render surface
+u32 *framebuffer = get_framebuffer();
+fontRenderSurface surface;
+fontRenderSurfaceInit(&surface, framebuffer, 1920*4, 4, 1920, 1080);
+
+// Render text
+f32 x = 100.0f, y = 100.0f;
+const char *text = "Hello, PS3!";
+
+for (int i = 0; text[i]; i++) {
+    fontGlyphMetrics metrics;
+    fontRenderCharGlyphImage(&myFont, text[i], &surface, x, y, &metrics, NULL);
+    x += metrics.horizontal.advance;
+}
+```
+
+## FreeType Library
+
+### fontInitLibraryFreeType
+
+Initialize FreeType font library.
+
+```c
+s32 fontInitLibraryFreeType(fontLibraryConfigFT *config, const fontLibrary **lib);
+```
+
+<ParamField path="config" type="fontLibraryConfigFT*" required>
+  Pointer to FreeType configuration
+</ParamField>
+
+<ParamField path="lib" type="const fontLibrary**" required>
+  Pointer to receive library handle
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="fontLibraryConfigFT Structure">
+```c
+typedef struct _font_library_configFT {
+    void *library;                  // FreeType library handle
+    fontMemoryInterface memoryIF;   // Memory interface
+} fontLibraryConfigFT;
+```
+</Accordion>
+
+```c Example
+fontLibraryConfigFT ftConfig;
+fontLibraryConfigFT_initialize(&ftConfig);
+
+const fontLibrary *lib;
+if (fontInitLibraryFreeType(&ftConfig, &lib) != 0) {
+    // Handle error
+}
+```
+
+### fontLibraryConfigFT_initialize
+
+Initialize FreeType configuration with defaults.
+
+```c
+static inline void fontLibraryConfigFT_initialize(fontLibraryConfigFT *config);
+```
+
+<ParamField path="config" type="fontLibraryConfigFT*" required>
+  Pointer to configuration to initialize
+</ParamField>
+
+## System Font Types
+
+### Latin Fonts
+
+- `FONT_TYPE_RODIN_SANS_SERIF_LATIN` (0x00000000) - Sans-serif Latin
+- `FONT_TYPE_MATISSE_SERIF_LATIN` (0x00000020) - Serif Latin
+
+### Japanese Fonts
+
+- `FONT_TYPE_NEWRODIN_GOTHIC_JAPANESE` (0x00000008) - Gothic Japanese
+- `FONT_TYPE_NEWRODIN_GOTHIC_JP_SET` (0x00000100) - Japanese character set
+- `FONT_TYPE_NEWRODIN_GOTHIC_LATIN_SET` (0x00000101) - Japanese + Latin
+
+### Korean Fonts
+
+- `FONT_TYPE_YD_GOTHIC_KOREAN` (0x0000000c) - Gothic Korean
+
+### CJK Font Sets
+
+- `FONT_TYPE_GOTHIC_JAPANESE_CJK_JP_SET` - Japanese CJK
+- `FONT_TYPE_GOTHIC_TCHINESE_CJK_JP_SET` - Traditional Chinese CJK
+- `FONT_TYPE_GOTHIC_SCHINESE_CJK_JP_SET` - Simplified Chinese CJK
+
+### Default Fonts
+
+- `FONT_TYPE_DEFAULT_GOTHIC_SET` - Default gothic (Latin)
+- `FONT_TYPE_DEFAULT_SANS_SERIF` - Default sans-serif
+- `FONT_TYPE_DEFAULT_SERIF` - Default serif
+
+## Font Maps
+
+- `FONT_MAP_FONT` (0x0) - Font-specific character mapping
+- `FONT_MAP_UNICODE` (0x1) - Unicode character mapping
+
+## Complete Example
+
+```c Full Font Rendering Example
+#include <font/font.h>
+#include <font/fontFT.h>
+
+// Initialize font system
+fontConfig config;
+fontConfig_initialize(&config);
+fontInit(&config);
+
+// Initialize FreeType library
+fontLibraryConfigFT ftConfig;
+fontLibraryConfigFT_initialize(&ftConfig);
+const fontLibrary *lib;
+fontInitLibraryFreeType(&ftConfig, &lib);
+
+// Open system font
+fontType type;
+type.type = FONT_TYPE_RODIN_SANS_SERIF_LATIN;
+type.map = FONT_MAP_UNICODE;
+
+font myFont;
+fontOpenFontset(lib, &type, &myFont);
+
+// Configure font
+fontSetScalePixel(&myFont, 32.0f, 32.0f);
+fontSetResolutionDpi(&myFont, 96, 96);
+
+// Create renderer
+fontRenderer renderer;
+fontRendererConfig rendererConfig;
+rendererConfig.bufferingPolicy.buffer = NULL;
+rendererConfig.bufferingPolicy.initSize = 1024 * 1024;
+rendererConfig.bufferingPolicy.maxSize = 4 * 1024 * 1024;
+rendererConfig.bufferingPolicy.expandSize = 512 * 1024;
+rendererConfig.bufferingPolicy.resetSize = 2 * 1024 * 1024;
+fontCreateRenderer(lib, &rendererConfig, &renderer);
+fontBindRenderer(&myFont, &renderer);
+
+// Setup render surface
+u32 *framebuffer = get_framebuffer();
+fontRenderSurface surface;
+fontRenderSurfaceInit(&surface, framebuffer, 1920*4, 4, 1920, 1080);
+
+// Render text
+const char *text = "Hello, PlayStation 3!";
+f32 x = 100.0f, y = 100.0f;
+
+for (int i = 0; text[i]; i++) {
+    fontGlyphMetrics metrics;
+    fontRenderCharGlyphImage(&myFont, text[i], &surface, x, y, &metrics, NULL);
+    
+    // Apply kerning for next character
+    if (text[i+1]) {
+        fontKerning kerning;
+        fontGetKerning(&myFont, text[i], text[i+1], &kerning);
+        x += metrics.horizontal.advance + kerning.offsetX;
+    } else {
+        x += metrics.horizontal.advance;
+    }
+}
+
+// Cleanup
+fontUnbindRenderer(&myFont);
+fontDestroyRenderer(&renderer);
+fontCloseFont(&myFont);
+fontEnd();
+```
+
+## See Also
+
+- [RSX](/api/rsx) - Graphics rendering system
+- Video Configuration - Display setup

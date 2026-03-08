@@ -1,0 +1,633 @@
+---
+title: Vertex Shaders
+description: Writing and compiling vertex programs using Cg and the PSL1GHT shader system
+---
+
+Vertex shaders (vertex programs) process each vertex before it's sent to the rasterizer. PSL1GHT uses **Nvidia's Cg language** for shader programming, with the `cgcomp` tool compiling shaders into RSX microcode.
+
+## Cg Toolkit Overview
+
+Cg ("C for Graphics") is a high-level shading language similar to HLSL and GLSL. PSL1GHT uses Cg profiles compatible with the RSX (similar to GeForce 7800 GTX).
+
+### Supported Profiles
+
+- **Vertex**: `vp40` (vertex program 4.0)
+- **Fragment**: `fp40` (fragment program 4.0)
+
+## Vertex Program Structure
+
+A compiled vertex program is represented by the `rsxVertexProgram` structure:
+
+```c
+// From rsx/rsx_program.h:38
+typedef struct rsx_vp {
+    u16 magic;        // Magic identifier
+    u16 _pad0;        // Padding
+    
+    u16 num_regs;     // Number of used registers
+    u16 num_attr;     // Number of input attributes
+    u16 num_const;    // Number of constants
+    u16 num_insn;     // Number of instructions
+    
+    u32 attr_off;     // Offset to attribute table
+    u32 const_off;    // Offset to constant table
+    u32 ucode_off;    // Offset to microcode
+    
+    u32 input_mask;   // Input attribute mask
+    u32 output_mask;  // Output attribute mask
+    
+    u16 const_start;  // Constant block start address
+    u16 insn_start;   // Program start address
+} rsxVertexProgram;
+```
+
+## Writing a Vertex Shader
+
+Here's a complete vertex shader example from `samples/graphics/rsxtest/shaders/diffuse_specular_shader.vcg`:
+
+```cg
+void main
+(
+    // Input attributes
+    float3 vertexPosition : POSITION,
+    float3 vertexNormal   : NORMAL,
+    float2 vertexTexcoord : TEXCOORD0,
+    
+    // Uniform parameters (constants)
+    uniform float4x4 projMatrix,
+    uniform float4x4 modelViewMatrix,
+    
+    // Output attributes
+    out float4 ePosition : POSITION,
+    out float4 oPosition : TEXCOORD0,
+    out float3 oNormal   : TEXCOORD1,
+    out float2 oTexcoord : TEXCOORD2
+)
+{
+    // Transform vertex position
+    ePosition = mul(mul(projMatrix, modelViewMatrix), 
+                    float4(vertexPosition, 1.0f));
+    
+    // Pass through to fragment shader
+    oPosition = float4(vertexPosition, 1.0f);
+    oNormal = vertexNormal;
+    oTexcoord = vertexTexcoord;
+}
+```
+
+### Input Semantics
+
+Vertex shader inputs use standard semantics:
+
+<Tabs>
+  <Tab title="Position & Normal">
+    ```cg
+    float3 position : POSITION
+    float3 normal   : NORMAL
+    ```
+    
+    Basic geometric attributes.
+  </Tab>
+  
+  <Tab title="Texture Coordinates">
+    ```cg
+    float2 texcoord0 : TEXCOORD0
+    float2 texcoord1 : TEXCOORD1
+    float2 texcoord2 : TEXCOORD2
+    // ... up to TEXCOORD7
+    ```
+    
+    Up to 8 texture coordinate sets.
+  </Tab>
+  
+  <Tab title="Colors">
+    ```cg
+    float4 color0 : COLOR0  // Primary color
+    float4 color1 : COLOR1  // Secondary color
+    ```
+    
+    Vertex colors.
+  </Tab>
+  
+  <Tab title="Other Attributes">
+    ```cg
+    float  weight   : WEIGHT
+    float3 tangent  : TANGENT
+    float3 binormal : BINORMAL
+    float  fogCoord : FOG
+    ```
+    
+    Additional vertex attributes.
+  </Tab>
+</Tabs>
+
+### Output Semantics
+
+```cg
+out float4 position : POSITION    // Required: transformed position
+out float4 color    : COLOR0      // Optional: primary color
+out float4 color2   : COLOR1      // Optional: secondary color
+out float2 texcoord : TEXCOORD0   // Optional: texture coordinates
+out float  fogCoord : FOG         // Optional: fog coordinate
+out float  pointSize: PSIZE       // Optional: point size
+```
+
+<Note>
+  The `POSITION` output is **required**. It specifies the vertex position in clip space.
+</Note>
+
+## Compiling Shaders
+
+Use the `cgcomp` tool to compile Cg shaders to RSX microcode.
+
+<Steps>
+  <Step title="Write Shader Source">
+    Create a `.vcg` file for vertex shaders or `.fcg` for fragment shaders:
+    
+    ```cg filename="my_shader.vcg"
+    void main(
+        float3 position : POSITION,
+        uniform float4x4 mvp,
+        out float4 oPosition : POSITION
+    ) {
+        oPosition = mul(mvp, float4(position, 1.0));
+    }
+    ```
+  </Step>
+  
+  <Step title="Compile with cgcomp">
+    Run the compiler:
+    
+    ```bash
+    cgcomp -profile vp40 -o my_shader_vpo.h my_shader.vcg
+    ```
+    
+    Options:
+    - `-profile vp40` - Vertex program profile
+    - `-profile fp40` - Fragment program profile
+    - `-o output.h` - Output header file
+  </Step>
+  
+  <Step title="Include in Your Project">
+    The compiler generates a header with the compiled shader:
+    
+    ```c
+    #include "my_shader_vpo.h"
+    
+    // Access the compiled program
+    extern const u8 my_shader_vpo[];
+    ```
+  </Step>
+</Steps>
+
+### Makefile Integration
+
+Automate shader compilation in your Makefile:
+
+```makefile
+# Shader sources
+VERTEX_SHADERS := $(wildcard shaders/*.vcg)
+FRAGMENT_SHADERS := $(wildcard $(SHADERS/*.fcg)
+
+# Compiled outputs
+VERTEX_HEADERS := $(VERTEX_SHADERS:.vcg=_vpo.h)
+FRAGMENT_HEADERS := $(FRAGMENT_SHADERS:.fcg=_fpo.h)
+
+# Compilation rules
+shaders/%_vpo.h: shaders/%.vcg
+	@echo "[CG] $<"
+	@cgcomp -profile vp40 -o $@ $<
+
+shaders/%_fpo.h: shaders/%.fcg
+	@echo "[CG] $<"
+	@cgcomp -profile fp40 -o $@ $<
+
+# Build all shaders
+shaders: $(VERTEX_HEADERS) $(FRAGMENT_HEADERS)
+
+.PHONY: shaders
+```
+
+## Loading Vertex Programs
+
+Once compiled, load and use the vertex program:
+
+<Steps>
+  <Step title="Include Compiled Shader">
+    ```c
+    #include "diffuse_specular_shader_vpo.h"
+    
+    rsxVertexProgram *vpo = (rsxVertexProgram*)diffuse_specular_shader_vpo;
+    void *vp_ucode = NULL;
+    ```
+  </Step>
+  
+  <Step title="Extract Microcode">
+    Get the compiled microcode from the program structure:
+    
+    ```c
+    u32 vpsize = 0;
+    rsxVertexProgramGetUCode(vpo, &vp_ucode, &vpsize);
+    printf("Vertex program size: %u bytes\n", vpsize);
+    ```
+    
+    From `rsx/rsx_program.h:127`.
+  </Step>
+  
+  <Step title="Get Shader Parameters">
+    Query constant (uniform) parameters:
+    
+    ```c
+    // Get projection matrix parameter
+    rsxProgramConst *projMatrix = 
+        rsxVertexProgramGetConst(vpo, "projMatrix");
+    
+    // Get model-view matrix parameter
+    rsxProgramConst *mvMatrix = 
+        rsxVertexProgramGetConst(vpo, "modelViewMatrix");
+    
+    if (!projMatrix || !mvMatrix) {
+        printf("Failed to get shader parameters\n");
+        return -1;
+    }
+    ```
+    
+    From `rsx/rsx_program.h:153`.
+  </Step>
+  
+  <Step title="Load Program">
+    Load the vertex program into the RSX:
+    
+    ```c
+    rsxLoadVertexProgram(context, vpo, vp_ucode);
+    ```
+    
+    This uploads the microcode and prepares it for rendering.
+  </Step>
+  
+  <Step title="Set Parameters">
+    Update uniform parameters before drawing:
+    
+    ```c
+    // Set projection matrix
+    rsxSetVertexProgramParameter(context, vpo, projMatrix, 
+                                 (float*)&projectionMatrix);
+    
+    // Set model-view matrix  
+    rsxSetVertexProgramParameter(context, vpo, mvMatrix,
+                                 (float*)&modelViewMatrix);
+    ```
+  </Step>
+</Steps>
+
+## Vertex Attributes
+
+Vertex attributes connect application data to shader inputs.
+
+### Standard Attribute Indices
+
+From `rsx/gcm_sys.h:465-483`:
+
+```c
+GCM_VERTEX_ATTRIB_POS          // 0  - Position
+GCM_VERTEX_ATTRIB_WEIGHT       // 1  - Blend weight
+GCM_VERTEX_ATTRIB_NORMAL       // 2  - Normal
+GCM_VERTEX_ATTRIB_COLOR0       // 3  - Primary color
+GCM_VERTEX_ATTRIB_COLOR1       // 4  - Secondary color
+GCM_VERTEX_ATTRIB_FOG          // 5  - Fog coordinate
+GCM_VERTEX_ATTRIB_COLOR_INDEX  // 6  - Color index
+GCM_VERTEX_ATTRIB_POINT_SIZE   // 6  - Point size (alias)
+GCM_VERTEX_ATTRIB_EDGEFLAG     // 7  - Edge flag
+GCM_VERTEX_ATTRIB_TEX0         // 8  - Texture coord 0
+GCM_VERTEX_ATTRIB_TEX1         // 9  - Texture coord 1
+GCM_VERTEX_ATTRIB_TEX2         // 10 - Texture coord 2
+GCM_VERTEX_ATTRIB_TEX3         // 11 - Texture coord 3
+GCM_VERTEX_ATTRIB_TEX4         // 12 - Texture coord 4
+GCM_VERTEX_ATTRIB_TEX5         // 13 - Texture coord 5
+GCM_VERTEX_ATTRIB_TEX6         // 14 - Texture coord 6
+GCM_VERTEX_ATTRIB_TANGENT      // 14 - Tangent (alias)
+GCM_VERTEX_ATTRIB_TEX7         // 15 - Texture coord 7
+GCM_VERTEX_ATTRIB_BINORMAL     // 15 - Binormal (alias)
+```
+
+### Binding Vertex Data
+
+Bind vertex buffers to attribute indices:
+
+```c
+// Vertex structure
+typedef struct {
+    float pos[3];    // Position
+    float nrm[3];    // Normal
+    float u, v;      // Texture coordinates
+} S3DVertex;
+
+S3DVertex *vertices = /* ... */;
+u32 vertex_offset;
+
+// Get RSX offset
+rsxAddressToOffset(&vertices[0].pos, &vertex_offset);
+
+// Bind position attribute
+rsxBindVertexArrayAttrib(
+    context,
+    GCM_VERTEX_ATTRIB_POS,        // Attribute index
+    0,                             // Frequency (0 = per vertex)
+    vertex_offset,                 // Offset in memory
+    sizeof(S3DVertex),             // Stride
+    3,                             // Components (x, y, z)
+    GCM_VERTEX_DATA_TYPE_F32,     // Data type
+    GCM_LOCATION_RSX              // Memory location
+);
+
+// Bind normal attribute
+rsxAddressToOffset(&vertices[0].nrm, &vertex_offset);
+rsxBindVertexArrayAttrib(
+    context,
+    GCM_VERTEX_ATTRIB_NORMAL,
+    0,
+    vertex_offset,
+    sizeof(S3DVertex),
+    3,
+    GCM_VERTEX_DATA_TYPE_F32,
+    GCM_LOCATION_RSX
+);
+
+// Bind texture coordinates
+rsxAddressToOffset(&vertices[0].u, &vertex_offset);
+rsxBindVertexArrayAttrib(
+    context,
+    GCM_VERTEX_ATTRIB_TEX0,
+    0,
+    vertex_offset,
+    sizeof(S3DVertex),
+    2,                             // Components (u, v)
+    GCM_VERTEX_DATA_TYPE_F32,
+    GCM_LOCATION_RSX
+);
+```
+
+### Data Types
+
+From `rsx/gcm_sys.h:485-486`:
+
+- `GCM_VERTEX_DATA_TYPE_F32` - 32-bit float
+- `GCM_VERTEX_DATA_TYPE_U8` - 8-bit unsigned integer
+
+## Shader Constants
+
+Constants (uniforms) are parameters passed from the application to the shader.
+
+### Querying Constants
+
+<CodeGroup>
+```c By Name
+// Get constant by name
+rsxProgramConst *param = rsxVertexProgramGetConst(vpo, "myParam");
+
+if (param) {
+    printf("Found parameter at index %u\n", param->index);
+}
+```
+
+```c By Index
+// Get constant by index
+s32 index = rsxVertexProgramGetConstIndex(vpo, "myParam");
+
+if (index >= 0) {
+    printf("Parameter index: %d\n", index);
+}
+```
+
+```c Enumerate All
+// Get all constants
+u16 count = rsxVertexProgramGetNumConst(vpo);
+rsxProgramConst *consts = rsxVertexProgramGetConsts(vpo);
+
+for (int i = 0; i < count; i++) {
+    printf("Const %d: type=%d, count=%d\n",
+           i, consts[i].type, consts[i].count);
+}
+```
+</CodeGroup>
+
+### Constant Types
+
+From `rsx/rsx_program.h:10-29`:
+
+```c
+PARAM_BOOL        // Boolean
+PARAM_BOOL1       // 1D boolean vector
+PARAM_BOOL2       // 2D boolean vector
+PARAM_BOOL3       // 3D boolean vector
+PARAM_BOOL4       // 4D boolean vector
+PARAM_FLOAT       // Float scalar
+PARAM_FLOAT1      // 1D float vector
+PARAM_FLOAT2      // 2D float vector
+PARAM_FLOAT3      // 3D float vector
+PARAM_FLOAT4      // 4D float vector
+PARAM_FLOAT3x4    // 3x4 matrix
+PARAM_FLOAT4x4    // 4x4 matrix
+PARAM_FLOAT3x3    // 3x3 matrix
+PARAM_FLOAT4x3    // 4x3 matrix
+PARAM_SAMPLER1D   // 1D texture sampler
+PARAM_SAMPLER2D   // 2D texture sampler
+PARAM_SAMPLER3D   // 3D texture sampler
+PARAM_SAMPLERCUBE // Cube map sampler
+PARAM_SAMPLERRECT // Rectangle sampler
+```
+
+### Setting Constant Values
+
+```c
+// Set scalar
+float timeValue = 1.5f;
+rsxSetVertexProgramParameter(context, vpo, timeParam, &timeValue);
+
+// Set vector
+float lightPos[4] = {10.0f, 20.0f, 30.0f, 1.0f};
+rsxSetVertexProgramParameter(context, vpo, lightParam, lightPos);
+
+// Set matrix (must be 16 floats)
+float matrix[16] = { /* ... */ };
+rsxSetVertexProgramParameter(context, vpo, matrixParam, matrix);
+```
+
+## Common Shader Patterns
+
+### Basic Transformation
+
+```cg
+void main(
+    float3 position : POSITION,
+    uniform float4x4 mvp,
+    out float4 oPosition : POSITION
+) {
+    oPosition = mul(mvp, float4(position, 1.0));
+}
+```
+
+### Lighting Calculation
+
+```cg
+void main(
+    float3 position : POSITION,
+    float3 normal   : NORMAL,
+    
+    uniform float4x4 modelViewMatrix,
+    uniform float4x4 projMatrix,
+    uniform float3   lightPos,
+    
+    out float4 oPosition : POSITION,
+    out float3 oNormal   : TEXCOORD0,
+    out float3 oLightDir : TEXCOORD1
+) {
+    // Transform position
+    float4 viewPos = mul(modelViewMatrix, float4(position, 1.0));
+    oPosition = mul(projMatrix, viewPos);
+    
+    // Transform normal
+    oNormal = mul((float3x3)modelViewMatrix, normal);
+    
+    // Calculate light direction
+    oLightDir = lightPos - viewPos.xyz;
+}
+```
+
+### Texture Coordinate Generation
+
+```cg
+void main(
+    float3 position : POSITION,
+    float3 normal   : NORMAL,
+    
+    uniform float4x4 mvp,
+    
+    out float4 oPosition : POSITION,
+    out float2 oTexCoord : TEXCOORD0
+) {
+    oPosition = mul(mvp, float4(position, 1.0));
+    
+    // Sphere mapping
+    float3 r = reflect(normalize(position), normalize(normal));
+    float m = 2.0 * sqrt(r.x*r.x + r.y*r.y + (r.z+1.0)*(r.z+1.0));
+    oTexCoord = r.xy / m + 0.5;
+}
+```
+
+## Complete Example
+
+From `samples/graphics/rsxtest/source/main.cpp:399-425`:
+
+```c
+#include <rsx/rsx.h>
+#include "diffuse_specular_shader_vpo.h"
+
+rsxVertexProgram *vpo = (rsxVertexProgram*)diffuse_specular_shader_vpo;
+void *vp_ucode = NULL;
+rsxProgramConst *projMatrix;
+rsxProgramConst *mvMatrix;
+
+void init_shader() {
+    u32 vpsize = 0;
+    
+    // Extract microcode
+    rsxVertexProgramGetUCode(vpo, &vp_ucode, &vpsize);
+    printf("Vertex program size: %d bytes\n", vpsize);
+    
+    // Get shader parameters
+    projMatrix = rsxVertexProgramGetConst(vpo, "projMatrix");
+    mvMatrix = rsxVertexProgramGetConst(vpo, "modelViewMatrix");
+}
+
+void drawFrame() {
+    Matrix4 P = /* projection matrix */;
+    Matrix4 modelViewMatrix = /* model-view matrix */;
+    
+    // Load vertex program
+    rsxLoadVertexProgram(context, vpo, vp_ucode);
+    
+    // Set parameters
+    rsxSetVertexProgramParameter(context, vpo, projMatrix, (float*)&P);
+    rsxSetVertexProgramParameter(context, vpo, mvMatrix, 
+                                 (float*)&modelViewMatrix);
+    
+    // Bind vertex attributes
+    u32 offset;
+    rsxAddressToOffset(&mesh->vertices[0].pos, &offset);
+    rsxBindVertexArrayAttrib(context, GCM_VERTEX_ATTRIB_POS, 0,
+                            offset, sizeof(S3DVertex), 3,
+                            GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
+    
+    rsxAddressToOffset(&mesh->vertices[0].nrm, &offset);
+    rsxBindVertexArrayAttrib(context, GCM_VERTEX_ATTRIB_NORMAL, 0,
+                            offset, sizeof(S3DVertex), 3,
+                            GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
+    
+    // Draw
+    rsxDrawIndexArray(context, GCM_TYPE_TRIANGLES,
+                     index_offset, mesh->cnt_indices,
+                     GCM_INDEX_TYPE_16B, GCM_LOCATION_RSX);
+}
+```
+
+## Debugging Tips
+
+<Steps>
+  <Step title="Check Compilation">
+    Verify shader compiles without errors:
+    
+    ```bash
+    cgcomp -profile vp40 my_shader.vcg 2>&1 | tee compile.log
+    ```
+  </Step>
+  
+  <Step title="Validate Parameters">
+    Check that all parameters are found:
+    
+    ```c
+    if (!rsxVertexProgramGetConst(vpo, "myParam")) {
+        printf("Parameter 'myParam' not found!\n");
+        // List all available parameters
+        u16 count = rsxVertexProgramGetNumConst(vpo);
+        rsxProgramConst *consts = rsxVertexProgramGetConsts(vpo);
+        for (int i = 0; i < count; i++) {
+            printf("  Available: index=%u\n", consts[i].index);
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="Check Attribute Bindings">
+    Ensure vertex attributes match shader inputs:
+    
+    ```c
+    // Get input mask
+    printf("Input mask: 0x%08x\n", vpo->input_mask);
+    printf("Output mask: 0x%08x\n", vpo->output_mask);
+    ```
+  </Step>
+  
+  <Step title="Verify Memory Offsets">
+    Check that RSX memory offsets are valid:
+    
+    ```c
+    u32 offset;
+    s32 ret = rsxAddressToOffset(vertex_data, &offset);
+    if (ret != 0) {
+        printf("Invalid RSX memory address!\n");
+    }
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Fragment Shaders" icon="droplet" href="/graphics/rendering">
+    Learn about fragment (pixel) shaders and the complete rendering pipeline
+  </Card>
+  <Card title="Rendering" icon="paintbrush" href="/graphics/rendering">
+    Set up the full rendering pipeline with both vertex and fragment programs
+  </Card>
+</CardGroup>

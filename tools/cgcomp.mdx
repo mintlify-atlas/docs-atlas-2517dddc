@@ -1,0 +1,498 @@
+---
+title: cgcomp - Cg Shader Compiler
+description: Compile Cg vertex and fragment shaders for PlayStation 3 RSX graphics
+---
+
+## Overview
+
+The `cgcomp` tool compiles Cg (C for Graphics) shader programs into RSX-compatible binary format for PlayStation 3 graphics programming. It converts `.vcg` (vertex) and `.fcg` (fragment) shader source files into `.vpo` and `.fpo` binary programs.
+
+<Note>
+Requires NVIDIA Cg Toolkit installed and accessible (libCg.so / cg.dll).
+</Note>
+
+## Shader Types
+
+<CardGroup cols={2}>
+  <Card title="Vertex Programs (.vcg)" icon="vector-square">
+    Process vertex data: transformations, lighting calculations, texture coordinate generation.
+  </Card>
+  <Card title="Fragment Programs (.fcg)" icon="palette">
+    Process pixel data: texturing, per-pixel lighting, color blending, effects.
+  </Card>
+</CardGroup>
+
+## Command-Line Usage
+
+```bash
+cgcomp [options] input output
+```
+
+### Options
+
+<ParamField path="-v" type="flag">
+  Input is a vertex program (.vcg)
+</ParamField>
+
+<ParamField path="-f" type="flag">
+  Input is a fragment program (.fcg)
+</ParamField>
+
+<ParamField path="-e" type="string">
+  Specify entry point function (default: "main")
+</ParamField>
+
+<ParamField path="-a" type="flag">
+  Compile from assembly input file (skip Cg compiler)
+</ParamField>
+
+<ParamField path="-d" type="flag">
+  Dump assembly to file (output.asm)
+</ParamField>
+
+<ParamField path="-Wcg," type="string">
+  Pass additional arguments to Cg compiler frontend
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+```bash Vertex Shader
+# Compile vertex shader
+cgcomp -v shader.vcg shader.vpo
+
+# With custom entry point
+cgcomp -v -e vertexMain shader.vcg shader.vpo
+
+# Dump assembly for debugging
+cgcomp -v -d shader.vcg shader.vpo
+# Creates shader.vpo and shader.vpo.dump
+```
+
+```bash Fragment Shader
+# Compile fragment shader
+cgcomp -f shader.fcg shader.fpo
+
+# Pass Cg compiler options
+cgcomp -f -Wcg,inline shader.fcg shader.fpo
+```
+
+```bash From Assembly
+# Compile pre-processed assembly
+cgcomp -v -a shader.vp shader.vpo
+cgcomp -f -a shader.fp shader.fpo
+```
+</CodeGroup>
+
+## Shader Compilation Pipeline
+
+<Steps>
+  <Step title="Cg Compilation">
+    Source code is compiled to GPU assembly using NVIDIA Cg compiler:
+    - Profile: VP40 for vertex, FP40 for fragment
+    - Optimizations: -O3, -fastmath, -fastprecision, -unroll
+  </Step>
+  
+  <Step title="Assembly Parsing">
+    GPU assembly is parsed and analyzed:
+    - Extract parameters (uniforms, attributes)
+    - Identify branches and relocations
+    - Count registers and resources
+  </Step>
+  
+  <Step title="Binary Encoding">
+    Assembly is encoded to RSX binary format:
+    - Instruction encoding
+    - Constant table generation
+    - Metadata embedding
+  </Step>
+  
+  <Step title="Package Creation">
+    Final binary package with header:
+    - Magic number (VP/FP)
+    - Shader metadata
+    - Instruction data
+    - Parameter tables
+  </Step>
+</Steps>
+
+## Example Shaders
+
+### Basic Vertex Shader
+
+```glsl vpshader.vcg
+void main(float4 position : POSITION,
+          float4 color : COLOR0,
+          float2 texcoord : TEXCOORD0,
+          
+          out float4 oPosition : POSITION,
+          out float4 oColor : COLOR0,
+          out float2 oTexCoord : TEXCOORD0)
+{
+    oPosition = position;
+    oColor = color;
+    oTexCoord = texcoord;
+}
+```
+
+### Basic Fragment Shader
+
+```glsl fpshader.fcg
+void main(float4 color : COLOR0,
+          float2 texcoord : TEXCOORD0,
+          
+          uniform sampler2D texture,
+          
+          out float4 oColor : COLOR0)
+{
+    float alpha = tex2D(texture, texcoord).w;
+    if(alpha <= 0.5f) {
+        oColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    } else {
+        oColor.rgb = color.rgb;
+        oColor.a = color.a;
+    }
+}
+```
+
+<Tip>
+These examples are from `samples/graphics/debugfont_renderer/shaders/`
+</Tip>
+
+## Build System Integration
+
+The PSL1GHT build system automatically compiles shaders via `ppu_rules`:
+
+```makefile
+# Automatic shader compilation rules
+%.vpo: %.vcg
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(CGCOMP) -v $(CGCFLAGS) $^ $@
+
+%.fpo: %.fcg
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(CGCOMP) -f $(CGCFLAGS) $^ $@
+```
+
+### Makefile Setup
+
+Configure your Makefile to compile shaders:
+
+```makefile
+# Shader directories
+SHADERS := shaders
+
+# Shader files
+VCGFILES := $(foreach dir,$(SHADERS),$(notdir $(wildcard $(dir)/*.vcg)))
+FCGFILES := $(foreach dir,$(SHADERS),$(notdir $(wildcard $(dir)/*.fcg)))
+
+# Compiled outputs
+VPOFILES := $(VCGFILES:.vcg=.vpo)
+FPOFILES := $(FCGFILES:.fcg=.fpo)
+
+# Include in object files
+OFILES := $(addsuffix .o,$(VPOFILES)) \
+          $(addsuffix .o,$(FPOFILES)) \
+          $(CPPFILES:.cpp=.o) $(CFILES:.c=.o)
+```
+
+### Embedding Shaders
+
+Compiled shaders are embedded as binary data:
+
+```makefile
+# Convert shader binaries to object files
+%.vpo.o : %.vpo
+    @echo $(notdir $<)
+    @$(bin2o)
+
+%.fpo.o : %.fpo
+    @echo $(notdir $<)
+    @$(bin2o)
+```
+
+### Using in Code
+
+```c
+// External shader binary data
+extern const u8 vpshader_vpo[];
+extern const u32 vpshader_vpo_size;
+extern const u8 fpshader_fpo[];
+extern const u32 fpshader_fpo_size;
+
+// Load vertex program
+rsxVertexProgram *vp = (rsxVertexProgram*)vpshader_vpo;
+rsxLoadVertexProgram(context, vp, vp->ucode);
+
+// Load fragment program
+rsxFragmentProgram *fp = (rsxFragmentProgram*)fpshader_fpo;
+rsxLoadFragmentProgramFromFile(context, fp, fp->offset);
+```
+
+## Compiler Optimization
+
+Default Cg compiler arguments (from `tools/cgcomp/source/main.cpp:76`):
+
+```c
+static const char *cgDefArgs[] = {
+    "-O3",              // Maximum optimization
+    "-fastmath",        // Fast math operations
+    "-fastprecision",   // Reduced precision
+    "-unroll",          // Loop unrolling
+    "count=8",          // Unroll count
+    "-ifcvt",           // If conversion
+    "all",              // All if conversions
+    NULL
+};
+```
+
+### Custom Compiler Options
+
+Pass additional options with `-Wcg,`:
+
+```bash
+# Disable inlining
+cgcomp -v -Wcg,noinline shader.vcg shader.vpo
+
+# Enable debug info
+cgcomp -f -Wcg,strict shader.fcg shader.fpo
+
+# Multiple options
+cgcomp -v -Wcg,nounroll -Wcg,profile=vp40 shader.vcg shader.vpo
+```
+
+## Shader Profiles
+
+PS3 RSX supports these Cg profiles (from `main.cpp:56-62`):
+
+<ParamField path="VP40" type="profile">
+  Vertex Program profile for RSX (NV40-class)
+</ParamField>
+
+<ParamField path="FP40" type="profile">
+  Fragment Program profile for RSX (NV40-class)
+</ParamField>
+
+<Note>
+The PS3 RSX is based on NVIDIA's NV47 GPU, similar to GeForce 7800.
+</Note>
+
+## Binary Format
+
+### Vertex Program Binary (VP)
+
+```c
+// From compiled output
+typedef struct {
+    u16 magic;          // 'VP' = 0x5650
+    u16 insn_start;     // Instruction start offset
+    u16 const_start;    // Constant start index
+    u16 num_regs;       // Number of registers used
+    u32 input_mask;     // Input attribute mask
+    u32 output_mask;    // Output attribute mask
+    u32 attr_off;       // Attribute table offset
+    u16 num_attr;       // Number of attributes
+    u32 const_off;      // Constant table offset
+    u16 num_const;      // Number of constants
+    u32 ucode_off;      // Microcode offset
+    u16 num_insn;       // Number of instructions
+} rsxVertexProgram;
+```
+
+### Fragment Program Binary (FP)
+
+```c
+typedef struct {
+    u16 magic;          // 'FP' = 0x4650
+    u16 num_regs;       // Number of registers
+    u32 fp_control;     // Fragment program control
+    u16 texcoords;      // Texture coordinate mask
+    u16 texcoord2D;     // 2D texture mask
+    u16 texcoord3D;     // 3D texture mask
+    u32 attr_off;       // Attribute offset
+    u16 num_attr;       // Number of attributes
+    u32 const_off;      // Constant offset
+    u16 num_const;      // Number of constants
+    u32 ucode_off;      // Microcode offset
+    u16 num_insn;       // Number of instructions
+} rsxFragmentProgram;
+```
+
+## Debugging Shaders
+
+### Dump Assembly
+
+```bash
+# Generate assembly dump
+cgcomp -v -d shader.vcg shader.vpo
+
+# View the assembly
+cat shader.vpo.dump
+```
+
+Example output:
+```asm
+!!ARBvp1.0
+ATTRIB v0 = vertex.position;
+ATTRIB v1 = vertex.color;
+ATTRIB v2 = vertex.texcoord[0];
+OUTPUT o0 = result.position;
+OUTPUT o1 = result.color;
+OUTPUT o2 = result.texcoord[0];
+
+MOV o0, v0;
+MOV o1, v1;
+MOV o2, v2;
+END
+```
+
+### Common Errors
+
+<AccordionGroup>
+  <Accordion title="Unable to load Cg">
+    Install NVIDIA Cg Toolkit:
+    ```bash
+    # Linux
+    sudo apt-get install nvidia-cg-toolkit
+    
+    # Or download from NVIDIA website
+    # Set LD_LIBRARY_PATH to Cg lib directory
+    export LD_LIBRARY_PATH=/opt/nvidia-cg-toolkit/lib:$LD_LIBRARY_PATH
+    ```
+  </Accordion>
+  
+  <Accordion title="Compilation failed">
+    Check Cg syntax errors in the output:
+    ```bash
+    cgcomp -v shader.vcg shader.vpo 2>&1 | less
+    ```
+    Common issues:
+    - Syntax errors in shader code
+    - Unsupported functions for VP40/FP40
+    - Too many instructions or registers
+  </Accordion>
+  
+  <Accordion title="Shader doesn't work on PS3">
+    The compiled shader may exceed hardware limits:
+    - Vertex programs: Max ~512 instructions
+    - Fragment programs: Max texture samplers, registers
+    - Try simplifying shader or splitting into multiple passes
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Example: Diffuse + Specular
+
+<CodeGroup>
+```glsl vertex.vcg
+void main(float4 position : POSITION,
+          float3 normal : NORMAL,
+          float2 texcoord : TEXCOORD0,
+          
+          uniform float4x4 modelViewProj,
+          uniform float4x4 modelView,
+          uniform float3x3 normalMatrix,
+          
+          out float4 oPosition : POSITION,
+          out float3 oNormal : TEXCOORD0,
+          out float3 oViewVec : TEXCOORD1,
+          out float2 oTexCoord : TEXCOORD2)
+{
+    oPosition = mul(modelViewProj, position);
+    oNormal = normalize(mul(normalMatrix, normal));
+    
+    float3 viewPos = mul(modelView, position).xyz;
+    oViewVec = -viewPos;
+    
+    oTexCoord = texcoord;
+}
+```
+
+```glsl fragment.fcg
+void main(float3 normal : TEXCOORD0,
+          float3 viewVec : TEXCOORD1,
+          float2 texcoord : TEXCOORD2,
+          
+          uniform float3 lightDir,
+          uniform float3 lightColor,
+          uniform float3 specColor,
+          uniform float shininess,
+          uniform sampler2D diffuseMap,
+          
+          out float4 oColor : COLOR0)
+{
+    float3 N = normalize(normal);
+    float3 L = normalize(lightDir);
+    float3 V = normalize(viewVec);
+    float3 H = normalize(L + V);
+    
+    // Diffuse
+    float NdotL = max(dot(N, L), 0.0);
+    float3 diffuse = lightColor * NdotL;
+    
+    // Specular
+    float NdotH = max(dot(N, H), 0.0);
+    float3 specular = specColor * pow(NdotH, shininess);
+    
+    // Texture
+    float3 texColor = tex2D(diffuseMap, texcoord).rgb;
+    
+    oColor.rgb = texColor * diffuse + specular;
+    oColor.a = 1.0;
+}
+```
+
+```bash Compile
+# Compile both shaders
+cgcomp -v vertex.vcg vertex.vpo
+cgcomp -f fragment.fcg fragment.fpo
+
+# Or with Makefile
+make
+```
+</CodeGroup>
+
+## Source Code Reference
+
+The cgcomp implementation:
+- **Main**: `tools/cgcomp/source/main.cpp:1-582`
+- **VP Compiler**: `tools/cgcomp/source/compilervp.cpp`
+- **FP Compiler**: `tools/cgcomp/source/compilerfp.cpp`
+- **VP Parser**: `tools/cgcomp/source/vpparser.cpp`
+- **FP Parser**: `tools/cgcomp/source/fpparser.cpp`
+
+### Key Functions
+
+```cpp
+// From tools/cgcomp/source/main.cpp:221
+int compileVP() {
+    // Create Cg context and compile vertex program
+    // Parse assembly output
+    // Encode to RSX binary format
+    // Write .vpo file
+}
+
+// From tools/cgcomp/source/main.cpp:382
+int compileFP() {
+    // Create Cg context and compile fragment program
+    // Parse assembly output
+    // Encode to RSX binary format
+    // Write .fpo file
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="RSX Graphics" icon="cube" href="/api/rsx">
+    Using compiled shaders with RSX
+  </Card>
+  <Card title="Build System" icon="gears" href="/concepts/build-system">
+    Automating shader compilation
+  </Card>
+  <Card title="Graphics Samples" icon="palette" href="/examples/graphics-samples">
+    Complete shader examples
+  </Card>
+  <Card title="Cg Language" icon="book" href="https://developer.download.nvidia.com/cg/index_stdlib.html">
+    Cg language reference (external)
+  </Card>
+</CardGroup>

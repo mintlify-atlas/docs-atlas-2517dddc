@@ -1,0 +1,612 @@
+---
+title: 'Network Samples'
+description: 'TCP/UDP sockets, HTTP requests, and network communication examples'
+---
+
+The network samples demonstrate PS3 networking capabilities including TCP/UDP sockets, HTTP client functionality, and network debugging.
+
+## Available Network Samples
+
+<CardGroup cols={2}>
+  <Card title="networktest" icon="network-wired">
+    Basic TCP and UDP socket communication
+  </Card>
+  
+  <Card title="httptest" icon="globe">
+    HTTP client for web requests
+  </Card>
+  
+  <Card title="echoserv" icon="server">
+    TCP echo server example
+  </Card>
+  
+  <Card title="debugtest" icon="bug">
+    Network debugging utilities
+  </Card>
+  
+  <Card title="ps3load" icon="upload">
+    Network loading of applications
+  </Card>
+</CardGroup>
+
+## PS3 Network Architecture
+
+The PS3 uses BSD-style sockets with some Sony-specific extensions:
+
+- **Standard Berkeley sockets API** (socket, bind, connect, etc.)
+- **IPv4 support** for TCP and UDP
+- **Network initialization required** before use
+- **Similar to UNIX networking** with familiar patterns
+
+## networktest - Socket Basics
+
+**Location:** `samples/network/networktest/`
+
+Demonstrates basic TCP and UDP client communication.
+
+### What It Demonstrates
+
+- Network library initialization
+- Creating TCP and UDP sockets
+- Connecting to remote servers
+- Sending data over TCP
+- Sending datagrams with UDP
+- Proper socket cleanup
+
+### TCP Client Implementation
+
+```c samples/network/networktest/source/main.c
+#include <psl1ght/lv2/net.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <malloc.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+// Configure these for your setup
+#define TESTSTRING  "y halo thar\n"
+#define TESTIP      "192.168.1.13"
+#define TESTPORT    4000
+
+void tcp_test()
+{
+    printf("Beginning TCP socket test...\n");
+
+    // Create TCP socket
+    int s = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s < 0) {
+        printf("Unable to create a socket: %d\n", errno);
+        return;
+    }
+    printf("Socket created: %d\n", s);
+
+    // Setup server address
+    struct sockaddr_in server;
+    memset(&server, 0, sizeof(server));
+    server.sin_len = sizeof(server);
+    server.sin_family = AF_INET;
+    inet_pton(AF_INET, TESTIP, &server.sin_addr);
+    server.sin_port = htons(TESTPORT);
+
+    // Connect to server
+    int ret = connect(s, (struct sockaddr*)&server, sizeof(server));
+    if (ret) {
+        printf("Unable to connect to server: %d\n", errno);
+        return;
+    }
+    printf("Connected to server successfully!\n");
+    
+    // Send data
+    ret = write(s, TESTSTRING, strlen(TESTSTRING));
+    if (ret < 0)
+        printf("Unable to send to server: %d\n", errno);
+    else
+        printf("Sent %d bytes to server!\n", ret);
+
+    // Shutdown and close
+    ret = shutdown(s, SHUT_RDWR);
+    if (ret < 0)
+        printf("Unable to shutdown socket: %d\n", errno);
+    else
+        printf("Socket shutdown successfully!\n");
+
+    ret = close(s);
+    if (ret < 0)
+        printf("Unable to close socket: %d\n", ret);
+    else
+        printf("TCP test successful!\n");
+}
+```
+
+### UDP Client Implementation
+
+```c
+void udp_test()
+{
+    printf("Beginning UDP socket test...\n");
+
+    // Create UDP socket
+    int s = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s < 0) {
+        printf("Unable to create a socket: %d\n", errno);
+        return;
+    }
+    printf("Socket created: %d\n", s);
+
+    // Setup server address
+    struct sockaddr_in server;
+    memset(&server, 0, sizeof(server));
+    server.sin_len = sizeof(server);
+    server.sin_family = AF_INET;
+    inet_pton(AF_INET, TESTIP, &server.sin_addr);
+    server.sin_port = htons(TESTPORT);
+
+    // Send datagram (no connection needed)
+    int ret = sendto(s, TESTSTRING, strlen(TESTSTRING), 0,
+                     (struct sockaddr*)&server, sizeof(server));
+    if (ret < 0)
+        printf("Unable to send to server: %d\n", errno);
+    else
+        printf("Sent %d bytes to server!\n", ret);
+
+    ret = close(s);
+    if (ret < 0)
+        printf("Unable to close socket: %d\n", ret);
+    else
+        printf("UDP test successful!\n");
+}
+
+int main(int argc, const char* argv[])
+{
+    printf("Initializing network... %d\n", netInitialize());
+    tcp_test();
+    udp_test();
+    netDeinitialize();
+    return 0;
+}
+```
+
+### Testing with Netcat
+
+On your PC, receive test data using netcat:
+
+<CodeGroup>
+```bash TCP
+# Listen on TCP port 4000
+nc -l -p 4000
+```
+
+```bash UDP
+# Listen on UDP port 4000
+nc -u -l -p 4000
+```
+</CodeGroup>
+
+<Tip>
+Some versions of netcat don't use the `-p` flag. Try `nc -l 4000` if needed.
+</Tip>
+
+## Network Programming Patterns
+
+### Network Initialization
+
+<Steps>
+  <Step title="Initialize network subsystem">
+    ```c
+    #include <psl1ght/lv2/net.h>
+    
+    int ret = netInitialize();
+    if (ret < 0) {
+        printf("Network initialization failed: %d\n", ret);
+    }
+    ```
+  </Step>
+  
+  <Step title="Create socket">
+    ```c
+    #include <sys/socket.h>
+    
+    // TCP socket
+    int tcp_sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    
+    // UDP socket
+    int udp_sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    ```
+  </Step>
+  
+  <Step title="Use socket">
+    Perform network operations (connect, send, receive, etc.)
+  </Step>
+  
+  <Step title="Cleanup">
+    ```c
+    close(sock);
+    netDeinitialize();
+    ```
+  </Step>
+</Steps>
+
+### TCP Client Pattern
+
+```c
+// 1. Create socket
+int sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+// 2. Setup server address
+struct sockaddr_in server;
+memset(&server, 0, sizeof(server));
+server.sin_len = sizeof(server);
+server.sin_family = AF_INET;
+inet_pton(AF_INET, "192.168.1.100", &server.sin_addr);
+server.sin_port = htons(8080);
+
+// 3. Connect
+if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
+    printf("Connection failed\n");
+    return;
+}
+
+// 4. Send data
+char *message = "Hello, server!";
+write(sock, message, strlen(message));
+
+// 5. Receive response
+char buffer[1024];
+int bytes = read(sock, buffer, sizeof(buffer) - 1);
+buffer[bytes] = '\0';
+printf("Received: %s\n", buffer);
+
+// 6. Close
+shutdown(sock, SHUT_RDWR);
+close(sock);
+```
+
+### TCP Server Pattern
+
+```c
+// 1. Create listening socket
+int listen_sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+// 2. Bind to port
+struct sockaddr_in addr;
+memset(&addr, 0, sizeof(addr));
+addr.sin_family = AF_INET;
+addr.sin_addr.s_addr = htonl(INADDR_ANY);
+addr.sin_port = htons(8080);
+
+if (bind(listen_sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    printf("Bind failed\n");
+    return;
+}
+
+// 3. Listen for connections
+if (listen(listen_sock, 5) < 0) {
+    printf("Listen failed\n");
+    return;
+}
+
+// 4. Accept client
+int client_sock = accept(listen_sock, NULL, NULL);
+if (client_sock < 0) {
+    printf("Accept failed\n");
+    return;
+}
+
+// 5. Communicate with client
+char buffer[1024];
+int bytes = read(client_sock, buffer, sizeof(buffer));
+write(client_sock, buffer, bytes);  // Echo back
+
+// 6. Close
+close(client_sock);
+close(listen_sock);
+```
+
+### UDP Pattern
+
+```c
+// UDP doesn't require connection
+
+// Sending
+int sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+struct sockaddr_in dest;
+memset(&dest, 0, sizeof(dest));
+dest.sin_len = sizeof(dest);
+dest.sin_family = AF_INET;
+inet_pton(AF_INET, "192.168.1.100", &dest.sin_addr);
+dest.sin_port = htons(8080);
+
+char *msg = "UDP message";
+sendto(sock, msg, strlen(msg), 0, (struct sockaddr*)&dest, sizeof(dest));
+
+// Receiving
+char buffer[1024];
+struct sockaddr_in from;
+socklen_t fromlen = sizeof(from);
+int bytes = recvfrom(sock, buffer, sizeof(buffer), 0,
+                     (struct sockaddr*)&from, &fromlen);
+
+close(sock);
+```
+
+## echoserv - Echo Server
+
+**Location:** `samples/network/echoserv/`
+
+A simple TCP server that echoes back received data.
+
+### What It Demonstrates
+
+- Creating a listening socket
+- Binding to a port
+- Accepting client connections
+- Reading and writing data
+- Basic server architecture
+
+## httptest - HTTP Client
+
+**Location:** `samples/network/httptest/`
+
+Demonstrates making HTTP requests.
+
+### What It Demonstrates
+
+- HTTP/1.1 request formatting
+- Parsing HTTP responses
+- Handling headers
+- Reading response body
+
+## Building Network Samples
+
+### Build All Network Samples
+
+```bash
+cd samples/network
+make
+```
+
+### Build Individual Sample
+
+```bash
+cd samples/network/networktest
+make
+```
+
+### Configure Test Parameters
+
+Edit the sample source to set your network parameters:
+
+```c
+#define TESTIP      "192.168.1.13"  // Your PC's IP
+#define TESTPORT    4000             // Port to connect to
+```
+
+## Network Testing Setup
+
+<Steps>
+  <Step title="Connect PS3 to network">
+    Ensure PS3 is on same network as your development PC
+  </Step>
+  
+  <Step title="Start server on PC">
+    ```bash
+    nc -l -p 4000
+    ```
+  </Step>
+  
+  <Step title="Configure sample">
+    Set TESTIP to your PC's IP address
+  </Step>
+  
+  <Step title="Build and run">
+    ```bash
+    make
+    ps3load networktest.self
+    ```
+  </Step>
+  
+  <Step title="Observe output">
+    You should see the test message arrive on your PC
+  </Step>
+</Steps>
+
+## Common Networking Patterns
+
+<AccordionGroup>
+  <Accordion title="Non-blocking sockets">
+    ```c
+    #include <fcntl.h>
+    
+    int sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+    
+    // Now operations won't block
+    int ret = connect(sock, &addr, sizeof(addr));
+    if (ret < 0 && errno == EINPROGRESS) {
+        // Connection in progress
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Socket timeouts">
+    ```c
+    struct timeval timeout;
+    timeout.tv_sec = 5;   // 5 seconds
+    timeout.tv_usec = 0;
+    
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+               &timeout, sizeof(timeout));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
+               &timeout, sizeof(timeout));
+    ```
+  </Accordion>
+  
+  <Accordion title="Error handling">
+    ```c
+    int ret = send(sock, data, len, 0);
+    if (ret < 0) {
+        switch(errno) {
+            case ECONNRESET:
+                printf("Connection reset by peer\n");
+                break;
+            case ETIMEDOUT:
+                printf("Connection timed out\n");
+                break;
+            case EPIPE:
+                printf("Broken pipe\n");
+                break;
+            default:
+                printf("Send error: %d\n", errno);
+        }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Select for multiple sockets">
+    ```c
+    fd_set readfds;
+    struct timeval tv;
+    
+    FD_ZERO(&readfds);
+    FD_SET(sock1, &readfds);
+    FD_SET(sock2, &readfds);
+    
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    
+    int ret = select(FD_SETSIZE, &readfds, NULL, NULL, &tv);
+    if (ret > 0) {
+        if (FD_ISSET(sock1, &readfds)) {
+            // sock1 has data
+        }
+        if (FD_ISSET(sock2, &readfds)) {
+            // sock2 has data
+        }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Socket Options
+
+```c
+// Reuse address (useful for servers)
+int reuse = 1;
+setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+// Keep-alive
+int keepalive = 1;
+setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+
+// Send/receive buffer sizes
+int bufsize = 64 * 1024;  // 64KB
+setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
+setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &bufsize, sizeof(bufsize));
+
+// TCP no delay (disable Nagle's algorithm)
+int nodelay = 1;
+setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Initialize Once" icon="power-off">
+    Call `netInitialize()` once at startup, `netDeinitialize()` at shutdown
+  </Card>
+  
+  <Card title="Check Return Values" icon="check">
+    Always check return values and handle errors appropriately
+  </Card>
+  
+  <Card title="Set Timeouts" icon="clock">
+    Use socket timeouts to prevent indefinite blocking
+  </Card>
+  
+  <Card title="Clean Shutdown" icon="stop">
+    Call `shutdown()` before `close()` for TCP sockets
+  </Card>
+  
+  <Card title="Buffer Sizes" icon="database">
+    Use appropriate buffer sizes for your application
+  </Card>
+  
+  <Card title="Error Handling" icon="exclamation-triangle">
+    Handle network errors gracefully - connections can drop
+  </Card>
+</CardGroup>
+
+## Common Network Functions
+
+### Address Conversion
+
+```c
+// String to binary
+struct in_addr addr;
+inet_pton(AF_INET, "192.168.1.100", &addr);
+
+// Binary to string
+char ip_str[INET_ADDRSTRLEN];
+inet_ntop(AF_INET, &addr, ip_str, sizeof(ip_str));
+
+// Host to network byte order
+uint16_t port = htons(8080);
+uint32_t addr_net = htonl(INADDR_ANY);
+
+// Network to host byte order
+uint16_t port_host = ntohs(port);
+uint32_t addr_host = ntohl(addr_net);
+```
+
+## Debugging Network Issues
+
+<Steps>
+  <Step title="Check network initialization">
+    Verify `netInitialize()` returns success
+  </Step>
+  
+  <Step title="Verify IP configuration">
+    Check PS3 network settings in XMB
+  </Step>
+  
+  <Step title="Test connectivity">
+    Try pinging the PS3 from your PC
+  </Step>
+  
+  <Step title="Check firewall">
+    Ensure firewall allows connections on test ports
+  </Step>
+  
+  <Step title="Monitor traffic">
+    Use Wireshark to see network packets
+  </Step>
+  
+  <Step title="Check errno">
+    Print `errno` when operations fail
+  </Step>
+</Steps>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Network API Reference" icon="book" href="/api/net">
+    Complete network API documentation
+  </Card>
+  
+  <Card title="Socket Programming" icon="plug" href="/networking/sockets">
+    In-depth networking guide
+  </Card>
+  
+  <Card title="HTTP Client" icon="globe" href="/networking/http-client">
+    Making HTTP requests
+  </Card>
+  
+  <Card title="Threading" icon="gears" href="/system/threads">
+    Multi-threaded network servers
+  </Card>
+</CardGroup>

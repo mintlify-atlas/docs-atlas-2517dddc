@@ -1,0 +1,444 @@
+---
+title: 'Debugging'
+description: 'Debug PSL1GHT applications on PlayStation 3 hardware'
+---
+
+## Overview
+
+PSL1GHT provides multiple debugging methods for PS3 homebrew development. Since traditional debuggers aren't available for PS3 homebrew, PSL1GHT offers alternative approaches including TTY output, network debugging, and remote loading.
+
+## STDOUT/STDERR TTY Redirection
+
+By default, PSL1GHT applications automatically redirect `stdout` and `stderr` to the PS3's low-level TTY interface (source:~/workspace/source/README.md:86-92).
+
+### TTY System Calls
+
+PSL1GHT uses the LV2 TTY interface for console output (source:~/workspace/source/ppu/include/sys/tty.h:14-24):
+
+```c
+#include <sys/tty.h>
+
+// Write to TTY
+s32 sysTtyWrite(s32 channel, const void *ptr, u32 len, u32 *written);
+
+// Read from TTY  
+s32 sysTtyRead(s32 channel, void *ptr, u32 len, u32 *read);
+```
+
+<Note>
+Standard C functions like `printf()`, `puts()`, and `fprintf(stderr, ...)` automatically use TTY output. No special configuration is needed!
+</Note>
+
+### TTY Channels
+
+- **Channel 0**: System console (requires debug firmware)
+- **Channel 1-15**: Available for custom use
+
+```c
+#include <sys/tty.h>
+
+void debug_log(const char *message) {
+    u32 written;
+    sysTtyWrite(1, message, strlen(message), &written);
+}
+```
+
+## Network Debugging with ethdebug
+
+The most practical debugging method for retail PS3 consoles is network-based debugging using the **ethdebug** module.
+
+### ethdebug Module
+
+Kammy's ethdebug module captures TTY output and broadcasts it over UDP packets (source:~/workspace/source/README.md:86-92):
+
+<Steps>
+  <Step title="Install ethdebug">
+    Download and install the ethdebug hook loader from the [Kammy](http://github.com/AerialX/Kammy) project. This provides a precompiled ethdebug module.
+  </Step>
+
+  <Step title="Enable ethdebug">
+    Load the ethdebug module on your PS3. This is typically done through a hook loader that runs on boot.
+  </Step>
+
+  <Step title="Configure Network">
+    Ensure your PS3 and development PC are on the same network segment for UDP broadcasts.
+  </Step>
+
+  <Step title="Receive Debug Output">
+    Run a UDP listener on your development PC to receive the debug messages.
+  </Step>
+</Steps>
+
+### Receiving ethdebug Output
+
+On your development machine:
+
+```bash
+# Linux/macOS
+nc -l -u 18194
+
+# Or use netcat to save to file
+nc -l -u 18194 | tee debug.log
+```
+
+All `printf()` and `fprintf(stderr, ...)` output will appear in your terminal!
+
+<Tip>
+ethdebug broadcasts continuously, so you can start your netcat listener at any time and it will catch new output.
+</Tip>
+
+## Manual Network Debugging
+
+For firmware versions where ethdebug isn't available (e.g., 3.55+), you can implement custom network debugging (source:~/workspace/source/samples/network/debugtest/source/main.c:1-64).
+
+### Network Debug Example
+
+```c debugtest.c
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include <net/net.h>
+#include <netinet/in.h>
+
+static int SocketFD;
+#define DEBUG_IP "192.168.1.100"  // Your PC's IP
+#define DEBUG_PORT 18194
+
+void debugPrintf(const char* fmt, ...) {
+    char buffer[0x800];
+    va_list arg;
+    va_start(arg, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, arg);
+    va_end(arg);
+    netSend(SocketFD, buffer, strlen(buffer), 0);
+}
+
+void debugInit() {
+    struct sockaddr_in stSockAddr;
+    
+    // Create UDP socket
+    SocketFD = netSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    
+    memset(&stSockAddr, 0, sizeof stSockAddr);
+    stSockAddr.sin_family = AF_INET;
+    stSockAddr.sin_port = htons(DEBUG_PORT);
+    inet_pton(AF_INET, DEBUG_IP, &stSockAddr.sin_addr);
+    
+    netConnect(SocketFD, (struct sockaddr *)&stSockAddr, 
+               sizeof stSockAddr);
+    
+    debugPrintf("Network debug initialized\n");
+}
+
+int main(int argc, char *argv[]) {
+    netInitialize();
+    debugInit();
+    
+    debugPrintf("Application started\n");
+    debugPrintf("argc = %d\n", argc);
+    
+    // Your application code here
+    
+    return 0;
+}
+```
+
+<Warning>
+**Important**: Update `DEBUG_IP` to your development PC's IP address. The PS3 and PC must be on the same network.
+</Warning>
+
+### Usage Instructions
+
+1. Set `DEBUG_IP` to your PC's IP address in the code above
+2. Start netcat listener on your PC:
+   ```bash
+   nc -l -u 18194
+   ```
+3. Compile and run your application on PS3
+4. Debug messages appear in your terminal
+
+<Note>
+You need to restart netcat after each application run. Consider writing a wrapper script to auto-restart it.
+</Note>
+
+## Debugging with ps3load
+
+The `ps3load` tool enables rapid development by loading ELF files over the network directly to your PS3 (source:~/workspace/source/ppu_rules:31).
+
+### Installing ps3load Server
+
+On your PS3, you need a ps3load server running. This is typically provided by PS3 homebrew managers.
+
+### Using ps3load
+
+```bash
+# Build your application
+make
+
+# Load and run on PS3
+ps3load myapp.elf
+```
+
+<Tip>
+`ps3load` is much faster than creating a PKG, copying to USB, and installing. It's ideal for rapid iteration during development.
+</Tip>
+
+### ps3load with Arguments
+
+```bash
+# Pass command-line arguments
+ps3load myapp.elf -- arg1 arg2 arg3
+```
+
+### ps3load Features
+
+- **Fast deployment**: No PKG creation or USB transfer needed
+- **Automatic execution**: Loads and runs immediately
+- **Console output**: Can capture stdout/stderr
+- **Exit codes**: Reports application exit status
+
+## Debug Font Rendering
+
+For on-screen debugging without network access, use the debug font renderer (source:~/workspace/source/samples/graphics/debugfont_renderer):
+
+```c
+#include <debugfont.h>
+#include <debugfontrenderer.h>
+
+int main() {
+    // Initialize graphics
+    // ... GCM initialization code ...
+    
+    // Initialize debug font
+    DbgFontInit();
+    
+    // Render debug text
+    DbgFontPrintf(0.1f, 0.1f, 1.0f, 0xffffffff, 
+                  "FPS: %d", current_fps);
+    DbgFontPrintf(0.1f, 0.15f, 1.0f, 0xffffffff,
+                  "Memory: %d KB", memory_used);
+    
+    DbgFontDraw();
+    
+    return 0;
+}
+```
+
+<Accordion title="Debug Font Features">
+- Render text directly to the framebuffer
+- No external font files required
+- Useful for displaying real-time stats
+- Works without network connection
+- Perfect for performance counters and state information
+</Accordion>
+
+## Common Debugging Patterns
+
+### Conditional Debug Builds
+
+```c
+// debug.h
+#ifdef DEBUG_BUILD
+    #define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+#else
+    #define DEBUG_PRINTF(...) do {} while(0)
+#endif
+
+// Usage
+DEBUG_PRINTF("Value of x: %d\n", x);
+```
+
+In your Makefile:
+
+```makefile
+# Debug build
+ifdef DEBUG
+CFLAGS += -DDEBUG_BUILD -g -O0
+else
+CFLAGS += -O2
+endif
+```
+
+Build with debugging:
+```bash
+make DEBUG=1
+```
+
+### Assert Macros
+
+```c
+#include <assert.h>
+
+void process_data(void *data) {
+    assert(data != NULL);
+    assert(is_valid(data));
+    
+    // Process data...
+}
+```
+
+<Warning>
+Asserts are only active in debug builds. Use `assert.h` carefully and ensure your release builds disable asserts or handle failures gracefully.
+</Warning>
+
+### Memory Debugging
+
+```c
+#define DEBUG_MALLOC(size) debug_malloc(size, __FILE__, __LINE__)
+#define DEBUG_FREE(ptr) debug_free(ptr, __FILE__, __LINE__)
+
+void* debug_malloc(size_t size, const char *file, int line) {
+    void *ptr = malloc(size);
+    printf("ALLOC: %p (%zu bytes) at %s:%d\n", 
+           ptr, size, file, line);
+    return ptr;
+}
+
+void debug_free(void *ptr, const char *file, int line) {
+    printf("FREE: %p at %s:%d\n", ptr, file, line);
+    free(ptr);
+}
+```
+
+### State Dumping
+
+```c
+void dump_game_state(GameState *state) {
+    printf("=== Game State Dump ===\n");
+    printf("Player X: %f, Y: %f, Z: %f\n", 
+           state->player.x, state->player.y, state->player.z);
+    printf("Health: %d/%d\n", 
+           state->player.health, state->player.max_health);
+    printf("Score: %d\n", state->score);
+    printf("Level: %d\n", state->current_level);
+    printf("======================\n");
+}
+```
+
+## Performance Profiling
+
+### Manual Timing
+
+```c
+#include <sys/systime.h>
+
+u64 get_time_microseconds() {
+    return sysGetSystemTime();
+}
+
+void profile_function() {
+    u64 start = get_time_microseconds();
+    
+    // Code to profile
+    expensive_operation();
+    
+    u64 end = get_time_microseconds();
+    printf("Operation took %llu microseconds\n", end - start);
+}
+```
+
+### Frame Time Tracking
+
+```c
+#define MAX_SAMPLES 60
+u64 frame_times[MAX_SAMPLES];
+int frame_index = 0;
+
+void update_frame_stats() {
+    static u64 last_frame = 0;
+    u64 now = sysGetSystemTime();
+    
+    frame_times[frame_index] = now - last_frame;
+    frame_index = (frame_index + 1) % MAX_SAMPLES;
+    
+    // Calculate average FPS
+    u64 total = 0;
+    for (int i = 0; i < MAX_SAMPLES; i++) {
+        total += frame_times[i];
+    }
+    u64 avg = total / MAX_SAMPLES;
+    float fps = 1000000.0f / avg;
+    
+    printf("FPS: %.2f (frame time: %llu us)\n", fps, avg);
+    
+    last_frame = now;
+}
+```
+
+## Debugging Crashes
+
+### Systematic Crash Investigation
+
+<Steps>
+  <Step title="Add Debug Output">
+    Add `printf()` statements before suspected crash points:
+    ```c
+    printf("Checkpoint 1\n");
+    risky_operation();
+    printf("Checkpoint 2\n");
+    ```
+  </Step>
+
+  <Step title="Narrow Down">
+    Progressively add more checkpoints to isolate the exact line causing the crash.
+  </Step>
+
+  <Step title="Check Common Issues">
+    - Null pointer dereferences
+    - Buffer overflows
+    - Stack corruption
+    - Unaligned memory access (PS3 is sensitive to this!)
+  </Step>
+
+  <Step title="Verify Memory Alignment">
+    ```c
+    // PS3 requires aligned access for some types
+    u64 value;
+    memcpy(&value, unaligned_ptr, sizeof(u64));  // Safe
+    // vs
+    u64 value = *(u64*)unaligned_ptr;  // May crash!
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+The PS3's PowerPC architecture is **very strict** about memory alignment. Unaligned access is a common cause of crashes. See [Optimization](/advanced/optimization) for alignment techniques.
+</Warning>
+
+## Debugging SPU Code
+
+SPU debugging is more challenging due to their isolated memory space:
+
+```c
+// PPU side
+printf("Loading SPU program...\n");
+sysSpuRawImageLoad(spu_id, &image);
+printf("SPU loaded, starting...\n");
+
+// SPU side (limited printf support)
+// Use mailboxes for status reporting
+spu_write_out_mbox(0xDEADBEEF);  // Signal completion
+```
+
+### SPU Debugging Tips
+
+- Use mailboxes to send status codes to PPU
+- Keep SPU programs simple during development
+- Test SPU code in isolation before integration
+- Use the sputest sample as a reference (source:~/workspace/source/samples/spu/sputest)
+
+## Debugging Checklist
+
+- [ ] Enable network debugging or ethdebug
+- [ ] Add debug output at key points
+- [ ] Verify memory alignment for all casts
+- [ ] Check for null pointers before dereferencing
+- [ ] Test with small datasets first
+- [ ] Profile performance bottlenecks
+- [ ] Test error handling paths
+- [ ] Verify cleanup code runs properly
+
+## See Also
+
+- [SPRX Libraries](/advanced/sprx-libraries) - Debug dynamic linking issues
+- [Optimization](/advanced/optimization) - Profile and optimize performance

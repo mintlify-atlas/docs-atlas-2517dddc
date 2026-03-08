@@ -1,0 +1,353 @@
+---
+title: sprxlinker - SPRX Stub Linker
+description: Prepare ELF executables for SPRX dynamic library linking on PS3
+---
+
+## Overview
+
+The `sprxlinker` tool modifies ELF executables to prepare them for PlayStation 3 SPRX (Shared PRX) dynamic library linking. It fixes import stubs, function descriptors (OPDs), and ELF headers to conform to PS3 Cell OS requirements.
+
+<Note>
+This tool must be run on your ELF file **before** converting it to SELF format with fself.
+</Note>
+
+## What is SPRX?
+
+<CardGroup cols={2}>
+  <Card title="SPRX Libraries" icon="book">
+    Shared libraries (similar to .so/.dll) that provide system functions and APIs on PS3. Examples: libc, libgcm_sys, librsx.
+  </Card>
+  <Card title="Import Stubs" icon="link">
+    Function stubs that link your application to SPRX exports at runtime. Must be properly formatted for the PS3 loader.
+  </Card>
+</CardGroup>
+
+## Why sprxlinker?
+
+When compiling PS3 applications with ppu-gcc, the linker creates import stubs for external library functions. However, these stubs need special formatting for the PS3's dynamic loader:
+
+1. **OPD (Official Procedure Descriptor) Fixing**: Function pointers need special 64-bit descriptors
+2. **Import Count Correction**: The number of imported functions must be accurately counted
+3. **ELF Header Modification**: The OS/ABI field must be set to `ELFOSABI_CELLLV2` (102)
+
+## Command-Line Usage
+
+```bash
+sprxlinker [elf-path]
+```
+
+### Example
+
+```bash
+# Fix SPRX stubs in executable
+sprxlinker myapp.elf
+
+# File is modified in-place
+fself myapp.elf myapp.self
+```
+
+<Warning>
+`sprxlinker` modifies the ELF file **in-place**. Make a backup if you need the original.
+</Warning>
+
+## What sprxlinker Does
+
+<Steps>
+  <Step title="Set ELF OS/ABI">
+    Marks the executable as a Cell LV2 application:
+    ```c
+    // From tools/sprxlinker/linker.c:121
+    ehdr->e_ident[EI_OSABI] = ELFOSABI_CELLLV2;  // 102
+    ```
+  </Step>
+  
+  <Step title="Verify PRX Parameter Section">
+    Checks for required `.sys_proc_prx_param` section with magic bytes:
+    ```
+    0x00 0x00 0x00 0x28 0x1b 0x43 0x4c 0xec
+    ```
+  </Step>
+  
+  <Step title="Fix Import Stub Counts">
+    Scans `.lib.stub` section and corrects import counts based on `.rodata.sceFNID` entries
+  </Step>
+  
+  <Step title="Fix OPD Descriptors">
+    Modifies `.opd` section function descriptors to proper 64-bit format
+  </Step>
+</Steps>
+
+## Build System Integration
+
+The sprxlinker is automatically called in PSL1GHT's `ppu_rules`:
+
+```makefile
+%.self: %.elf
+    $(STRIP) $< -o $(BUILDDIR)/$(notdir $<)
+    $(SPRX) $(BUILDDIR)/$(notdir $<)        # <- sprxlinker called here
+    $(SELF) $(BUILDDIR)/$(notdir $<) $@
+```
+
+### Automatic Usage
+
+When using PSL1GHT Makefiles, sprxlinker runs automatically:
+
+```bash
+make
+# Compiles -> Links -> Strips -> sprxlinker -> fself
+```
+
+## Technical Details
+
+### Import Stub Structure
+
+The PS3 import stub format (from `tools/sprxlinker/linker.c:29`):
+
+```c
+typedef struct _stub {
+    uint32_t header1;      // Stub header identifier
+    uint16_t header2;      // Version info
+    uint16_t imports;      // Number of imports (fixed by sprxlinker)
+    uint32_t zero1;
+    uint32_t zero2;
+    uint32_t name;         // Pointer to library name
+    uint32_t fnid;         // Pointer to function ID table
+    uint32_t stub;         // Pointer to stub table
+    uint32_t zero3;
+    uint32_t zero4;
+    uint32_t zero5;
+    uint32_t zero6;
+} __attribute__((packed)) Stub;
+```
+
+### OPD (Official Procedure Descriptor)
+
+Function descriptors on PowerPC 64-bit (from `linker.c:45`):
+
+```c
+typedef struct _opd64 {
+    uint64_t func;    // Function address
+    uint64_t rtoc;    // TOC (Table of Contents) pointer
+    uint64_t data;    // Environment/data pointer (fixed by sprxlinker)
+} __attribute__((packed)) Opd64;
+```
+
+sprxlinker combines func and rtoc into the data field:
+
+```c
+// From linker.c:166
+opd->data = BE64(((BE64(opd->func)<<32ULL) | (BE64(opd->rtoc)&0xffffffffULL)));
+```
+
+### Import Count Correction
+
+The tool calculates the correct import count by scanning function IDs:
+
+```c
+// From linker.c:139-150
+for(Stub *stub = stubbase; stub < stubbase + stubcount; stub++) {
+    uint32_t fnid = BE32(stub->fnid);
+    uint32_t end = fnidshdr->sh_addr + fnidshdr->sh_size;
+    
+    // Find next stub's FNID to determine boundary
+    for(Stub *substub = stubbase; substub < (stubbase + stubcount); substub++) {
+        if(stub == substub) continue;
+        uint32_t newfnid = BE32(substub->fnid);
+        if(newfnid >= fnid && newfnid < end) end = newfnid;
+    }
+    
+    uint16_t fnidcount = (end - fnid) / 4;
+    // Write corrected count back to stub
+}
+```
+
+## SPRX Export Files
+
+While sprxlinker fixes **imports**, SPRX libraries themselves define **exports** using `.exports` files.
+
+### Example Export File
+
+```
+# Library exports
+PSL1GHT_EXPORT_C(functionName);
+PSL1GHT_EXPORT_C_DEBUG(debugFunction);
+```
+
+<Tip>
+Look in `ppu/sprx/` for examples of SPRX library implementations in PSL1GHT.
+</Tip>
+
+## Error Messages
+
+### "Unable to open elf file"
+
+```bash
+sprxlinker myapp.elf
+# Error: Unable to open elf file: myapp.elf
+```
+
+**Solution**: Check file path and permissions
+
+### "libelf could not read elf file"
+
+The file is not a valid ELF or is corrupted.
+
+```bash
+file myapp.elf  # Should show: ELF 64-bit MSB executable, 64-bit PowerPC
+```
+
+### "elf does not have a prx parameter section"
+
+Your ELF is missing the required `.sys_proc_prx_param` section.
+
+**Solution**: Ensure you're linking with PSL1GHT libraries that provide this section.
+
+## Complete Build Example
+
+<CodeGroup>
+```bash Manual Build
+# Compile source to object files
+ppu-gcc -c main.c -o main.o -I$PSL1GHT/ppu/include
+
+# Link with SPRX libraries
+ppu-gcc main.o -o myapp.elf \
+    -L$PSL1GHT/ppu/lib \
+    -lrsx -lgcm_sys -lsysutil -lrt -llv2
+
+# Strip debugging symbols
+ppu-strip myapp.elf -o myapp.stripped.elf
+
+# Fix SPRX imports and OPDs
+sprxlinker myapp.stripped.elf
+
+# Convert to SELF
+fself myapp.stripped.elf myapp.self
+```
+
+```makefile Makefile (Automatic)
+include $(PSL1GHT)/ppu_rules
+
+TARGET := myapp
+SOURCES := source
+
+LIBS := -lrsx -lgcm_sys -lsysutil -lrt -llv2
+
+# sprxlinker called automatically during .self target
+$(TARGET).self: $(TARGET).elf
+
+run: $(TARGET).self
+    ps3load $(TARGET).self
+```
+</CodeGroup>
+
+## Common Library Stubs
+
+Libraries that require sprxlinker processing:
+
+<CardGroup cols={2}>
+  <Card title="librsx" icon="cube">
+    RSX graphics library for 3D rendering
+  </Card>
+  <Card title="libgcm_sys" icon="display">
+    Graphics Command Manager system
+  </Card>
+  <Card title="libsysutil" icon="gears">
+    System utility functions
+  </Card>
+  <Card title="liblv2" icon="server">
+    Low-level system calls
+  </Card>
+  <Card title="libio" icon="hard-drive">
+    I/O operations
+  </Card>
+  <Card title="libnet" icon="network-wired">
+    Network functions
+  </Card>
+</CardGroup>
+
+## Verifying SPRX Linking
+
+Check if your ELF has proper sections:
+
+```bash
+# View ELF sections
+ppu-readelf -S myapp.elf | grep -E '(prx_param|lib.stub|opd|sceFNID)'
+
+# Expected output:
+#   [23] .sys_proc_prx_param PROGBITS ...
+#   [24] .lib.stub         PROGBITS ...
+#   [25] .rodata.sceFNID   PROGBITS ...
+#   [26] .opd              PROGBITS ...
+```
+
+### Check OS/ABI
+
+```bash
+ppu-readelf -h myapp.elf | grep OS/ABI
+
+# Before sprxlinker:
+#   OS/ABI:                            UNIX - System V
+
+# After sprxlinker:
+#   OS/ABI:                            <unknown: 102>  # CELLLV2
+```
+
+## Source Code Reference
+
+The sprxlinker implementation:
+- **Main**: `tools/sprxlinker/linker.c:1-178`
+- **Key Functions**:
+  - `getSection()`: `linker.c:57` - Find ELF sections by name
+  - `set_ehdr()`: `linker.c:72` - Write modified ELF header
+  - `main()`: `linker.c:98` - Process stubs and OPDs
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Application crashes on PS3 startup">
+    The SPRX stubs may not be properly linked. Ensure:
+    1. sprxlinker ran successfully (no errors)
+    2. You're linking against the correct SPRX libraries
+    3. Function imports match exported symbols
+    
+    ```bash
+    # Check for undefined symbols
+    ppu-nm myapp.elf | grep " U "
+    ```
+  </Accordion>
+  
+  <Accordion title="Symbol not found errors">
+    Your application is trying to import a function that doesn't exist in the SPRX:
+    
+    - Check library version compatibility
+    - Verify function names match exports
+    - Ensure all required libraries are linked
+  </Accordion>
+  
+  <Accordion title="sprxlinker changes don't take effect">
+    Make sure you're running sprxlinker on the **stripped** ELF before creating the SELF:
+    
+    ```bash
+    ppu-strip myapp.elf -o myapp.tmp
+    sprxlinker myapp.tmp
+    fself myapp.tmp myapp.self
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="FSELF Tool" icon="file-code" href="/tools/fself">
+    Convert ELF to SELF (run after sprxlinker)
+  </Card>
+  <Card title="Build System" icon="gears" href="/concepts/build-system">
+    Automated build process integration
+  </Card>
+  <Card title="Libraries" icon="books" href="/advanced/sprx-libraries">
+    Available PSL1GHT SPRX libraries
+  </Card>
+  <Card title="Linking" icon="link" href="/advanced/sprx-libraries">
+    Understanding the linking process
+  </Card>
+</CardGroup>

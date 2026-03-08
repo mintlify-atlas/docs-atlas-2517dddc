@@ -1,0 +1,423 @@
+---
+title: Berkeley Sockets
+description: Network communication using the Berkeley sockets API on PlayStation 3
+---
+
+PSL1GHT provides a Berkeley sockets implementation for TCP and UDP network communication. The API is similar to standard POSIX sockets with some PS3-specific initialization requirements.
+
+## Initialization
+
+Before using any network functions, initialize the network subsystem:
+
+```c samples/network/networktest/source/main.c
+#include <psl1ght/lv2/net.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+s32 ret = netInitialize();
+if (ret < 0) {
+    printf("Failed to initialize network: %d\n", ret);
+    return -1;
+}
+```
+
+<Note>
+  Always call `netDeinitialize()` before your application exits to clean up network resources.
+</Note>
+
+## TCP Communication
+
+### TCP Client
+
+Create a TCP client connection:
+
+<Steps>
+  <Step title="Create a socket">
+    ```c samples/network/networktest/source/main.c
+    int s = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s < 0) {
+        printf("Failed to create socket: %d\n", errno);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Configure server address">
+    ```c samples/network/networktest/source/main.c
+    struct sockaddr_in server;
+    memset(&server, 0, sizeof(server));
+    server.sin_len = sizeof(server);
+    server.sin_family = AF_INET;
+    inet_pton(AF_INET, "192.168.1.100", &server.sin_addr);
+    server.sin_port = htons(4000);
+    ```
+  </Step>
+
+  <Step title="Connect to server">
+    ```c samples/network/networktest/source/main.c
+    int ret = connect(s, (struct sockaddr*)&server, sizeof(server));
+    if (ret != 0) {
+        printf("Failed to connect: %d\n", errno);
+        close(s);
+        return -1;
+    }
+    printf("Connected successfully!\n");
+    ```
+  </Step>
+
+  <Step title="Send and receive data">
+    ```c samples/network/networktest/source/main.c
+    const char *message = "Hello, server!\n";
+    ret = write(s, message, strlen(message));
+    if (ret < 0) {
+        printf("Failed to send: %d\n", errno);
+    } else {
+        printf("Sent %d bytes\n", ret);
+    }
+
+    // Receive response
+    char buffer[1024];
+    ret = read(s, buffer, sizeof(buffer) - 1);
+    if (ret > 0) {
+        buffer[ret] = '\0';
+        printf("Received: %s\n", buffer);
+    }
+    ```
+  </Step>
+
+  <Step title="Close the connection">
+    ```c samples/network/networktest/source/main.c
+    shutdown(s, SHUT_RDWR);
+    close(s);
+    ```
+  </Step>
+</Steps>
+
+### TCP Server
+
+Create a TCP server to accept incoming connections:
+
+```c samples/network/echoserv/source/echoserv.c
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <net/net.h>
+
+#define LISTEN_PORT 2002
+#define MAX_BACKLOG 5
+
+int main(void) {
+    netInitialize();
+    
+    // Create listening socket
+    int listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_sock < 0) {
+        printf("Failed to create socket\n");
+        return -1;
+    }
+    
+    // Bind to address
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(LISTEN_PORT);
+    
+    if (bind(listen_sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        printf("Failed to bind\n");
+        close(listen_sock);
+        return -1;
+    }
+    
+    // Start listening
+    if (listen(listen_sock, MAX_BACKLOG) < 0) {
+        printf("Failed to listen\n");
+        close(listen_sock);
+        return -1;
+    }
+    
+    printf("Server listening on port %d\n", LISTEN_PORT);
+    
+    // Accept connections
+    while (1) {
+        int client_sock = accept(listen_sock, NULL, NULL);
+        if (client_sock < 0) {
+            printf("Accept failed\n");
+            continue;
+        }
+        
+        printf("Client connected\n");
+        
+        // Handle client (echo server example)
+        char buffer[1024];
+        ssize_t n = recv(client_sock, buffer, sizeof(buffer), 0);
+        if (n > 0) {
+            send(client_sock, buffer, n, 0);  // Echo back
+        }
+        
+        close(client_sock);
+    }
+    
+    close(listen_sock);
+    netDeinitialize();
+    return 0;
+}
+```
+
+<Warning>
+  The PS3 has limited resources. Don't create too many simultaneous connections or large buffers.
+</Warning>
+
+## UDP Communication
+
+### UDP Client
+
+Send and receive UDP datagrams:
+
+```c samples/network/networktest/source/main.c
+// Create UDP socket
+int s = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+if (s < 0) {
+    printf("Failed to create UDP socket: %d\n", errno);
+    return -1;
+}
+
+// Configure destination
+struct sockaddr_in dest;
+memset(&dest, 0, sizeof(dest));
+dest.sin_len = sizeof(dest);
+dest.sin_family = AF_INET;
+inet_pton(AF_INET, "192.168.1.100", &dest.sin_addr);
+dest.sin_port = htons(4000);
+
+// Send datagram
+const char *message = "UDP message\n";
+int ret = sendto(s, message, strlen(message), 0, 
+                 (struct sockaddr*)&dest, sizeof(dest));
+if (ret < 0) {
+    printf("Failed to send: %d\n", errno);
+} else {
+    printf("Sent %d bytes\n", ret);
+}
+
+close(s);
+```
+
+### UDP Server
+
+Receive UDP datagrams:
+
+```c
+// Create and bind UDP socket
+int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+struct sockaddr_in addr;
+memset(&addr, 0, sizeof(addr));
+addr.sin_family = AF_INET;
+addr.sin_addr.s_addr = htonl(INADDR_ANY);
+addr.sin_port = htons(4000);
+
+bind(s, (struct sockaddr*)&addr, sizeof(addr));
+
+// Receive datagrams
+char buffer[1024];
+struct sockaddr_in from;
+socklen_t fromlen = sizeof(from);
+
+while (1) {
+    ssize_t n = recvfrom(s, buffer, sizeof(buffer), 0,
+                         (struct sockaddr*)&from, &fromlen);
+    if (n > 0) {
+        buffer[n] = '\0';
+        printf("Received: %s\n", buffer);
+        
+        // Can send response back to sender
+        sendto(s, buffer, n, 0, (struct sockaddr*)&from, fromlen);
+    }
+}
+```
+
+## Socket Options
+
+Configure socket behavior using `setsockopt()`:
+
+```c net/socket.h
+// Enable address reuse
+int optval = 1;
+setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+
+// Set send buffer size
+int bufsize = 65536;
+setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
+
+// Set receive timeout
+struct timeval tv;
+tv.tv_sec = 5;
+tv.tv_usec = 0;
+setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+// Enable non-blocking mode
+int nonblock = 1;
+setsockopt(sock, SOL_SOCKET, SO_NBIO, &nonblock, sizeof(nonblock));
+```
+
+Common socket options:
+
+| Option | Description |
+|--------|-------------|
+| `SO_REUSEADDR` | Allow address reuse |
+| `SO_KEEPALIVE` | Enable TCP keepalive |
+| `SO_SNDBUF` | Send buffer size |
+| `SO_RCVBUF` | Receive buffer size |
+| `SO_SNDTIMEO` | Send timeout |
+| `SO_RCVTIMEO` | Receive timeout |
+| `SO_NBIO` | Non-blocking mode |
+
+## Error Handling
+
+Network functions return error codes through `errno`:
+
+```c net/net.h
+if (connect(s, &addr, sizeof(addr)) < 0) {
+    switch (errno) {
+        case NET_ECONNREFUSED:
+            printf("Connection refused\n");
+            break;
+        case NET_ETIMEDOUT:
+            printf("Connection timed out\n");
+            break;
+        case NET_ENETUNREACH:
+            printf("Network unreachable\n");
+            break;
+        default:
+            printf("Connection error: %d\n", errno);
+    }
+}
+```
+
+Common error codes (from `net/net.h`):
+
+- `NET_EAGAIN` / `NET_EWOULDBLOCK` - Operation would block
+- `NET_ECONNREFUSED` - Connection refused
+- `NET_ETIMEDOUT` - Operation timed out
+- `NET_ENETUNREACH` - Network unreachable
+- `NET_EADDRINUSE` - Address already in use
+- `NET_ECONNRESET` - Connection reset by peer
+
+## Non-Blocking I/O
+
+Use `select()` or `poll()` for non-blocking operations:
+
+<CodeGroup>
+```c select()
+#include <net/select.h>
+
+fd_set readfds, writefds;
+struct timeval timeout;
+
+FD_ZERO(&readfds);
+FD_SET(sock, &readfds);
+
+timeout.tv_sec = 1;
+timeout.tv_usec = 0;
+
+int ret = select(sock + 1, &readfds, NULL, NULL, &timeout);
+if (ret > 0 && FD_ISSET(sock, &readfds)) {
+    // Socket is ready for reading
+    recv(sock, buffer, size, 0);
+} else if (ret == 0) {
+    printf("Timeout\n");
+}
+```
+
+```c poll()
+#include <net/poll.h>
+
+struct pollfd fds[1];
+fds[0].fd = sock;
+fds[0].events = POLLIN | POLLOUT;
+
+int ret = poll(fds, 1, 1000);  // 1 second timeout
+if (ret > 0) {
+    if (fds[0].revents & POLLIN) {
+        // Ready for reading
+    }
+    if (fds[0].revents & POLLOUT) {
+        // Ready for writing
+    }
+}
+```
+</CodeGroup>
+
+## Address Functions
+
+Convert between string and binary IP addresses:
+
+```c
+#include <arpa/inet.h>
+
+// String to binary
+struct in_addr addr;
+inet_pton(AF_INET, "192.168.1.1", &addr);
+
+// Binary to string
+char str[INET_ADDRSTRLEN];
+inet_ntop(AF_INET, &addr, str, sizeof(str));
+printf("IP: %s\n", str);
+
+// Host/network byte order conversion
+uint16_t port_host = 8080;
+uint16_t port_net = htons(port_host);  // Host to network
+uint16_t port_back = ntohs(port_net);  // Network to host
+```
+
+## API Reference
+
+Key functions from `net/net.h` and `net/socket.h`:
+
+**Initialization:**
+- `netInitialize()` - Initialize network subsystem
+- `netDeinitialize()` - Shut down network subsystem
+
+**Socket operations:**
+- `socket()` - Create a socket
+- `bind()` - Bind socket to address
+- `listen()` - Listen for connections (TCP)
+- `accept()` - Accept incoming connection (TCP)
+- `connect()` - Connect to remote host (TCP)
+- `close()` - Close socket
+- `shutdown()` - Shut down socket connection
+
+**Data transfer:**
+- `send()` / `recv()` - Send/receive data (TCP)
+- `sendto()` / `recvfrom()` - Send/receive datagrams (UDP)
+- `read()` / `write()` - Alternative I/O functions
+
+**Configuration:**
+- `setsockopt()` / `getsockopt()` - Set/get socket options
+- `getsockname()` - Get local socket address
+- `getpeername()` - Get remote peer address
+
+**Multiplexing:**
+- `select()` - Wait for socket events
+- `poll()` - Alternative event waiting
+
+## Examples
+
+- **TCP/UDP test**: `samples/network/networktest/` - Basic TCP and UDP client examples
+- **Echo server**: `samples/network/echoserv/` - Simple TCP echo server
+
+## Testing
+
+Test your PS3 network code using netcat on your PC:
+
+```bash
+# TCP server (receive from PS3)
+nc -l -p 4000
+
+# UDP server (receive from PS3)
+nc -u -l -p 4000
+
+# TCP client (send to PS3)
+echo "test message" | nc 192.168.1.10 2002
+```

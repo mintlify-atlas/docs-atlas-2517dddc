@@ -1,0 +1,231 @@
+---
+title: fself - Fake SELF Creator
+description: Create fake SELF executables from ELF files for PS3 homebrew development
+---
+
+## Overview
+
+The `fself` tool converts standard ELF executables into SELF (Signed ELF) format for the PlayStation 3. It creates "fake" SELF files that can run on custom firmware but are not officially signed by Sony.
+
+<Note>
+FSELF files are for homebrew development and custom firmware only. They will not run on retail PS3 systems with official firmware.
+</Note>
+
+## SELF vs FSELF
+
+<CardGroup cols={2}>
+  <Card title="SELF (Signed ELF)" icon="certificate">
+    Official PlayStation 3 executable format signed by Sony. Required for all PS3 applications and games on retail firmware.
+  </Card>
+  <Card title="FSELF (Fake SELF)" icon="code">
+    Unsigned SELF format for homebrew. Works on custom firmware (CFW) without Sony's signature. Used during development.
+  </Card>
+</CardGroup>
+
+### Key Differences
+
+- **SELF**: Cryptographically signed, runs on retail PS3
+- **FSELF**: Unsigned, only runs on custom firmware
+- **Use Case**: FSELF for development, SELF for distribution (requires signing keys)
+
+## Command-Line Usage
+
+```bash
+fself [options] input.elf output.self
+```
+
+<Tip>
+If no output filename is specified, `fself` defaults to creating `EBOOT.BIN`
+</Tip>
+
+### Basic Example
+
+```bash
+# Convert ELF to SELF
+fself myapp.elf myapp.self
+
+# Create EBOOT.BIN (default output)
+fself myapp.elf
+```
+
+## Options
+
+<ParamField path="-n" type="flag">
+  Create NPDRM SELF for use with pkg.py packaging. Required when building PKG files.
+</ParamField>
+
+### NPDRM Mode
+
+```bash
+# Create NPDRM SELF for packaging
+fself -n myapp.elf EBOOT.BIN
+```
+
+<Note>
+NPDRM (PlayStation Network Platform Digital Rights Management) format is required when creating installable PKG packages.
+</Note>
+
+## Build Process Integration
+
+The `fself` tool is automatically integrated into the PSL1GHT build system through `ppu_rules`:
+
+```makefile
+%.self: %.elf
+    $(STRIP) $< -o $(BUILDDIR)/$(notdir $<)
+    $(SPRX) $(BUILDDIR)/$(notdir $<)
+    $(SELF) $(BUILDDIR)/$(notdir $<) $@
+    $(FSELF) $(BUILDDIR)/$(notdir $<) $(basename $@).fake.self
+```
+
+### Typical Build Workflow
+
+<Steps>
+  <Step title="Compile ELF">
+    Compile your application source code to create an ELF executable:
+    ```bash
+    make
+    ```
+  </Step>
+  
+  <Step title="Strip Symbols">
+    Remove debugging symbols to reduce file size:
+    ```bash
+    ppu-strip myapp.elf
+    ```
+  </Step>
+  
+  <Step title="Create SELF">
+    Convert to SELF format:
+    ```bash
+    fself myapp.elf myapp.self
+    ```
+  </Step>
+  
+  <Step title="Load or Package">
+    Either load directly with ps3load or package into PKG format
+  </Step>
+</Steps>
+
+## File Format Details
+
+### SELF Header Structure
+
+The FSELF tool creates a complete SELF file with the following components:
+
+- **SELF Header**: Magic number, offsets, and metadata
+- **App Info**: Application type and authentication information
+- **ELF Header**: Standard ELF header from input file
+- **Program Headers**: Segment information from ELF
+- **Section Info**: Section metadata
+- **SCE Version**: PlayStation 3 version information
+- **Control Info**: Optional NPDRM control data
+- **ELF Data**: The actual executable code and data
+
+```c
+// From tools/fself/source/main.c:63
+self_build_app_info_header(&app_info, npdrm);
+self_build_controlinfo_header(&control_info, &info_len, elf_data, elf_len, npdrm);
+self_build_self_header(&self_header, &elf_header, &headerEnd, &elfOffset, elf_len, info_len, npdrm);
+```
+
+## Example: Creating EBOOT.BIN
+
+<CodeGroup>
+```bash Manual
+# Compile your application
+ppu-gcc -o myapp.elf main.c -lrsx -lgcm_sys
+
+# Strip debugging symbols
+ppu-strip myapp.elf
+
+# Create EBOOT.BIN for direct loading
+fself myapp.elf EBOOT.BIN
+```
+
+```bash With Make
+# Using PSL1GHT Makefile
+make
+
+# Creates myapp.elf and myapp.self automatically
+```
+
+```bash For PKG
+# Create NPDRM SELF for packaging
+fself -n myapp.elf EBOOT.BIN
+
+# Then package (see pkg-creation guide)
+pkg.py --contentid UP0001-MYAPP0001_00-0000000000000000 pkg_dir/ myapp.pkg
+```
+</CodeGroup>
+
+## Common Use Cases
+
+### Development Testing
+
+```bash
+# Quick test build
+fself myapp.elf test.self
+ps3load test.self
+```
+
+### Package Creation
+
+```bash
+# Build NPDRM SELF for distribution
+fself -n build/myapp.elf pkg/USRDIR/EBOOT.BIN
+```
+
+### Dual Output
+
+```bash
+# Create both regular and fake SELF (done automatically by ppu_rules)
+fself myapp.elf myapp.self
+fself myapp.elf myapp.fake.self
+```
+
+## Source Code Reference
+
+The fself implementation is located in:
+- **Main**: `tools/fself/source/main.c:3-95`
+- **SELF Builder**: `tools/fself/source/self.c`
+- **Utilities**: `tools/fself/source/tools.c`
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Failed reading ELF">
+    The input file is not a valid ELF file or is corrupted. Ensure you compiled correctly:
+    ```bash
+    file myapp.elf  # Should show "ELF 64-bit MSB executable"
+    ```
+  </Accordion>
+  
+  <Accordion title="Error: Could not open SELF for writing">
+    Check file permissions and disk space. The output directory must be writable:
+    ```bash
+    mkdir -p output/
+    fself myapp.elf output/myapp.self
+    ```
+  </Accordion>
+  
+  <Accordion title="SELF doesn't run on PS3">
+    FSELF files only work on custom firmware. Ensure your PS3 has CFW installed and homebrew loading is enabled.
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="PS3 Loading" icon="network-wired" href="/tools/ps3load">
+    Load SELF files over network for testing
+  </Card>
+  <Card title="PKG Creation" icon="box" href="/tools/pkg-creation">
+    Package SELF files for installation
+  </Card>
+  <Card title="SPRX Linker" icon="link" href="/tools/sprxlinker">
+    Prepare ELF for SELF conversion
+  </Card>
+  <Card title="Build System" icon="gears" href="/concepts/build-system">
+    Integrate into your build process
+  </Card>
+</CardGroup>

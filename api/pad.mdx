@@ -1,0 +1,711 @@
+---
+title: 'Pad (Controller)'
+description: 'PlayStation 3 controller and pad management'
+---
+
+The Pad API provides functions for managing PlayStation 3 controllers, including SIXAXIS and DualShock 3 controllers, BD Remote Controllers, and custom controllers.
+
+## Initialization
+
+### ioPadInit
+
+Initialize the Pad I/O management system.
+
+```c
+s32 ioPadInit(u32 max);
+```
+
+<ParamField path="max" type="u32" required>
+  Maximum number of supported pads (max limit is 7)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  - `PAD_OK` (0) if successful
+  - `PAD_ERROR_ALREADY_INITIALIZED` if already initialized
+  - `PAD_ERROR_INVALID_PARAMETER` if parameters are invalid
+</ResponseField>
+
+**Example:**
+```c
+#include <io/pad.h>
+
+// Initialize pad system for up to 7 controllers
+if (ioPadInit(7) != 0) {
+    printf("Failed to initialize pad system\n");
+    return -1;
+}
+```
+
+### ioPadEnd
+
+End Pad I/O management and cleanup resources.
+
+```c
+s32 ioPadEnd();
+```
+
+<ResponseField name="return" type="s32">
+  - `PAD_OK` (0) if successful
+  - `PAD_ERROR_NOT_INITIALIZED` if not initialized
+</ResponseField>
+
+## Reading Pad Information
+
+### ioPadGetInfo
+
+Get information about connected controllers (legacy format).
+
+```c
+s32 ioPadGetInfo(padInfo* info);
+```
+
+<ParamField path="info" type="padInfo*" required>
+  Pointer to a padInfo structure to receive controller information
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error
+</ResponseField>
+
+**padInfo Structure:**
+```c
+typedef struct _pad_info {
+    u32 max;                    // max pads allowed to connect
+    u32 connected;              // how many pads connected
+    u32 info;                   // bit 0: system intercept flag
+    u16 vendor_id[MAX_PADS];    // array of vendor ids
+    u16 product_id[MAX_PADS];   // array of product ids
+    u8 status[MAX_PADS];        // array of pad statuses
+} padInfo;
+```
+
+<Expandable title="padInfo Fields">
+  <ParamField path="max" type="u32">
+    Maximum number of pads that can be connected
+  </ParamField>
+  <ParamField path="connected" type="u32">
+    Number of currently connected pads
+  </ParamField>
+  <ParamField path="info" type="u32">
+    Bit 0: lets the system intercept pad input; other bits reserved
+  </ParamField>
+  <ParamField path="vendor_id" type="u16[127]">
+    Array of vendor IDs for each pad slot
+  </ParamField>
+  <ParamField path="product_id" type="u16[127]">
+    Array of product IDs for each pad slot
+  </ParamField>
+  <ParamField path="status" type="u8[127]">
+    Array of connection statuses (0: disconnected, 1: connected)
+  </ParamField>
+</Expandable>
+
+### ioPadGetInfo2
+
+Get information about connected controllers (extended format, firmware 3.41+).
+
+```c
+s32 ioPadGetInfo2(padInfo2* info);
+```
+
+<ParamField path="info" type="padInfo2*" required>
+  Pointer to a padInfo2 structure to receive extended controller information
+</ParamField>
+
+**padInfo2 Structure:**
+```c
+typedef struct _pad_info2 {
+    u32 max;                            // max pads allowed to connect
+    u32 connected;                      // how many pads connected
+    u32 info;                           // system info flags
+    u32 port_status[MAX_PORT_NUM];      // per-port status flags
+    u32 port_setting[MAX_PORT_NUM];     // per-port settings
+    u32 device_capability[MAX_PORT_NUM];// device capabilities
+    u32 device_type[MAX_PORT_NUM];      // device types
+} padInfo2;
+```
+
+<Expandable title="padInfo2 Fields">
+  <ParamField path="port_status" type="u32[7]">
+    - Bit 0: Connected (0: Disconnected, 1: Connected)
+    - Bit 1: Assignment changes flag
+  </ParamField>
+  <ParamField path="port_setting" type="u32[7]">
+    - Bit 1: Pressure sensitivity enabled
+    - Bit 2: Sensors enabled
+  </ParamField>
+  <ParamField path="device_capability" type="u32[7]">
+    - Bit 0: PS3 specification compliant
+    - Bit 1: Has pressure-sensitive buttons
+    - Bit 2: Has sensors (SIXAXIS)
+    - Bit 3: Has high-precision stick
+    - Bit 4: Has vibration motor
+  </ParamField>
+  <ParamField path="device_type" type="u32[7]">
+    - 0: Standard controller
+    - 4: BD Remote Controller
+    - 5: Custom LDD controller
+  </ParamField>
+</Expandable>
+
+### ioPadGetCapabilityInfo
+
+Get detailed capability information for a specific controller.
+
+```c
+s32 ioPadGetCapabilityInfo(u32 port, padCapabilityInfo* capabilities);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number (0-6)
+</ParamField>
+
+<ParamField path="capabilities" type="padCapabilityInfo*" required>
+  Pointer to structure to receive capability information
+</ParamField>
+
+**padCapabilityInfo Structure:**
+```c
+typedef struct _pad_capability_info {
+    union {
+        u32 info[MAX_PAD_CAPABILITY_INFO];
+        struct {
+            unsigned int ps3spec : 1;       // PS3 spec compliant
+            unsigned int has_pressure : 1;  // pressure-sensitive buttons
+            unsigned int has_sensors : 1;   // SIXAXIS sensors (X,Y,Z,G)
+            unsigned int has_hps : 1;       // high precision stick
+            unsigned int has_vibrate : 1;   // vibration motor
+            unsigned int : 27;              // reserved
+            u32 reserved[31];
+        };
+    };
+} padCapabilityInfo;
+```
+
+## Reading Pad Data
+
+### ioPadGetData
+
+Read controller input data from a specific port.
+
+```c
+s32 ioPadGetData(u32 port, padData* data);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number (0-6)
+</ParamField>
+
+<ParamField path="data" type="padData*" required>
+  Pointer to padData structure to receive input data
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error
+</ResponseField>
+
+<Note>
+  The padData structure is only filled if there is a change in input since the last call. If there is no change, the structure is zero-filled. If the `len` member is zero, there was no new input.
+</Note>
+
+**padData Structure:**
+```c
+typedef struct _pad_data {
+    s32 len;                        // structure length (0 = no new data)
+    union {
+        u16 button[MAX_PAD_CODES];  // raw button array
+        struct {
+            // Digital buttons (bitfields)
+            unsigned int BTN_LEFT : 1;
+            unsigned int BTN_DOWN : 1;
+            unsigned int BTN_RIGHT : 1;
+            unsigned int BTN_UP : 1;
+            unsigned int BTN_START : 1;
+            unsigned int BTN_R3 : 1;
+            unsigned int BTN_L3 : 1;
+            unsigned int BTN_SELECT : 1;
+            
+            unsigned int BTN_SQUARE : 1;
+            unsigned int BTN_CROSS : 1;
+            unsigned int BTN_CIRCLE : 1;
+            unsigned int BTN_TRIANGLE : 1;
+            unsigned int BTN_R1 : 1;
+            unsigned int BTN_L1 : 1;
+            unsigned int BTN_R2 : 1;
+            unsigned int BTN_L2 : 1;
+            
+            // Analog sticks (0x0000 - 0x00FF)
+            unsigned int ANA_R_H : 16;  // right stick horizontal
+            unsigned int ANA_R_V : 16;  // right stick vertical
+            unsigned int ANA_L_H : 16;  // left stick horizontal
+            unsigned int ANA_L_V : 16;  // left stick vertical
+            
+            // Pressure data (0x0000 - 0x00FF)
+            unsigned int PRE_RIGHT : 16;
+            unsigned int PRE_LEFT : 16;
+            unsigned int PRE_UP : 16;
+            unsigned int PRE_DOWN : 16;
+            unsigned int PRE_TRIANGLE : 16;
+            unsigned int PRE_CIRCLE : 16;
+            unsigned int PRE_CROSS : 16;
+            unsigned int PRE_SQUARE : 16;
+            unsigned int PRE_L1 : 16;
+            unsigned int PRE_R1 : 16;
+            unsigned int PRE_L2 : 16;
+            unsigned int PRE_R2 : 16;
+            
+            // Sensor data (0x0000 - 0x03FF)
+            unsigned int SENSOR_X : 16;  // X axis sensor
+            unsigned int SENSOR_Y : 16;  // Y axis sensor
+            unsigned int SENSOR_Z : 16;  // Z axis sensor
+            unsigned int SENSOR_G : 16;  // G (gravity) sensor
+        };
+    };
+} padData;
+```
+
+**Example:**
+```c
+padInfo padinfo;
+padData paddata;
+
+ioPadGetInfo(&padinfo);
+
+for (int i = 0; i < MAX_PADS; i++) {
+    if (padinfo.status[i]) {
+        ioPadGetData(i, &paddata);
+        
+        if (paddata.len > 0) {
+            // Check buttons
+            if (paddata.BTN_CROSS) {
+                printf("Cross button pressed\n");
+            }
+            
+            // Check analog stick
+            printf("Left stick: X=%d Y=%d\n", 
+                   paddata.ANA_L_H, paddata.ANA_L_V);
+            
+            // Check sensors (SIXAXIS)
+            if (paddata.SENSOR_X != 0) {
+                printf("Tilt X: %d\n", paddata.SENSOR_X);
+            }
+        }
+    }
+}
+```
+
+### ioPadGetDataExtra
+
+Get controller data with device type information.
+
+```c
+s32 ioPadGetDataExtra(u32 port, u32* type, padData* data);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number
+</ParamField>
+
+<ParamField path="type" type="u32*" required>
+  Pointer to receive device type
+</ParamField>
+
+<ParamField path="data" type="padData*" required>
+  Pointer to receive pad data
+</ParamField>
+
+## Controller Settings
+
+### ioPadSetPressMode
+
+Enable or disable pressure-sensitive button mode.
+
+```c
+s32 ioPadSetPressMode(u32 port, u32 mode);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number
+</ParamField>
+
+<ParamField path="mode" type="u32" required>
+  - `PAD_PRESS_MODE_ON` (1): Enable pressure sensitivity
+  - `PAD_PRESS_MODE_OFF` (0): Disable pressure sensitivity
+</ParamField>
+
+### ioPadInfoPressMode
+
+Get the current pressure mode setting.
+
+```c
+s32 ioPadInfoPressMode(u32 port);
+```
+
+<ResponseField name="return" type="s32">
+  Current press mode value, or negative value on error
+</ResponseField>
+
+### ioPadSetSensorMode
+
+Enable or disable motion sensor mode (SIXAXIS).
+
+```c
+s32 ioPadSetSensorMode(u32 port, u32 mode);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number
+</ParamField>
+
+<ParamField path="mode" type="u32" required>
+  - `PAD_SENSOR_MODE_ON` (1): Enable sensors
+  - `PAD_SENSOR_MODE_OFF` (0): Disable sensors
+</ParamField>
+
+### ioPadInfoSensorMode
+
+Get the current sensor mode setting.
+
+```c
+s32 ioPadInfoSensorMode(u32 port);
+```
+
+<ResponseField name="return" type="s32">
+  Current sensor mode value, or negative value on error
+</ResponseField>
+
+### ioPadSetPortSetting
+
+Set port settings (firmware 3.41+).
+
+```c
+s32 ioPadSetPortSetting(u32 port, u32 setting);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number
+</ParamField>
+
+<ParamField path="setting" type="u32" required>
+  Setting value:
+  - `PAD_SETTINGS_PRESS_ON` (1 &lt;&lt; 1): Enable pressure sensitivity
+  - `PAD_SETTINGS_SENSOR_ON` (1 &lt;&lt; 2): Enable sensors
+</ParamField>
+
+## Vibration (Force Feedback)
+
+### ioPadSetActDirect
+
+Set controller vibration motors directly.
+
+```c
+u32 ioPadSetActDirect(u32 port, padActParam* actParam);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number
+</ParamField>
+
+<ParamField path="actParam" type="padActParam*" required>
+  Pointer to actuation parameters
+</ParamField>
+
+**padActParam Structure:**
+```c
+typedef struct _pad_act_param {
+    union {
+        u8 motor[MAX_PAD_ACTUATOR];
+        struct {
+            u8 small_motor;  // 0: OFF, 1: ON
+            u8 large_motor;  // 0: OFF, 1-255: speed (higher = faster)
+        };
+    };
+    u8 reserved[6];
+} padActParam;
+```
+
+**Example - Controller Vibration:**
+```c
+padActParam actparam;
+
+// Vibrate small motor
+actparam.small_motor = 1;
+actparam.large_motor = 0;
+ioPadSetActDirect(0, &actparam);
+usleep(500000);  // vibrate for 0.5 seconds
+
+// Vibrate large motor at medium speed
+actparam.small_motor = 0;
+actparam.large_motor = 128;
+ioPadSetActDirect(0, &actparam);
+usleep(500000);
+
+// Stop vibration
+actparam.small_motor = 0;
+actparam.large_motor = 0;
+ioPadSetActDirect(0, &actparam);
+```
+
+## Utility Functions
+
+### ioPadClearBuf
+
+Clear the input buffer for a controller port.
+
+```c
+s32 ioPadClearBuf(u32 port);
+```
+
+<ParamField path="port" type="u32" required>
+  Controller port number
+</ParamField>
+
+### ioPadPeriphGetInfo
+
+Get peripheral information for all controllers (firmware 3.41+).
+
+```c
+s32 ioPadPeriphGetInfo(padPeriphInfo* periphInfo);
+```
+
+### ioPadPeriphGetData
+
+Get peripheral data for a specific port (firmware 3.41+).
+
+```c
+s32 ioPadPeriphGetData(u32 port, padPeriphData* periphData);
+```
+
+## Button Constants
+
+### Digital Button Masks (DIGITAL1)
+
+```c
+#define PAD_CTRL_LEFT      (1<<7)  // D-Pad Left
+#define PAD_CTRL_DOWN      (1<<6)  // D-Pad Down
+#define PAD_CTRL_RIGHT     (1<<5)  // D-Pad Right
+#define PAD_CTRL_UP        (1<<4)  // D-Pad Up
+#define PAD_CTRL_START     (1<<3)  // Start button
+#define PAD_CTRL_R3        (1<<2)  // R3 (right stick)
+#define PAD_CTRL_L3        (1<<1)  // L3 (left stick)
+#define PAD_CTRL_SELECT    (1<<0)  // Select button
+```
+
+### Digital Button Masks (DIGITAL2)
+
+```c
+#define PAD_CTRL_SQUARE    (1<<7)  // Square button
+#define PAD_CTRL_CROSS     (1<<6)  // Cross (X) button
+#define PAD_CTRL_CIRCLE    (1<<5)  // Circle button
+#define PAD_CTRL_TRIANGLE  (1<<4)  // Triangle button
+#define PAD_CTRL_R1        (1<<3)  // R1 button
+#define PAD_CTRL_L1        (1<<2)  // L1 button
+#define PAD_CTRL_R2        (1<<1)  // R2 button
+#define PAD_CTRL_L2        (1<<0)  // L2 button
+```
+
+### Button Data Offsets
+
+When accessing the raw `button[]` array:
+
+```c
+PAD_BUTTON_OFFSET_DIGITAL1          = 2   // Digital buttons (D-Pad, Start, Select, L3, R3)
+PAD_BUTTON_OFFSET_DIGITAL2          = 3   // Face buttons and shoulders
+PAD_BUTTON_OFFSET_ANALOG_RIGHT_X    = 4   // Right stick X axis
+PAD_BUTTON_OFFSET_ANALOG_RIGHT_Y    = 5   // Right stick Y axis
+PAD_BUTTON_OFFSET_ANALOG_LEFT_X     = 6   // Left stick X axis
+PAD_BUTTON_OFFSET_ANALOG_LEFT_Y     = 7   // Left stick Y axis
+PAD_BUTTON_OFFSET_PRESS_RIGHT       = 8   // D-Pad right pressure
+PAD_BUTTON_OFFSET_PRESS_LEFT        = 9   // D-Pad left pressure
+PAD_BUTTON_OFFSET_PRESS_UP          = 10  // D-Pad up pressure
+PAD_BUTTON_OFFSET_PRESS_DOWN        = 11  // D-Pad down pressure
+PAD_BUTTON_OFFSET_PRESS_TRIANGLE    = 12  // Triangle pressure
+PAD_BUTTON_OFFSET_PRESS_CIRCLE      = 13  // Circle pressure
+PAD_BUTTON_OFFSET_PRESS_CROSS       = 14  // Cross pressure
+PAD_BUTTON_OFFSET_PRESS_SQUARE      = 15  // Square pressure
+PAD_BUTTON_OFFSET_PRESS_L1          = 16  // L1 pressure
+PAD_BUTTON_OFFSET_PRESS_R1          = 17  // R1 pressure
+PAD_BUTTON_OFFSET_PRESS_L2          = 18  // L2 pressure
+PAD_BUTTON_OFFSET_PRESS_R2          = 19  // R2 pressure
+PAD_BUTTON_OFFSET_SENSOR_X          = 20  // X axis sensor
+PAD_BUTTON_OFFSET_SENSOR_Y          = 21  // Y axis sensor
+PAD_BUTTON_OFFSET_SENSOR_Z          = 22  // Z axis sensor
+PAD_BUTTON_OFFSET_SENSOR_G          = 23  // G sensor
+```
+
+## BD Remote Controller
+
+For BD Remote Controllers, the button codes are available in the `BTN_BDCODE` field:
+
+<Expandable title="BD Remote Button Codes">
+
+```c
+BTN_BD_KEY_0, BTN_BD_KEY_1, ... BTN_BD_KEY_9  // Number keys
+BTN_BD_ENTER              // Enter
+BTN_BD_RETURN             // Return
+BTN_BD_CLEAR              // Clear
+BTN_BD_EJECT              // Eject
+BTN_BD_TOPMENU            // Top Menu
+BTN_BD_POPUP_MENU         // Popup Menu
+BTN_BD_PLAY               // Play
+BTN_BD_STOP               // Stop
+BTN_BD_PAUSE              // Pause
+BTN_BD_PREV               // Previous
+BTN_BD_NEXT               // Next
+BTN_BD_SCAN_FWD           // Scan Forward
+BTN_BD_SCAN_REV           // Scan Reverse
+BTN_BD_UP                 // Up
+BTN_BD_DOWN               // Down
+BTN_BD_LEFT               // Left
+BTN_BD_RIGHT              // Right
+BTN_BD_SELECT             // Select
+BTN_BD_TRIANGLE           // Triangle
+BTN_BD_CIRCLE             // Circle
+BTN_BD_CROSS              // Cross
+BTN_BD_SQUARE             // Square
+BTN_BD_L1, BTN_BD_L2      // L1, L2
+BTN_BD_R1, BTN_BD_R2      // R1, R2
+BTN_BD_L3, BTN_BD_R3      // L3, R3
+BTN_BD_BLUE               // Blue button
+BTN_BD_RED                // Red button
+BTN_BD_GREEN              // Green button
+BTN_BD_YELLOW             // Yellow button
+BTN_BD_SUBTITLE           // Subtitle
+BTN_BD_AUDIO              // Audio
+BTN_BD_ANGLE              // Angle
+BTN_BD_RELEASE            // Release
+```
+
+</Expandable>
+
+## Virtual Pad (LDD)
+
+The Pad API supports creating virtual controllers:
+
+### ioPadLddRegisterController
+
+Register a new virtual pad.
+
+```c
+s32 ioPadLddRegisterController();
+```
+
+<ResponseField name="return" type="s32">
+  Handle for the virtual pad, or negative value on error
+</ResponseField>
+
+### ioPadLddUnregisterController
+
+Unregister a virtual pad.
+
+```c
+s32 ioPadLddUnregisterController(s32 handle);
+```
+
+### ioPadLddGetPortNo
+
+Get the port number assigned to a virtual pad.
+
+```c
+s32 ioPadLddGetPortNo(s32 handle);
+```
+
+### ioPadLddDataInsert
+
+Insert data into a virtual pad.
+
+```c
+u32 ioPadLddDataInsert(s32 handle, padData* data);
+```
+
+## Error Codes
+
+```c
+#define PAD_OK                          0           // Success
+#define PAD_ERROR_FATAL                 0x80121101  // Fatal error
+#define PAD_ERROR_INVALID_PARAMETER     0x80121102  // Invalid parameter
+#define PAD_ERROR_ALREADY_INITIALIZED   0x80121103  // Already initialized
+#define PAD_ERROR_NOT_INITIALIZED       0x80121104  // Not initialized
+```
+
+## Constants
+
+```c
+#define MAX_PADS                        127   // Maximum controllers
+#define MAX_PAD_CODES                   64    // Maximum button codes
+#define MAX_PORT_NUM                    7     // Maximum port number
+#define MAX_PAD_CAPABILITY_INFO         32    // Capability info size
+#define MAX_PAD_ACTUATOR                2     // Number of vibration motors
+```
+
+## Complete Example
+
+```c
+#include <io/pad.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+    padInfo padinfo;
+    padData paddata;
+    
+    // Initialize pad system
+    if (ioPadInit(7) != 0) {
+        printf("Failed to initialize pad\n");
+        return -1;
+    }
+    
+    // Main loop
+    while (1) {
+        // Get pad info
+        ioPadGetInfo(&padinfo);
+        
+        // Check each connected controller
+        for (int i = 0; i < MAX_PORT_NUM; i++) {
+            if (padinfo.status[i]) {
+                ioPadGetData(i, &paddata);
+                
+                if (paddata.len > 0) {
+                    // Check buttons
+                    if (paddata.BTN_CROSS) {
+                        printf("Cross pressed\n");
+                    }
+                    if (paddata.BTN_CIRCLE) {
+                        printf("Circle pressed\n");
+                    }
+                    if (paddata.BTN_START && paddata.BTN_SELECT) {
+                        printf("Exiting...\n");
+                        goto cleanup;
+                    }
+                    
+                    // Read analog sticks
+                    if (paddata.ANA_L_H > 200 || paddata.ANA_L_H < 50) {
+                        printf("Left stick moved horizontally: %d\n", 
+                               paddata.ANA_L_H);
+                    }
+                    
+                    // Enable and read sensors
+                    ioPadSetSensorMode(i, PAD_SENSOR_MODE_ON);
+                    if (paddata.SENSOR_X != 512) {  // 512 is neutral
+                        printf("Tilt X: %d\n", paddata.SENSOR_X);
+                    }
+                    
+                    // Vibrate on button press
+                    if (paddata.BTN_TRIANGLE) {
+                        padActParam actparam;
+                        actparam.small_motor = 1;
+                        actparam.large_motor = 200;
+                        ioPadSetActDirect(i, &actparam);
+                    }
+                }
+            }
+        }
+        
+        usleep(10000);  // 10ms delay
+    }
+    
+cleanup:
+    ioPadEnd();
+    return 0;
+}
+```

@@ -1,0 +1,744 @@
+---
+title: HTTP API
+description: HTTP client library for PS3 web requests
+---
+
+The HTTP library provides a feature-rich HTTP/HTTPS client for making web requests on PlayStation 3.
+
+## Overview
+
+The HTTP library supports:
+- HTTP/1.0 and HTTP/1.1 protocols
+- GET, POST, PUT, DELETE, HEAD, and other HTTP methods
+- Custom headers and cookies
+- Authentication (Basic, Digest)
+- Automatic redirects
+- Keep-alive connections
+- Connection pooling and pipelining
+- HTTPS (when used with SSL library)
+
+## Initialization
+
+### httpInit
+
+```c
+s32 httpInit(void *pool, u32 poolSize);
+```
+
+Initialize the HTTP library.
+
+<ParamField path="pool" type="void*" required>
+  Pointer to memory pool for HTTP operations. Typically allocate 64KB (0x10000 bytes).
+</ParamField>
+
+<ParamField path="poolSize" type="u32" required>
+  Size of memory pool in bytes.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpEnd
+
+```c
+s32 httpEnd(void);
+```
+
+Terminate the HTTP library and free resources.
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Client Management
+
+### httpCreateClient
+
+```c
+s32 httpCreateClient(httpClientId *cid);
+```
+
+Create an HTTP client instance.
+
+<ParamField path="cid" type="httpClientId*" required>
+  Pointer to receive the client ID.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpDestroyClient
+
+```c
+s32 httpDestroyClient(httpClientId cid);
+```
+
+Destroy an HTTP client instance.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID to destroy.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Client Configuration
+
+### httpClientSetVersion
+
+```c
+s32 httpClientSetVersion(httpClientId cid, u32 major, u32 minor);
+```
+
+Set HTTP protocol version.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID.
+</ParamField>
+
+<ParamField path="major" type="u32" required>
+  Major version number (1 for HTTP/1.x).
+</ParamField>
+
+<ParamField path="minor" type="u32" required>
+  Minor version number (0 for HTTP/1.0, 1 for HTTP/1.1).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpClientSetUserAgent
+
+```c
+s32 httpClientSetUserAgent(httpClientId cid, const char *userAgent);
+```
+
+Set User-Agent header for all requests.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID.
+</ParamField>
+
+<ParamField path="userAgent" type="const char*" required>
+  User-Agent string.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpClientSetKeepAlive
+
+```c
+s32 httpClientSetKeepAlive(httpClientId cid, u32 enable);
+```
+
+Enable or disable HTTP keep-alive connections.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID.
+</ParamField>
+
+<ParamField path="enable" type="u32" required>
+  1 to enable, 0 to disable.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpClientSetAutoRedirect
+
+```c
+s32 httpClientSetAutoRedirect(httpClientId cid, u32 enable);
+```
+
+Enable or disable automatic redirect following.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID.
+</ParamField>
+
+<ParamField path="enable" type="u32" required>
+  1 to enable, 0 to disable.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpClientSetRecvTimeout
+
+```c
+s32 httpClientSetRecvTimeout(httpClientId cid, s64 usec);
+```
+
+Set receive timeout in microseconds.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID.
+</ParamField>
+
+<ParamField path="usec" type="s64" required>
+  Timeout in microseconds.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpClientSetSendTimeout
+
+```c
+s32 httpClientSetSendTimeout(httpClientId cid, s64 usec);
+```
+
+Set send timeout in microseconds.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID.
+</ParamField>
+
+<ParamField path="usec" type="s64" required>
+  Timeout in microseconds.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpClientSetConnTimeout
+
+```c
+s32 httpClientSetConnTimeout(httpClientId cid, s64 usec);
+```
+
+Set connection timeout in microseconds.
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID.
+</ParamField>
+
+<ParamField path="usec" type="s64" required>
+  Timeout in microseconds.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Transactions
+
+### httpCreateTransaction
+
+```c
+s32 httpCreateTransaction(httpTransId *tid, httpClientId cid,
+                          const char *method, const httpUri *uri);
+```
+
+Create an HTTP transaction (request/response pair).
+
+<ParamField path="tid" type="httpTransId*" required>
+  Pointer to receive the transaction ID.
+</ParamField>
+
+<ParamField path="cid" type="httpClientId" required>
+  Client ID to use for this transaction.
+</ParamField>
+
+<ParamField path="method" type="const char*" required>
+  HTTP method string:
+  - `HTTP_METHOD_GET` - "GET"
+  - `HTTP_METHOD_POST` - "POST"
+  - `HTTP_METHOD_PUT` - "PUT"
+  - `HTTP_METHOD_DELETE` - "DELETE"
+  - `HTTP_METHOD_HEAD` - "HEAD"
+  - `HTTP_METHOD_OPTIONS` - "OPTIONS"
+  - `HTTP_METHOD_TRACE` - "TRACE"
+</ParamField>
+
+<ParamField path="uri" type="const httpUri*" required>
+  Pointer to URI structure (parsed using `httpUtilParseUri`).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpDestroyTransaction
+
+```c
+s32 httpDestroyTransaction(httpTransId tid);
+```
+
+Destroy an HTTP transaction.
+
+<ParamField path="tid" type="httpTransId" required>
+  Transaction ID to destroy.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Request Handling
+
+### httpSendRequest
+
+```c
+s32 httpSendRequest(httpTransId tid, const char *buf, u32 size, u32 *sent);
+```
+
+Send HTTP request data (for POST/PUT with body).
+
+<ParamField path="tid" type="httpTransId" required>
+  Transaction ID.
+</ParamField>
+
+<ParamField path="buf" type="const char*" required>
+  Pointer to data to send.
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size of data to send.
+</ParamField>
+
+<ParamField path="sent" type="u32*" required>
+  Pointer to receive number of bytes actually sent.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpRequestSetContentLength
+
+```c
+s32 httpRequestSetContentLength(httpTransId tid, u64 totalSize);
+```
+
+Set Content-Length header for request body.
+
+<ParamField path="tid" type="httpTransId" required>
+  Transaction ID.
+</ParamField>
+
+<ParamField path="totalSize" type="u64" required>
+  Total size of request body in bytes.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpRequestAddHeader
+
+```c
+s32 httpRequestAddHeader(httpTransId tid, const httpHeader *header);
+```
+
+Add a custom header to the request.
+
+<ParamField path="tid" type="httpTransId" required>
+  Transaction ID.
+</ParamField>
+
+<ParamField path="header" type="const httpHeader*" required>
+  Pointer to header structure with `name` and `value` fields.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Response Handling
+
+### httpRecvResponse
+
+```c
+s32 httpRecvResponse(httpTransId tid, char *buf, u32 size, u32 *recvd);
+```
+
+Receive HTTP response data.
+
+<ParamField path="tid" type="httpTransId" required>
+  Transaction ID.
+</ParamField>
+
+<ParamField path="buf" type="char*" required>
+  Pointer to buffer to receive data.
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size of receive buffer.
+</ParamField>
+
+<ParamField path="recvd" type="u32*" required>
+  Pointer to receive number of bytes actually received.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpResponseGetStatusCode
+
+```c
+s32 httpResponseGetStatusCode(httpTransId tid, int32_t *code);
+```
+
+Get HTTP response status code.
+
+<ParamField path="tid" type="httpTransId" required>
+  Transaction ID.
+</ParamField>
+
+<ParamField path="code" type="int32_t*" required>
+  Pointer to receive status code (200, 404, etc.).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### httpResponseGetContentLength
+
+```c
+s32 httpResponseGetContentLength(httpTransId tid, u64 *totalSize);
+```
+
+Get Content-Length from response headers.
+
+<ParamField path="tid" type="httpTransId" required>
+  Transaction ID.
+</ParamField>
+
+<ParamField path="totalSize" type="u64*" required>
+  Pointer to receive content length.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## URI Utilities
+
+### httpUtilParseUri
+
+```c
+s32 httpUtilParseUri(httpUri *uri, const char *str, void *pool,
+                     u32 size, u32 *required);
+```
+
+Parse a URI string into components.
+
+<ParamField path="uri" type="httpUri*" required>
+  Pointer to URI structure to fill.
+</ParamField>
+
+<ParamField path="str" type="const char*" required>
+  URI string to parse (e.g., "http://example.com/path").
+</ParamField>
+
+<ParamField path="pool" type="void*" required>
+  Temporary memory pool for string storage.
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size of memory pool.
+</ParamField>
+
+<ParamField path="required" type="u32*">
+  Pointer to receive required pool size if provided pool is too small.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Status Codes
+
+Common HTTP status codes are defined as constants:
+
+### Success (2xx)
+- `HTTP_STATUS_CODE_OK` (200)
+- `HTTP_STATUS_CODE_Created` (201)
+- `HTTP_STATUS_CODE_No_Content` (204)
+
+### Redirection (3xx)
+- `HTTP_STATUS_CODE_Moved_Permanently` (301)
+- `HTTP_STATUS_CODE_Found` (302)
+- `HTTP_STATUS_CODE_Not_Modified` (304)
+
+### Client Error (4xx)
+- `HTTP_STATUS_CODE_Bad_Request` (400)
+- `HTTP_STATUS_CODE_Unauthorized` (401)
+- `HTTP_STATUS_CODE_Forbidden` (403)
+- `HTTP_STATUS_CODE_Not_Found` (404)
+
+### Server Error (5xx)
+- `HTTP_STATUS_CODE_Internal_Server_Error` (500)
+- `HTTP_STATUS_CODE_Service_Unavailable` (503)
+
+## Example: Simple GET Request
+
+```c
+#include <http/http.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int simple_get(const char *url) {
+    void *http_pool;
+    httpClientId cid;
+    httpTransId tid;
+    httpUri uri;
+    void *uri_pool;
+    int32_t status_code;
+    char response[4096];
+    u32 recvd;
+    s32 ret;
+    
+    // Allocate HTTP pool
+    http_pool = malloc(0x10000);
+    ret = httpInit(http_pool, 0x10000);
+    if (ret < 0) {
+        printf("httpInit failed\n");
+        return -1;
+    }
+    
+    // Create client
+    ret = httpCreateClient(&cid);
+    if (ret < 0) {
+        printf("httpCreateClient failed\n");
+        httpEnd();
+        return -1;
+    }
+    
+    // Set user agent
+    httpClientSetUserAgent(cid, "PSL1GHT/1.0");
+    
+    // Parse URI
+    uri_pool = malloc(4096);
+    ret = httpUtilParseUri(&uri, url, uri_pool, 4096, NULL);
+    if (ret < 0) {
+        printf("httpUtilParseUri failed\n");
+        httpDestroyClient(cid);
+        httpEnd();
+        return -1;
+    }
+    
+    // Create transaction
+    ret = httpCreateTransaction(&tid, cid, HTTP_METHOD_GET, &uri);
+    if (ret < 0) {
+        printf("httpCreateTransaction failed\n");
+        free(uri_pool);
+        httpDestroyClient(cid);
+        httpEnd();
+        return -1;
+    }
+    
+    // Send request (GET has no body, just sends headers)
+    ret = httpSendRequest(tid, NULL, 0, NULL);
+    if (ret < 0) {
+        printf("httpSendRequest failed\n");
+        goto cleanup;
+    }
+    
+    // Get status code
+    ret = httpResponseGetStatusCode(tid, &status_code);
+    if (ret == 0) {
+        printf("Status: %d\n", status_code);
+    }
+    
+    // Receive response
+    while (1) {
+        ret = httpRecvResponse(tid, response, sizeof(response) - 1, &recvd);
+        if (ret < 0 || recvd == 0) break;
+        
+        response[recvd] = '\0';
+        printf("%s", response);
+    }
+    
+cleanup:
+    httpDestroyTransaction(tid);
+    free(uri_pool);
+    httpDestroyClient(cid);
+    httpEnd();
+    free(http_pool);
+    
+    return 0;
+}
+
+int main() {
+    simple_get("http://example.com/");
+    return 0;
+}
+```
+
+## Example: POST Request with JSON
+
+```c
+#include <http/http.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int post_json(const char *url, const char *json_data) {
+    void *http_pool;
+    httpClientId cid;
+    httpTransId tid;
+    httpUri uri;
+    void *uri_pool;
+    httpHeader header;
+    u32 sent;
+    int32_t status_code;
+    s32 ret;
+    
+    http_pool = malloc(0x10000);
+    httpInit(http_pool, 0x10000);
+    
+    httpCreateClient(&cid);
+    httpClientSetUserAgent(cid, "PSL1GHT/1.0");
+    
+    // Parse URI
+    uri_pool = malloc(4096);
+    httpUtilParseUri(&uri, url, uri_pool, 4096, NULL);
+    
+    // Create POST transaction
+    ret = httpCreateTransaction(&tid, cid, HTTP_METHOD_POST, &uri);
+    if (ret < 0) {
+        printf("Failed to create transaction\n");
+        return -1;
+    }
+    
+    // Set Content-Type header
+    header.name = "Content-Type";
+    header.value = "application/json";
+    httpRequestAddHeader(tid, &header);
+    
+    // Set Content-Length
+    size_t json_len = strlen(json_data);
+    httpRequestSetContentLength(tid, json_len);
+    
+    // Send request with body
+    ret = httpSendRequest(tid, json_data, json_len, &sent);
+    if (ret < 0) {
+        printf("Failed to send request\n");
+        httpDestroyTransaction(tid);
+        return -1;
+    }
+    
+    // Get response status
+    httpResponseGetStatusCode(tid, &status_code);
+    printf("Response status: %d\n", status_code);
+    
+    // Read response
+    char response[4096];
+    u32 recvd;
+    while (1) {
+        ret = httpRecvResponse(tid, response, sizeof(response) - 1, &recvd);
+        if (ret < 0 || recvd == 0) break;
+        
+        response[recvd] = '\0';
+        printf("%s", response);
+    }
+    
+    httpDestroyTransaction(tid);
+    free(uri_pool);
+    httpDestroyClient(cid);
+    httpEnd();
+    free(http_pool);
+    
+    return 0;
+}
+
+int main() {
+    const char *json = "{\"key\":\"value\",\"number\":42}";
+    post_json("http://api.example.com/data", json);
+    return 0;
+}
+```
+
+## Example: Download File
+
+```c
+#include <http/http.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int download_file(const char *url, const char *output_path) {
+    FILE *fp;
+    void *http_pool;
+    httpClientId cid;
+    httpTransId tid;
+    httpUri uri;
+    void *uri_pool;
+    u64 content_length;
+    u64 total_received = 0;
+    char buffer[8192];
+    u32 recvd;
+    s32 ret;
+    
+    // Open output file
+    fp = fopen(output_path, "wb");
+    if (!fp) {
+        printf("Failed to open output file\n");
+        return -1;
+    }
+    
+    // Initialize HTTP
+    http_pool = malloc(0x10000);
+    httpInit(http_pool, 0x10000);
+    
+    httpCreateClient(&cid);
+    
+    // Set timeouts
+    httpClientSetConnTimeout(cid, 10000000);  // 10 seconds
+    httpClientSetRecvTimeout(cid, 30000000);  // 30 seconds
+    
+    // Parse URI and create transaction
+    uri_pool = malloc(4096);
+    httpUtilParseUri(&uri, url, uri_pool, 4096, NULL);
+    httpCreateTransaction(&tid, cid, HTTP_METHOD_GET, &uri);
+    
+    // Send request
+    httpSendRequest(tid, NULL, 0, NULL);
+    
+    // Get content length
+    if (httpResponseGetContentLength(tid, &content_length) == 0) {
+        printf("Downloading %llu bytes...\n", content_length);
+    }
+    
+    // Download and write to file
+    while (1) {
+        ret = httpRecvResponse(tid, buffer, sizeof(buffer), &recvd);
+        if (ret < 0 || recvd == 0) break;
+        
+        fwrite(buffer, 1, recvd, fp);
+        total_received += recvd;
+        
+        if (content_length > 0) {
+            printf("\rProgress: %llu / %llu bytes (%.1f%%)",
+                   total_received, content_length,
+                   (total_received * 100.0) / content_length);
+            fflush(stdout);
+        }
+    }
+    
+    printf("\nDownload complete: %llu bytes\n", total_received);
+    
+    fclose(fp);
+    httpDestroyTransaction(tid);
+    free(uri_pool);
+    httpDestroyClient(cid);
+    httpEnd();
+    free(http_pool);
+    
+    return 0;
+}
+```

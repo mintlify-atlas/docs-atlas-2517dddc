@@ -1,0 +1,656 @@
+---
+title: Threads
+description: PPU thread management and synchronization primitives
+---
+
+PSL1GHT provides comprehensive threading APIs for creating and managing PPU (PowerPC Processing Unit) threads on the PlayStation 3, along with synchronization primitives for thread-safe programming.
+
+## Overview
+
+Thread functionality is provided through:
+- `sys/thread.h` - Thread creation and management syscalls
+- `lv2/thread.h` - Thread utility functions
+- `sys/mutex.h` - Mutual exclusion locks
+- `sys/cond.h` - Condition variables
+
+## Thread Management
+
+### Thread Types
+
+The PS3 uses 64-bit thread identifiers:
+
+<CodeGroup>
+```c Type Definition
+typedef u64 sys_ppu_thread_t;
+```
+</CodeGroup>
+
+### Creating Threads
+
+<CodeGroup>
+```c sysThreadCreate
+s32 sysThreadCreate(sys_ppu_thread_t *threadid,
+                    void (*entry)(void *),
+                    void *arg,
+                    s32 priority,
+                    u64 stacksize,
+                    u64 flags,
+                    char *threadname);
+```
+
+```c Example
+#include <stdio.h>
+#include <sys/thread.h>
+
+void thread_function(void *arg) {
+    sys_ppu_thread_t id;
+    sysThreadGetId(&id);
+    
+    int count = (int)(uintptr_t)arg;
+    printf("Thread %llX running with arg %d\n", id, count);
+    
+    // Thread work here...
+    
+    sysThreadExit(0);
+}
+
+int main() {
+    sys_ppu_thread_t thread_id;
+    s32 ret;
+    
+    ret = sysThreadCreate(&thread_id,
+                          thread_function,
+                          (void*)42,           // Argument
+                          1000,                // Priority
+                          0x4000,              // Stack size (16KB)
+                          THREAD_JOINABLE,     // Flags
+                          "MyThread");         // Name
+    
+    if (ret != 0) {
+        printf("Failed to create thread: %d\n", ret);
+        return ret;
+    }
+    
+    printf("Thread created with ID: %llX\n", thread_id);
+    return 0;
+}
+```
+</CodeGroup>
+
+<ParamField path="threadid" type="sys_ppu_thread_t*" required>
+  Pointer to storage for the new thread ID
+</ParamField>
+
+<ParamField path="entry" type="void (*)(void*)" required>
+  Thread entry point function
+</ParamField>
+
+<ParamField path="arg" type="void*">
+  Argument passed to the thread function
+</ParamField>
+
+<ParamField path="priority" type="s32" required>
+  Thread priority (0 = highest, higher values = lower priority). Normal priority is 1000.
+</ParamField>
+
+<ParamField path="stacksize" type="u64" required>
+  Stack size in bytes (minimum 0x1000 / 4KB recommended)
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Thread creation flags:
+  - `THREAD_JOINABLE` (1) - Thread can be joined
+  - `THREAD_INTERRUPT` (2) - Thread triggered by interrupt
+</ParamField>
+
+<ParamField path="threadname" type="char*">
+  Thread name for debugging (max 8 characters)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+### Thread Lifecycle
+
+<CodeGroup>
+```c Thread Exit
+void sysThreadExit(u64 ret_val);
+```
+
+```c Get Thread ID
+s32 sysThreadGetId(sys_ppu_thread_t *threadid);
+```
+
+```c Example
+#include <sys/thread.h>
+#include <lv2/thread.h>
+
+void worker_thread(void *arg) {
+    sys_ppu_thread_t my_id;
+    
+    // Get current thread ID
+    sysThreadGetId(&my_id);
+    printf("Worker thread ID: %llX\n", my_id);
+    
+    // Do work...
+    
+    // Exit with return value
+    sysThreadExit(42);
+}
+```
+</CodeGroup>
+
+### Joining Threads
+
+<CodeGroup>
+```c sysThreadJoin
+LV2_SYSCALL sysThreadJoin(sys_ppu_thread_t threadid, u64 *retval);
+```
+
+```c Example
+#include <sys/thread.h>
+
+sys_ppu_thread_t thread_id;
+u64 return_value;
+s32 ret;
+
+// Create joinable thread
+sysThreadCreate(&thread_id, worker_thread, NULL, 1000, 0x4000,
+                THREAD_JOINABLE, "Worker");
+
+// Wait for thread to complete
+ret = sysThreadJoin(thread_id, &return_value);
+if (ret == 0) {
+    printf("Thread returned: %llu\n", return_value);
+}
+```
+</CodeGroup>
+
+<Warning>
+Only threads created with the `THREAD_JOINABLE` flag can be joined. Attempting to join a non-joinable thread will fail.
+</Warning>
+
+### Detaching Threads
+
+<CodeGroup>
+```c sysThreadDetach
+LV2_SYSCALL sysThreadDetach(sys_ppu_thread_t threadid);
+```
+
+```c Example
+// Make thread non-joinable (detached)
+sysThreadDetach(thread_id);
+
+// Thread will clean up automatically when it exits
+```
+</CodeGroup>
+
+## Thread Control
+
+### Priority Management
+
+<CodeGroup>
+```c Priority Functions
+LV2_SYSCALL sysThreadSetPriority(sys_ppu_thread_t threadid, s32 prio);
+LV2_SYSCALL sysThreadGetPriority(sys_ppu_thread_t threadid, s32 *prio);
+```
+
+```c Example
+#include <sys/thread.h>
+
+sys_ppu_thread_t thread_id;
+s32 current_prio;
+
+// Get current priority
+sysThreadGetPriority(thread_id, &current_prio);
+printf("Current priority: %d\n", current_prio);
+
+// Increase priority (lower number = higher priority)
+sysThreadSetPriority(thread_id, 500);
+```
+</CodeGroup>
+
+<Note>
+Thread priority ranges:
+- 0 = Highest priority (typically reserved for system)
+- 1000 = Normal priority for applications
+- Higher values = Lower priority
+</Note>
+
+### Thread Yielding
+
+<CodeGroup>
+```c sysThreadYield
+LV2_SYSCALL sysThreadYield();
+```
+
+```c Example
+// Voluntarily give up CPU to other threads
+while (running) {
+    do_some_work();
+    sysThreadYield();  // Allow other threads to run
+}
+```
+</CodeGroup>
+
+### Stack Information
+
+<CodeGroup>
+```c Stack Structure
+typedef struct _sys_ppu_thread_stack_t {
+    void *addr;  // Pointer to stack buffer
+    u32 size;    // Stack size in bytes
+} sys_ppu_thread_stack_t;
+```
+
+```c Get Stack Info
+LV2_SYSCALL sysThreadGetStackInformation(sys_ppu_thread_stack_t *info);
+```
+
+```c Example
+#include <sys/thread.h>
+
+void my_thread(void *arg) {
+    sys_ppu_thread_stack_t stack_info;
+    
+    sysThreadGetStackInformation(&stack_info);
+    printf("Stack at %p, size: %u bytes\n", 
+           stack_info.addr, stack_info.size);
+}
+```
+</CodeGroup>
+
+## Synchronization Primitives
+
+### Mutexes
+
+Mutexes provide mutual exclusion for protecting shared resources.
+
+<CodeGroup>
+```c Mutex Types
+typedef s32 sys_mutex_t;
+
+typedef struct sys_mutex_attr {
+    u32 attr_protocol;   // Scheduling policy
+    u32 attr_recursive;  // Recursive setting
+    u32 attr_pshared;    // Sharing policy
+    u32 attr_adaptive;   // Adaptive setting
+    u64 key;             // Mutex key
+    s32 flags;           // Mutex flags
+    u32 _pad;
+    char name[8];        // Mutex name
+} sys_mutex_attr_t;
+```
+
+```c Mutex Initialization
+#include <sys/mutex.h>
+
+sys_mutex_t mutex;
+sys_mutex_attr_t attr;
+
+// Initialize attributes
+sysMutexAttrInitialize(attr);
+attr.attr_protocol = SYS_MUTEX_PROTOCOL_PRIO;
+attr.attr_recursive = SYS_MUTEX_ATTR_NOT_RECURSIVE;
+
+// Create mutex
+s32 ret = sysMutexCreate(&mutex, &attr);
+if (ret != 0) {
+    printf("Failed to create mutex: %d\n", ret);
+}
+```
+</CodeGroup>
+
+#### Mutex Attributes
+
+<AccordionGroup>
+<Accordion title="Protocol (Scheduling Policy)">
+
+| Constant | Description |
+|----------|-------------|
+| `SYS_MUTEX_PROTOCOL_FIFO` | First-in-first-out scheduling |
+| `SYS_MUTEX_PROTOCOL_PRIO` | Priority-based scheduling |
+| `SYS_MUTEX_PROTOCOL_PRIO_INHERIT` | Priority inheritance |
+
+</Accordion>
+
+<Accordion title="Recursive Mode">
+
+| Constant | Description |
+|----------|-------------|
+| `SYS_MUTEX_ATTR_RECURSIVE` | Same thread can lock multiple times |
+| `SYS_MUTEX_ATTR_NOT_RECURSIVE` | Lock fails if already held |
+
+</Accordion>
+
+<Accordion title="Adaptive Mode">
+
+| Constant | Description |
+|----------|-------------|
+| `SYS_MUTEX_ATTR_ADAPTIVE` | Adaptive spinning before blocking |
+| `SYS_MUTEX_ATTR_NOT_ADAPTIVE` | Block immediately |
+
+</Accordion>
+</AccordionGroup>
+
+#### Mutex Operations
+
+<CodeGroup>
+```c Mutex Functions
+LV2_SYSCALL sysMutexCreate(sys_mutex_t *mutex, 
+                           const sys_mutex_attr_t *attr);
+LV2_SYSCALL sysMutexDestroy(sys_mutex_t mutex);
+LV2_SYSCALL sysMutexLock(sys_mutex_t mutex, u64 timeout_usec);
+LV2_SYSCALL sysMutexTryLock(sys_mutex_t mutex);
+LV2_SYSCALL sysMutexUnlock(sys_mutex_t mutex);
+```
+
+```c Example
+#include <sys/mutex.h>
+
+sys_mutex_t data_mutex;
+int shared_counter = 0;
+
+void thread_safe_increment() {
+    // Lock mutex (wait indefinitely)
+    sysMutexLock(data_mutex, 0);
+    
+    shared_counter++;
+    
+    // Unlock mutex
+    sysMutexUnlock(data_mutex);
+}
+
+void try_increment() {
+    // Try to lock without blocking
+    if (sysMutexTryLock(data_mutex) == 0) {
+        shared_counter++;
+        sysMutexUnlock(data_mutex);
+    } else {
+        printf("Mutex already locked\n");
+    }
+}
+
+void timed_increment() {
+    // Wait up to 1 second (1,000,000 microseconds)
+    s32 ret = sysMutexLock(data_mutex, 1000000);
+    if (ret == 0) {
+        shared_counter++;
+        sysMutexUnlock(data_mutex);
+    } else {
+        printf("Mutex lock timed out\n");
+    }
+}
+```
+</CodeGroup>
+
+### Condition Variables
+
+Condition variables enable threads to wait for specific conditions.
+
+<CodeGroup>
+```c Condition Types
+typedef u32 sys_cond_t;
+
+typedef struct sys_cond_attr {
+    u32 attr_pshared;  // Sharing attribute
+    s32 flags;         // Flags
+    u64 key;           // Key
+    char name[8];      // Name
+} sys_cond_attr_t;
+```
+
+```c Condition Functions
+LV2_SYSCALL sysCondCreate(sys_cond_t *cond, sys_mutex_t mutex,
+                          const sys_cond_attr_t *attr);
+LV2_SYSCALL sysCondDestroy(sys_cond_t cond);
+LV2_SYSCALL sysCondWait(sys_cond_t cond, u64 timeout_usec);
+LV2_SYSCALL sysCondSignal(sys_cond_t cond);
+LV2_SYSCALL sysCondBroadcast(sys_cond_t cond);
+```
+
+```c Example
+#include <sys/mutex.h>
+#include <sys/cond.h>
+
+sys_mutex_t mutex;
+sys_cond_t cond;
+int data_ready = 0;
+
+void producer_thread(void *arg) {
+    // Produce data
+    produce_data();
+    
+    sysMutexLock(mutex, 0);
+    data_ready = 1;
+    sysCondSignal(cond);  // Wake one waiting thread
+    sysMutexUnlock(mutex);
+    
+    sysThreadExit(0);
+}
+
+void consumer_thread(void *arg) {
+    sysMutexLock(mutex, 0);
+    
+    // Wait for data to be ready
+    while (!data_ready) {
+        sysCondWait(cond, 0);  // Unlocks mutex while waiting
+    }
+    
+    // Mutex is locked again here
+    consume_data();
+    
+    sysMutexUnlock(mutex);
+    sysThreadExit(0);
+}
+
+// Setup
+sys_mutex_attr_t mattr;
+sys_cond_attr_t cattr;
+
+sysMutexAttrInitialize(mattr);
+sysMutexCreate(&mutex, &mattr);
+
+sysCondAttrInitialize(cattr);
+sysCondCreate(&cond, mutex, &cattr);
+```
+</CodeGroup>
+
+<Note>
+`sysCondWait()` atomically unlocks the mutex and waits. When signaled, it re-acquires the mutex before returning.
+</Note>
+
+## Complete Thread Example
+
+Here's the complete threadtest sample from PSL1GHT:
+
+<CodeGroup>
+```c samples/sys/threadtest/source/main.c
+#include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <malloc.h>
+#include <ppu-types.h>
+#include <io/pad.h>
+#include <sys/thread.h>
+
+static void thread_start(void *arg)
+{
+    s32 running = 0;
+    sys_ppu_thread_t id;
+    sys_ppu_thread_stack_t stackinfo;
+
+    // Get thread ID
+    sysThreadGetId(&id);
+    
+    // Get stack information
+    sysThreadGetStackInformation(&stackinfo);
+
+    printf("stack\naddr: %p, size: %d\n", 
+           stackinfo.addr, stackinfo.size);
+    
+    while(running < 5) {
+        printf("Thread: %08llX\n", (unsigned long long int)id);
+
+        // Yield to other threads
+        sysThreadYield();
+        sleep(2);
+        running++;
+    }
+
+    sysThreadExit(0);
+}
+
+int main(int argc, char *argv[])
+{
+    u64 retval;
+    s32 ret;
+    sys_ppu_thread_t id;
+    u64 prio = 1500;
+    size_t stacksize = 0x1000;
+    char *threadname = "myThread";
+    void *threadarg = (void*)0x1337;
+
+    // Create thread
+    ret = sysThreadCreate(&id, thread_start, threadarg, 
+                          prio, stacksize, 
+                          THREAD_JOINABLE, threadname);
+    printf("sysThreadCreate: %d\n", ret);
+
+    // Wait for thread to complete
+    ret = sysThreadJoin(id, &retval);
+    printf("sysThreadJoin: %d - %llX\n", 
+           ret, (unsigned long long int)retval);
+
+    printf("Exiting thread test\n");
+    return 0;
+}
+```
+</CodeGroup>
+
+## Producer-Consumer Pattern
+
+<CodeGroup>
+```c Producer-Consumer Example
+#include <sys/thread.h>
+#include <sys/mutex.h>
+#include <sys/cond.h>
+
+#define BUFFER_SIZE 10
+
+struct {
+    int buffer[BUFFER_SIZE];
+    int count;
+    int in;
+    int out;
+    sys_mutex_t mutex;
+    sys_cond_t not_empty;
+    sys_cond_t not_full;
+} queue;
+
+void init_queue() {
+    sys_mutex_attr_t mattr;
+    sys_cond_attr_t cattr;
+    
+    queue.count = 0;
+    queue.in = 0;
+    queue.out = 0;
+    
+    sysMutexAttrInitialize(mattr);
+    sysMutexCreate(&queue.mutex, &mattr);
+    
+    sysCondAttrInitialize(cattr);
+    sysCondCreate(&queue.not_empty, queue.mutex, &cattr);
+    sysCondCreate(&queue.not_full, queue.mutex, &cattr);
+}
+
+void producer(void *arg) {
+    int item = 0;
+    
+    while (1) {
+        sysMutexLock(queue.mutex, 0);
+        
+        // Wait while buffer is full
+        while (queue.count == BUFFER_SIZE) {
+            sysCondWait(queue.not_full, 0);
+        }
+        
+        // Produce item
+        queue.buffer[queue.in] = item++;
+        queue.in = (queue.in + 1) % BUFFER_SIZE;
+        queue.count++;
+        
+        printf("Produced: %d\n", item - 1);
+        
+        // Signal consumers
+        sysCondSignal(queue.not_empty);
+        sysMutexUnlock(queue.mutex);
+        
+        sysThreadYield();
+    }
+}
+
+void consumer(void *arg) {
+    int item;
+    
+    while (1) {
+        sysMutexLock(queue.mutex, 0);
+        
+        // Wait while buffer is empty
+        while (queue.count == 0) {
+            sysCondWait(queue.not_empty, 0);
+        }
+        
+        // Consume item
+        item = queue.buffer[queue.out];
+        queue.out = (queue.out + 1) % BUFFER_SIZE;
+        queue.count--;
+        
+        printf("Consumed: %d\n", item);
+        
+        // Signal producers
+        sysCondSignal(queue.not_full);
+        sysMutexUnlock(queue.mutex);
+        
+        sysThreadYield();
+    }
+}
+```
+</CodeGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+<Card title="Always Check Returns" icon="circle-check">
+Verify thread creation and synchronization operations succeed.
+</Card>
+
+<Card title="Proper Cleanup" icon="broom">
+Destroy mutexes and condition variables when done.
+</Card>
+
+<Card title="Avoid Deadlocks" icon="lock">
+Always acquire locks in the same order across threads.
+</Card>
+
+<Card title="Use Timeouts" icon="clock">
+Consider using timeouts to prevent indefinite blocking.
+</Card>
+</CardGroup>
+
+<Warning>
+**Common Pitfalls:**
+- Forgetting to unlock mutexes
+- Deadlocks from circular lock dependencies
+- Race conditions from missing synchronization
+- Stack overflow from insufficient stack size
+</Warning>
+
+## See Also
+
+- [Memory Management](/system/memory) - Allocating memory for thread stacks
+- [Processes](/system/processes) - Process-level thread configuration
+- [Filesystem](/system/filesystem) - Thread-safe file operations

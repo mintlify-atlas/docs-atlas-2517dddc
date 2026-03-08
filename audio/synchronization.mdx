@@ -1,0 +1,285 @@
+---
+title: Audio Synchronization
+description: Synchronize audio playback with video and other timing-critical operations
+---
+
+Proper audio-video synchronization is crucial for multimedia applications. The PSL1GHT audio system provides event-based mechanisms to ensure precise timing between audio buffer fills and video frame rendering.
+
+## Event-Based Synchronization
+
+The recommended approach for synchronization uses audio event queues to trigger buffer fills at exactly the right time.
+
+### Event Queue Setup
+
+<Steps>
+  <Step title="Create an audio event queue">
+    The event queue receives notifications when audio blocks are ready to be filled.
+
+    ```c samples/audio/audiosync/source/main.c
+    #include <audio/audio.h>
+    #include <sys/event_queue.h>
+
+    sys_event_queue_t snd_queue;
+    sys_ipc_key_t snd_key;
+
+    s32 ret = audioCreateNotifyEventQueue(&snd_queue, &snd_key);
+    if (ret != 0) {
+        printf("Failed to create event queue: %08x\n", ret);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Associate queue with audio system">
+    Set the created event queue as the active notification queue.
+
+    ```c samples/audio/audiosync/source/main.c
+    ret = audioSetNotifyEventQueue(snd_key);
+    if (ret != 0) {
+        printf("Failed to set event queue: %08x\n", ret);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Drain initial events">
+    Clear any pending events before starting playback.
+
+    ```c samples/audio/audiosync/source/main.c
+    ret = sysEventQueueDrain(snd_queue);
+    if (ret != 0) {
+        printf("Failed to drain queue: %08x\n", ret);
+    }
+    ```
+  </Step>
+</Steps>
+
+## Synchronized Playback Loop
+
+With event queues configured, your application can synchronize audio fills with video frames:
+
+```c samples/audio/audiosync/source/main.c
+void fillBuffer(f32 *buf) {
+    static u32 pos = 0;
+    
+    for (u32 i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+        // Convert 16-bit PCM to float
+        buf[i*2 + 0] = (f32)*((s16*)&audio_data[pos]) / 32768.0f;
+        buf[i*2 + 1] = (f32)*((s16*)&audio_data[pos + 2]) / 32768.0f;
+        
+        pos += 4;
+        if (pos >= audio_data_size)
+            pos = 0;
+    }
+}
+
+void playOneBlock(audioPortConfig *config) {
+    sys_event_t event;
+    
+    // Block until next audio buffer is ready
+    s32 ret = sysEventQueueReceive(snd_queue, &event, 20*1000);
+    if (ret != 0) {
+        printf("Event queue timeout\n");
+        return;
+    }
+    
+    // Get current hardware read position
+    u64 current_block = *(u64*)((u64)config->readIndex);
+    f32 *dataStart = (f32*)((u64)config->audioDataStart);
+    
+    // Calculate next block to fill (stay ahead of read position)
+    u32 audio_block_index = (current_block + 1) % config->numBlocks;
+    
+    // Fill the audio buffer
+    f32 *buf = dataStart + config->channelCount * AUDIO_BLOCK_SAMPLES * audio_block_index;
+    fillBuffer(buf);
+}
+
+// Main loop
+audioPortStart(portNum);
+
+u32 frame_count = 0;
+while (running) {
+    // Audio notification drives the timing
+    playOneBlock(&config);
+    
+    // Render video frame synchronized with audio
+    renderFrame(frame_count++);
+    
+    // Present frame
+    flip();
+}
+```
+
+<Note>
+  The audio system generates events at a consistent rate (approximately every 5.3ms for 48kHz audio with 256-sample blocks), providing a reliable timing source.
+</Note>
+
+## Timing Calculations
+
+Understanding audio timing helps maintain synchronization:
+
+### Block Duration
+
+```c
+// Audio is typically 48kHz on PS3
+#define SAMPLE_RATE 48000
+
+// Duration of one audio block in milliseconds
+float block_duration_ms = (AUDIO_BLOCK_SAMPLES * 1000.0f) / SAMPLE_RATE;
+// Result: ~5.33ms per block
+
+// Duration in microseconds (for precise timing)
+u64 block_duration_us = (AUDIO_BLOCK_SAMPLES * 1000000ULL) / SAMPLE_RATE;
+// Result: ~5333μs per block
+```
+
+### Buffer Latency
+
+```c
+// Total buffered audio time
+float total_latency_ms = block_duration_ms * config.numBlocks;
+
+// Example with 8 blocks:
+// ~42.67ms of audio buffered
+```
+
+## Advanced Synchronization
+
+### Combining Audio and Video Events
+
+For applications with complex timing requirements, you can use multiple event sources:
+
+```c
+#include <sys/event.h>
+
+// Create event port for multiple sources
+sys_event_port_t event_port;
+sysEventPortCreate(&event_port, SYS_EVENT_PORT_LOCAL, SYS_EVENT_PORT_NO_NAME);
+
+// Connect audio queue to port
+sysEventPortConnectLocal(event_port, snd_queue);
+
+// Connect other timing sources as needed
+// (e.g., video vsync, timers, etc.)
+
+// Receive events from any source
+sys_event_t event;
+while (running) {
+    ret = sysEventQueueReceive(snd_queue, &event, SYS_NO_TIMEOUT);
+    
+    switch (event.source) {
+        case /* audio event */:
+            playOneBlock(&config);
+            break;
+        case /* video event */:
+            renderFrame();
+            break;
+    }
+}
+```
+
+### Handling Underruns
+
+If your application can't fill buffers fast enough:
+
+<CodeGroup>
+```c Detection
+// Monitor for gaps in block filling
+void checkUnderrun(audioPortConfig *config) {
+    u64 current_block = *(u64*)((u64)config->readIndex);
+    
+    if (current_block == last_filled_block) {
+        printf("Audio underrun detected!\n");
+        // Hardware is starving for audio data
+    }
+}
+```
+
+```c Prevention
+// Use more blocks for extra buffering
+params.numBlocks = AUDIO_BLOCK_16;  // Instead of 8
+
+// Pre-fill multiple blocks before starting
+for (u32 i = 0; i < 4; i++) {
+    fillBlock(i);
+}
+audioPortStart(portNum);
+```
+</CodeGroup>
+
+## Cleanup
+
+Always clean up event queues when stopping audio:
+
+```c samples/audio/audiosync/source/main.c
+// Stop audio first
+audioPortStop(portNum);
+
+// Disconnect event queue
+audioRemoveNotifyEventQueue(snd_key);
+
+// Destroy the queue
+sysEventQueueDestroy(snd_queue, 0);
+
+// Close port and quit
+audioPortClose(portNum);
+audioQuit();
+```
+
+<Warning>
+  Always call `audioRemoveNotifyEventQueue()` before destroying the event queue, or you may leak system resources.
+</Warning>
+
+## Practical Tips
+
+### Sample Rate Conversion
+
+If your audio data isn't at 48kHz, you'll need to resample:
+
+```c
+// Simple linear interpolation (low quality but fast)
+float resample(float *input, u32 input_samples, u32 input_rate, 
+               float *output, u32 output_samples, u32 output_rate) {
+    float ratio = (float)input_rate / output_rate;
+    
+    for (u32 i = 0; i < output_samples; i++) {
+        float src_pos = i * ratio;
+        u32 src_idx = (u32)src_pos;
+        float frac = src_pos - src_idx;
+        
+        // Linear interpolation
+        output[i] = input[src_idx] * (1.0f - frac) + 
+                    input[src_idx + 1] * frac;
+    }
+}
+```
+
+### Converting PCM Formats
+
+The audio system requires 32-bit float samples. Convert from common formats:
+
+```c samples/audio/audiosync/source/main.c
+// 16-bit signed PCM to float
+float sample_float = (float)sample_int16 / 32768.0f;
+
+// 8-bit unsigned PCM to float
+float sample_float = ((float)sample_uint8 - 128.0f) / 128.0f;
+
+// 24-bit PCM to float
+float sample_float = (float)sample_int24 / 8388608.0f;
+```
+
+## API Reference
+
+Key functions from `audio/audio.h`:
+
+- `audioCreateNotifyEventQueue()` - Create event queue for audio notifications
+- `audioSetNotifyEventQueue()` - Set active event queue
+- `audioRemoveNotifyEventQueue()` - Disconnect event queue
+- `sysEventQueueReceive()` - Wait for audio events (from `sys/event_queue.h`)
+- `sysEventQueueDrain()` - Clear pending events
+
+## Example
+
+See `samples/audio/audiosync/` for a complete example of audio-video synchronization using event queues.

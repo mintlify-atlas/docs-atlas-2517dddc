@@ -1,0 +1,439 @@
+---
+title: HTTP Client
+description: Make HTTP and HTTPS requests on PlayStation 3
+---
+
+The PSL1GHT HTTP library provides a high-level client for making HTTP and HTTPS requests. It supports features like automatic redirects, authentication, cookies, and connection pooling.
+
+## Initialization
+
+Before making HTTP requests, initialize the network, HTTP, and optionally SSL subsystems:
+
+```c samples/network/httptest/source/http.c
+#include <http/http.h>
+#include <http/https.h>
+#include <ssl/ssl.h>
+#include <net/net.h>
+#include <sysmodule/sysmodule.h>
+
+// Load required system modules
+sysModuleLoad(SYSMODULE_NET);
+sysModuleLoad(SYSMODULE_HTTP);
+
+// Initialize network
+netInitialize();
+
+// Allocate memory pool for HTTP
+void *http_pool = malloc(0x10000);  // 64KB
+s32 ret = httpInit(http_pool, 0x10000);
+if (ret < 0) {
+    printf("HTTP init failed: %x\n", ret);
+    return -1;
+}
+```
+
+<Note>
+  For HTTPS support, you must also load SSL modules and initialize SSL. See the [SSL documentation](/networking/ssl) for details.
+</Note>
+
+## Basic HTTP Request
+
+<Steps>
+  <Step title="Create HTTP client">
+    ```c samples/network/httptest/source/http.c
+    httpClientId client;
+    ret = httpCreateClient(&client);
+    if (ret < 0) {
+        printf("Failed to create client: %x\n", ret);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Configure client options">
+    ```c samples/network/httptest/source/http.c
+    // Set connection timeout (in microseconds)
+    httpClientSetConnTimeout(client, 10 * 1000 * 1000);  // 10 seconds
+    
+    // Set user agent
+    httpClientSetUserAgent(client, "Mozilla/5.0 (PLAYSTATION 3; 1.00)");
+    
+    // Enable automatic redirects
+    httpClientSetAutoRedirect(client, 1);
+    ```
+  </Step>
+
+  <Step title="Parse URL into URI structure">
+    ```c samples/network/httptest/source/http.c
+    const char *url = "http://example.com/api/data";
+    httpUri uri;
+    u32 required_size = 0;
+    
+    // Get required pool size
+    ret = httpUtilParseUri(&uri, url, NULL, 0, &required_size);
+    
+    // Allocate pool and parse
+    void *uri_pool = malloc(required_size);
+    ret = httpUtilParseUri(&uri, url, uri_pool, required_size, NULL);
+    if (ret < 0) {
+        printf("Failed to parse URI: %x\n", ret);
+        free(uri_pool);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Create transaction">
+    ```c samples/network/httptest/source/http.c
+    httpTransId transaction;
+    ret = httpCreateTransaction(&transaction, client, HTTP_METHOD_GET, &uri);
+    if (ret < 0) {
+        printf("Failed to create transaction: %x\n", ret);
+        free(uri_pool);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Send request">
+    ```c samples/network/httptest/source/http.c
+    ret = httpSendRequest(transaction, NULL, 0, NULL);
+    if (ret < 0) {
+        printf("Failed to send request: %x\n", ret);
+        httpDestroyTransaction(transaction);
+        free(uri_pool);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Check response status">
+    ```c samples/network/httptest/source/http.c
+    s32 status_code;
+    ret = httpResponseGetStatusCode(transaction, &status_code);
+    if (ret < 0 || status_code != HTTP_STATUS_CODE_OK) {
+        printf("HTTP error: %d\n", status_code);
+    }
+    
+    // Get content length
+    u64 content_length;
+    httpResponseGetContentLength(transaction, &content_length);
+    printf("Content length: %llu bytes\n", content_length);
+    ```
+  </Step>
+
+  <Step title="Receive response data">
+    ```c samples/network/httptest/source/http.c
+    char buffer[4096];
+    u32 bytes_read;
+    
+    while (1) {
+        ret = httpRecvResponse(transaction, buffer, sizeof(buffer), &bytes_read);
+        if (ret < 0 || bytes_read == 0) {
+            break;  // End of response or error
+        }
+        
+        // Process received data
+        fwrite(buffer, 1, bytes_read, output_file);
+    }
+    ```
+  </Step>
+
+  <Step title="Clean up">
+    ```c samples/network/httptest/source/http.c
+    httpDestroyTransaction(transaction);
+    httpDestroyClient(client);
+    free(uri_pool);
+    ```
+  </Step>
+</Steps>
+
+## HTTP Methods
+
+The library supports all standard HTTP methods:
+
+```c http/http.h
+// GET request
+httpCreateTransaction(&trans, client, HTTP_METHOD_GET, &uri);
+
+// POST request
+httpCreateTransaction(&trans, client, HTTP_METHOD_POST, &uri);
+
+// Other methods
+HTTP_METHOD_HEAD
+HTTP_METHOD_PUT
+HTTP_METHOD_DELETE
+HTTP_METHOD_OPTIONS
+HTTP_METHOD_TRACE
+```
+
+## POST Requests
+
+Send data with POST requests:
+
+```c
+httpTransId transaction;
+httpCreateTransaction(&transaction, client, HTTP_METHOD_POST, &uri);
+
+// Set content length
+const char *post_data = "key1=value1&key2=value2";
+u64 data_length = strlen(post_data);
+httpRequestSetContentLength(transaction, data_length);
+
+// Set content type header
+httpHeader header;
+header.name = "Content-Type";
+header.value = "application/x-www-form-urlencoded";
+httpRequestAddHeader(transaction, &header);
+
+// Send request with body
+u32 sent;
+httpSendRequest(transaction, post_data, data_length, &sent);
+
+// Receive response as normal
+```
+
+## Custom Headers
+
+Add custom headers to requests:
+
+```c http/http.h
+// Add a single header
+httpHeader header;
+header.name = "Authorization";
+header.value = "Bearer token123";
+httpRequestAddHeader(transaction, &header);
+
+// Set or replace a header
+header.name = "Accept";
+header.value = "application/json";
+httpRequestSetHeader(transaction, &header);
+
+// Delete a header
+httpRequestDeleteHeader(transaction, "User-Agent");
+
+// Get response headers
+httpHeader *headers;
+u32 header_count;
+u32 required_size;
+httpRequestGetAllHeaders(transaction, &headers, &header_count, 
+                         pool, pool_size, &required_size);
+```
+
+## Downloading Files
+
+Complete example of downloading a file:
+
+```c samples/network/httptest/source/http.c
+int download_file(const char *url, const char *output_path) {
+    httpClientId client;
+    httpTransId transaction = 0;
+    httpUri uri;
+    void *uri_pool = NULL;
+    FILE *fp = NULL;
+    u32 required_size;
+    s32 ret;
+    
+    // Create client
+    httpCreateClient(&client);
+    httpClientSetConnTimeout(client, 10 * 1000 * 1000);
+    httpClientSetUserAgent(client, "PS3-Downloader/1.0");
+    httpClientSetAutoRedirect(client, 1);
+    
+    // Parse URI
+    httpUtilParseUri(&uri, url, NULL, 0, &required_size);
+    uri_pool = malloc(required_size);
+    httpUtilParseUri(&uri, url, uri_pool, required_size, NULL);
+    
+    // Create and send request
+    httpCreateTransaction(&transaction, client, HTTP_METHOD_GET, &uri);
+    ret = httpSendRequest(transaction, NULL, 0, NULL);
+    if (ret < 0) goto error;
+    
+    // Check status
+    s32 status;
+    httpResponseGetStatusCode(transaction, &status);
+    if (status != HTTP_STATUS_CODE_OK) {
+        printf("HTTP error: %d\n", status);
+        goto error;
+    }
+    
+    // Open output file
+    fp = fopen(output_path, "wb");
+    if (!fp) goto error;
+    
+    // Download data
+    char buffer[64 * 1024];  // 64KB buffer
+    u32 bytes_read;
+    
+    while (1) {
+        ret = httpRecvResponse(transaction, buffer, sizeof(buffer), &bytes_read);
+        if (ret < 0 || bytes_read == 0) break;
+        
+        fwrite(buffer, 1, bytes_read, fp);
+    }
+    
+    fclose(fp);
+    httpDestroyTransaction(transaction);
+    httpDestroyClient(client);
+    free(uri_pool);
+    return 0;
+    
+error:
+    if (fp) fclose(fp);
+    if (transaction) httpDestroyTransaction(transaction);
+    if (client) httpDestroyClient(client);
+    if (uri_pool) free(uri_pool);
+    return -1;
+}
+```
+
+## URL Encoding
+
+Encode special characters in URLs:
+
+```c http/util.h
+// Escape URI components
+const char *filename = "my file (2024).txt";
+char escaped[256];
+u32 required;
+
+httpUtilEscapeUri(escaped, sizeof(escaped), 
+                  (unsigned char*)filename, strlen(filename), &required);
+// Result: "my%20file%20(2024).txt"
+
+// Form URL encoding
+const char *data = "key=value with spaces";
+char encoded[256];
+httpUtilFormUrlEncode(encoded, sizeof(encoded),
+                      (unsigned char*)data, strlen(data), &required);
+// Result: "key=value+with+spaces"
+```
+
+## Client Configuration
+
+Advanced client settings:
+
+```c http/http.h
+// HTTP version
+httpClientSetVersion(client, 1, 1);  // HTTP/1.1
+
+// Connection keep-alive
+httpClientSetKeepAlive(client, 1);   // Enable
+
+// Connection pooling
+httpClientSetTotalPoolSize(client, 4);      // Max 4 connections
+httpClientSetPerHostPoolSize(client, 2);    // Max 2 per host
+
+// Timeouts (in microseconds)
+httpClientSetRecvTimeout(client, 30 * 1000 * 1000);  // 30 sec
+httpClientSetSendTimeout(client, 30 * 1000 * 1000);  // 30 sec
+
+// Buffer sizes
+httpClientSetResponseBufferMax(client, 1024 * 1024);  // 1MB
+```
+
+## HTTP Status Codes
+
+Common status codes from `http/http.h`:
+
+| Code | Constant | Description |
+|------|----------|-------------|
+| 200 | `HTTP_STATUS_CODE_OK` | Success |
+| 201 | `HTTP_STATUS_CODE_Created` | Created |
+| 204 | `HTTP_STATUS_CODE_No_Content` | No content |
+| 301 | `HTTP_STATUS_CODE_Moved_Permanently` | Permanent redirect |
+| 302 | `HTTP_STATUS_CODE_Found` | Temporary redirect |
+| 304 | `HTTP_STATUS_CODE_Not_Modified` | Not modified |
+| 400 | `HTTP_STATUS_CODE_Bad_Request` | Bad request |
+| 401 | `HTTP_STATUS_CODE_Unauthorized` | Unauthorized |
+| 403 | `HTTP_STATUS_CODE_Forbidden` | Forbidden |
+| 404 | `HTTP_STATUS_CODE_Not_Found` | Not found |
+| 500 | `HTTP_STATUS_CODE_Internal_Server_Error` | Server error |
+| 503 | `HTTP_STATUS_CODE_Service_Unavailable` | Service unavailable |
+
+## Error Handling
+
+<Warning>
+  Always check return values. Network operations can fail for many reasons (timeouts, DNS failures, connection errors, etc.).
+</Warning>
+
+```c
+s32 ret = httpSendRequest(transaction, NULL, 0, NULL);
+if (ret < 0) {
+    printf("Request failed with error: 0x%x\n", ret);
+    // Clean up and handle error
+}
+
+s32 status;
+httpResponseGetStatusCode(transaction, &status);
+if (status >= 400) {
+    if (status == HTTP_STATUS_CODE_Not_Found) {
+        printf("Resource not found\n");
+    } else if (status >= 500) {
+        printf("Server error: %d\n", status);
+    } else {
+        printf("Client error: %d\n", status);
+    }
+}
+```
+
+## Cleanup
+
+Always clean up resources:
+
+```c samples/network/httptest/source/http.c
+// Destroy transaction and client
+if (transaction) httpDestroyTransaction(transaction);
+if (client) httpDestroyClient(client);
+
+// Free memory pools
+if (uri_pool) free(uri_pool);
+if (http_pool) free(http_pool);
+
+// Shutdown HTTP and network
+httpEnd();
+netDeinitialize();
+
+// Unload system modules
+sysModuleUnload(SYSMODULE_HTTP);
+sysModuleUnload(SYSMODULE_NET);
+```
+
+## API Reference
+
+Key functions from `http/http.h`:
+
+**Initialization:**
+- `httpInit()` - Initialize HTTP library
+- `httpEnd()` - Shut down HTTP library
+
+**Client management:**
+- `httpCreateClient()` - Create HTTP client
+- `httpDestroyClient()` - Destroy HTTP client
+- `httpClientSet*()` - Configure client options
+
+**Transactions:**
+- `httpCreateTransaction()` - Create HTTP request
+- `httpDestroyTransaction()` - Destroy transaction
+- `httpSendRequest()` - Send HTTP request
+- `httpRecvResponse()` - Receive response data
+
+**Request manipulation:**
+- `httpRequestSetHeader()` - Set request header
+- `httpRequestAddHeader()` - Add request header
+- `httpRequestSetContentLength()` - Set content length
+
+**Response inspection:**
+- `httpResponseGetStatusCode()` - Get HTTP status code
+- `httpResponseGetContentLength()` - Get content length
+- `httpResponseGetStatusLine()` - Get full status line
+
+**Utilities (from `http/util.h`):**
+- `httpUtilParseUri()` - Parse URL string
+- `httpUtilEscapeUri()` - URL-encode string
+- `httpUtilFormUrlEncode()` - Form-encode string
+
+## Example
+
+See `samples/network/httptest/` for a complete HTTP/HTTPS download example.

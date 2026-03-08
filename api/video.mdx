@@ -1,0 +1,579 @@
+---
+title: "Video Configuration"
+description: "Video mode and display configuration functions"
+---
+
+The Video API provides functions for configuring video output, querying display capabilities, and managing video modes.
+
+## Core Functions
+
+### videoConfigure
+
+Configure the video output.
+
+```c
+s32 videoConfigure(s32 videoOut, videoConfiguration *config, void *option, s32 blocking);
+```
+
+<ParamField path="videoOut" type="s32">
+  Video output ID:
+  - `VIDEO_PRIMARY` (0) - Primary video output
+  - `VIDEO_SECONDARY` (1) - Secondary video output
+</ParamField>
+
+<ParamField path="config" type="videoConfiguration*">
+  Pointer to video configuration structure.
+</ParamField>
+
+<ParamField path="option" type="void*">
+  Pointer to additional configuration options (usually NULL).
+</ParamField>
+
+<ParamField path="blocking" type="s32">
+  Blocking mode:
+  - 0 - Non-blocking (returns immediately)
+  - Non-zero - Blocking (waits for configuration to complete)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoGetState
+
+Get the current video state.
+
+```c
+s32 videoGetState(s32 videoOut, s32 deviceIndex, videoState *state);
+```
+
+<ParamField path="videoOut" type="s32">
+  Video output ID (typically 0 for primary display).
+</ParamField>
+
+<ParamField path="deviceIndex" type="s32">
+  Device index (typically 0 for primary device).
+</ParamField>
+
+<ParamField path="state" type="videoState*">
+  Pointer to video state structure to be filled.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoGetResolution
+
+Get resolution dimensions from a resolution ID.
+
+```c
+s32 videoGetResolution(s32 resolutionId, videoResolution *resolution);
+```
+
+<ParamField path="resolutionId" type="s32">
+  Resolution identifier:
+  - `VIDEO_RESOLUTION_1080` (1) - 1920x1080
+  - `VIDEO_RESOLUTION_720` (2) - 1280x720
+  - `VIDEO_RESOLUTION_480` (4) - 720x480
+  - `VIDEO_RESOLUTION_576` (5) - 720x576
+  - `VIDEO_RESOLUTION_1600x1080` (10)
+  - `VIDEO_RESOLUTION_1440x1080` (11)
+  - `VIDEO_RESOLUTION_1280x1080` (12)
+  - `VIDEO_RESOLUTION_960x1080` (13)
+</ParamField>
+
+<ParamField path="resolution" type="videoResolution*">
+  Pointer to resolution structure to be filled with width and height.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoGetConfiguration
+
+Get the current video configuration.
+
+```c
+s32 videoGetConfiguration(u32 videoOut, videoConfiguration *config, void *option);
+```
+
+<ParamField path="videoOut" type="u32">
+  Video output ID.
+</ParamField>
+
+<ParamField path="config" type="videoConfiguration*">
+  Pointer to store current configuration.
+</ParamField>
+
+<ParamField path="option" type="void*">
+  Additional options (usually NULL).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoGetNumberOfDevice
+
+Get the number of connected video devices.
+
+```c
+s32 videoGetNumberOfDevice(u32 videoOut);
+```
+
+<ParamField path="videoOut" type="u32">
+  Video output ID.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns number of devices, or negative on error.
+</ResponseField>
+
+### videoGetDeviceInfo
+
+Get information about a video device.
+
+```c
+s32 videoGetDeviceInfo(u32 videoOut, u32 deviceIndex, videoDeviceInfo *info);
+```
+
+<ParamField path="videoOut" type="u32">
+  Video output ID.
+</ParamField>
+
+<ParamField path="deviceIndex" type="u32">
+  Device index.
+</ParamField>
+
+<ParamField path="info" type="videoDeviceInfo*">
+  Pointer to device info structure to be filled.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoGetResolutionAvailability
+
+Check if a resolution is available.
+
+```c
+s32 videoGetResolutionAvailability(u32 videoOut, u32 resolutionId, u32 aspect, u32 option);
+```
+
+<ParamField path="videoOut" type="u32">
+  Video output ID.
+</ParamField>
+
+<ParamField path="resolutionId" type="u32">
+  Resolution ID to check.
+</ParamField>
+
+<ParamField path="aspect" type="u32">
+  Aspect ratio.
+</ParamField>
+
+<ParamField path="option" type="u32">
+  Additional options.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns availability status.
+</ResponseField>
+
+### videoRegisterCallback
+
+Register a callback for video events.
+
+```c
+s32 videoRegisterCallback(u32 slot, videoCallback cbVideo, void *userData);
+```
+
+<ParamField path="slot" type="u32">
+  Callback slot (0-3).
+</ParamField>
+
+<ParamField path="cbVideo" type="videoCallback">
+  Callback function pointer.
+</ParamField>
+
+<ParamField path="userData" type="void*">
+  User data passed to callback.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoUnregisterCallback
+
+Unregister a video callback.
+
+```c
+s32 videoUnregisterCallback(u32 slot);
+```
+
+<ParamField path="slot" type="u32">
+  Callback slot to unregister.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoGetConvertCursorColorInfo
+
+Get cursor color conversion information.
+
+```c
+s32 videoGetConvertCursorColorInfo(u8 *rgbOutputRange);
+```
+
+<ParamField path="rgbOutputRange" type="u8*">
+  Pointer to store RGB output range.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### videoDebugSetMonitorType
+
+Set monitor type for debugging.
+
+```c
+s32 videoDebugSetMonitorType(u32 videoOut, u32 monitorType);
+```
+
+<ParamField path="videoOut" type="u32">
+  Video output ID.
+</ParamField>
+
+<ParamField path="monitorType" type="u32">
+  Monitor type value.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+## Data Structures
+
+### videoConfiguration
+
+Video configuration structure.
+
+```c
+typedef struct _videoconfig {
+    u8 resolution;
+    u8 format;
+    u8 aspect;
+    u8 padding[9];
+    u32 pitch;
+} videoConfiguration;
+```
+
+<ParamField path="resolution" type="u8">
+  Resolution ID (see videoGetResolution).
+</ParamField>
+
+<ParamField path="format" type="u8">
+  Buffer format:
+  - `VIDEO_BUFFER_FORMAT_XRGB` (0) - XRGB format
+  - `VIDEO_BUFFER_FORMAT_XBGR` (1) - XBGR format
+  - `VIDEO_BUFFER_FORMAT_FLOAT` (2) - Float format
+</ParamField>
+
+<ParamField path="aspect" type="u8">
+  Aspect ratio:
+  - `VIDEO_ASPECT_AUTO` (0) - Automatic
+  - `VIDEO_ASPECT_4_3` (1) - 4:3 aspect ratio
+  - `VIDEO_ASPECT_16_9` (2) - 16:9 aspect ratio
+</ParamField>
+
+<ParamField path="pitch" type="u32">
+  Pitch (bytes per line) - offset between consecutive lines.
+</ParamField>
+
+### videoState
+
+Video state structure.
+
+```c
+typedef struct _videostate {
+    u8 state;
+    u8 colorSpace;
+    u8 padding[6];
+    videoDisplayMode displayMode;
+} videoState;
+```
+
+<ParamField path="state" type="u8">
+  Current state:
+  - `VIDEO_STATE_DISABLED` (0) - Disabled
+  - `VIDEO_STATE_ENABLED` (1) - Enabled
+  - `VIDEO_STATE_BUSY` (3) - Busy
+</ParamField>
+
+<ParamField path="colorSpace" type="u8">
+  Color space (buffer format).
+</ParamField>
+
+<ParamField path="displayMode" type="videoDisplayMode">
+  Current display mode settings.
+</ParamField>
+
+### videoDisplayMode
+
+Display mode structure.
+
+```c
+typedef struct _videodisplaymode {
+    u8 resolution;
+    u8 scanMode;
+    u8 conversion;
+    u8 aspect;
+    u8 padding[2];
+    u16 refreshRates;
+} videoDisplayMode;
+```
+
+<ParamField path="resolution" type="u8">
+  Resolution ID.
+</ParamField>
+
+<ParamField path="scanMode" type="u8">
+  Scan mode:
+  - `VIDEO_SCANMODE_INTERLACE` (0) - Interlaced
+  - `VIDEO_SCANMODE_PROGRESSIVE` (1) - Progressive
+</ParamField>
+
+<ParamField path="conversion" type="u8">
+  Conversion mode.
+</ParamField>
+
+<ParamField path="aspect" type="u8">
+  Aspect ratio setting.
+</ParamField>
+
+<ParamField path="refreshRates" type="u16">
+  Supported refresh rates (bitfield):
+  - `VIDEO_REFRESH_AUTO` (0x00)
+  - `VIDEO_REFRESH_59_94HZ` (0x01)
+  - `VIDEO_REFRESH_50HZ` (0x02)
+  - `VIDEO_REFRESH_60HZ` (0x04)
+  - `VIDEO_REFRESH_30HZ` (0x08)
+</ParamField>
+
+### videoResolution
+
+Resolution dimensions.
+
+```c
+typedef struct _videoresolution {
+    u16 width;
+    u16 height;
+} videoResolution;
+```
+
+<ParamField path="width" type="u16">
+  Screen width in pixels.
+</ParamField>
+
+<ParamField path="height" type="u16">
+  Screen height in pixels.
+</ParamField>
+
+### videoDeviceInfo
+
+Video device information.
+
+```c
+typedef struct _videoDeviceInfo {
+    u8 portType;
+    u8 colorSpace;
+    u16 latency;
+    u8 availableModeCount;
+    u8 state;
+    u8 rgbOutputRange;
+    u8 padding[5];
+    videoColorInfo colorInfo;
+    videoDisplayMode availableModes[32];
+    videoKSVList ksvList;
+} videoDeviceInfo;
+```
+
+<ParamField path="portType" type="u8">
+  Port type:
+  - `VIDEO_PORT_NONE` (0x00)
+  - `VIDEO_PORT_HDMI` (0x01)
+  - `VIDEO_PORT_NETWORK` (0x41)
+  - `VIDEO_PORT_COMPOSITE` (0x81)
+  - `VIDEO_PORT_D` (0x82)
+  - `VIDEO_PORT_COMPONENT` (0x83)
+  - `VIDEO_PORT_RGB` (0x84)
+  - `VIDEO_PORT_SCART` (0x85)
+  - `VIDEO_PORT_DSUB` (0x86)
+</ParamField>
+
+<ParamField path="colorSpace" type="u8">
+  Supported color spaces:
+  - `VIDEO_COLOR_RGB` (0x01)
+  - `VIDEO_COLOR_YUV` (0x02)
+  - `VIDEO_COLOR_XVYCC` (0x04)
+</ParamField>
+
+<ParamField path="availableModeCount" type="u8">
+  Number of available display modes.
+</ParamField>
+
+<ParamField path="state" type="u8">
+  Device state.
+</ParamField>
+
+<ParamField path="availableModes" type="videoDisplayMode[32]">
+  Array of available display modes.
+</ParamField>
+
+### videoColorInfo
+
+Color information structure.
+
+```c
+typedef struct _videoColorInfo {
+    u16 redX;
+    u16 redY;
+    u16 greenX;
+    u16 greenY;
+    u16 blueX;
+    u16 blueY;
+    u16 whiteX;
+    u16 whiteY;
+    u32 gamma;
+} videoColorInfo;
+```
+
+### videoCallback
+
+Callback function type.
+
+```c
+typedef s32 (*videoCallback)(u32 slot, u32 videoOut, u32 deviceIndex, 
+                             u32 event, videoDeviceInfo *info, void *userData);
+```
+
+## Resolution Constants
+
+<Expandable title="Standard Resolutions">
+- `VIDEO_RESOLUTION_UNDEFINED` (0)
+- `VIDEO_RESOLUTION_1080` (1) - 1920x1080
+- `VIDEO_RESOLUTION_720` (2) - 1280x720
+- `VIDEO_RESOLUTION_480` (4) - 720x480
+- `VIDEO_RESOLUTION_576` (5) - 720x576
+- `VIDEO_RESOLUTION_1600x1080` (10)
+- `VIDEO_RESOLUTION_1440x1080` (11)
+- `VIDEO_RESOLUTION_1280x1080` (12)
+- `VIDEO_RESOLUTION_960x1080` (13)
+</Expandable>
+
+<Expandable title="3D Frame Packing Resolutions">
+- `VIDEO_RESOLUTION_720_3D_FRAME_PACKING` (0x81)
+- `VIDEO_RESOLUTION_1024x720_3D_FRAME_PACKING` (0x88)
+- `VIDEO_RESOLUTION_960x720_3D_FRAME_PACKING` (0x89)
+- `VIDEO_RESOLUTION_800x720_3D_FRAME_PACKING` (0x8a)
+- `VIDEO_RESOLUTION_640x720_3D_FRAME_PACKING` (0x8b)
+</Expandable>
+
+## Example Usage
+
+### Basic Video Configuration
+
+```c
+#include <sysutil/video.h>
+#include <stdio.h>
+
+int main() {
+    videoState state;
+    videoResolution resolution;
+    videoConfiguration config;
+    
+    // Get current video state
+    if (videoGetState(VIDEO_PRIMARY, 0, &state) == 0) {
+        printf("Video state: %d\n", state.state);
+        printf("Resolution ID: %d\n", state.displayMode.resolution);
+    }
+    
+    // Get resolution dimensions
+    if (videoGetResolution(VIDEO_RESOLUTION_720, &resolution) == 0) {
+        printf("720p resolution: %dx%d\n", resolution.width, resolution.height);
+    }
+    
+    // Configure video output for 720p
+    config.resolution = VIDEO_RESOLUTION_720;
+    config.format = VIDEO_BUFFER_FORMAT_XRGB;
+    config.aspect = VIDEO_ASPECT_16_9;
+    config.pitch = resolution.width * 4;  // 4 bytes per pixel for XRGB
+    
+    if (videoConfigure(VIDEO_PRIMARY, &config, NULL, 1) == 0) {
+        printf("Video configured successfully\n");
+    }
+    
+    return 0;
+}
+```
+
+### Query Available Resolutions
+
+```c
+#include <sysutil/video.h>
+#include <stdio.h>
+
+void checkAvailableResolutions() {
+    videoDeviceInfo info;
+    
+    if (videoGetDeviceInfo(VIDEO_PRIMARY, 0, &info) == 0) {
+        printf("Port type: 0x%x\n", info.portType);
+        printf("Available modes: %d\n", info.availableModeCount);
+        
+        for (int i = 0; i < info.availableModeCount; i++) {
+            videoResolution res;
+            videoGetResolution(info.availableModes[i].resolution, &res);
+            
+            printf("Mode %d: %dx%d ", i, res.width, res.height);
+            printf("Aspect: %d ", info.availableModes[i].aspect);
+            printf("Scan: %s\n", 
+                   info.availableModes[i].scanMode == VIDEO_SCANMODE_PROGRESSIVE 
+                   ? "Progressive" : "Interlaced");
+        }
+    }
+}
+```
+
+### Video Event Callback
+
+```c
+#include <sysutil/video.h>
+#include <stdio.h>
+
+s32 videoEventCallback(u32 slot, u32 videoOut, u32 deviceIndex,
+                       u32 event, videoDeviceInfo *info, void *userData) {
+    printf("Video event received\n");
+    printf("Slot: %d, VideoOut: %d, Device: %d, Event: %d\n",
+           slot, videoOut, deviceIndex, event);
+    return 0;
+}
+
+int main() {
+    // Register video callback
+    videoRegisterCallback(0, videoEventCallback, NULL);
+    
+    // Your application code...
+    
+    // Cleanup
+    videoUnregisterCallback(0);
+    
+    return 0;
+}
+```

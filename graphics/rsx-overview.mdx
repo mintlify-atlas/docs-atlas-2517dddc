@@ -1,0 +1,524 @@
+---
+title: RSX Graphics Overview
+description: Introduction to the RSX graphics processor and PSL1GHT graphics programming
+---
+
+The RSX is the PlayStation 3's hardware-accelerated 3D graphics processor. PSL1GHT provides a complete API for programming the RSX, enabling advanced 3D rendering, texture mapping, and shader programming.
+
+## What is the RSX?
+
+The RSX (Reality Synthesizer) is the PS3's graphics accelerator, capable of:
+
+- Hardware-accelerated 3D rendering
+- Programmable vertex and fragment shaders
+- Multiple render targets (MRT)
+- Advanced texture filtering and mapping
+- Depth buffering and stencil operations
+
+## Architecture Overview
+
+The RSX uses a command buffer architecture where the CPU writes rendering commands to a buffer that the RSX processes asynchronously.
+
+```
+┌─────────────┐         ┌──────────────┐         ┌─────────────┐
+│     CPU     │ ──────> │Command Buffer│ ──────> │     RSX     │
+│  (PPU)      │ writes  │   (Main RAM) │ reads   │ (Graphics)  │
+└─────────────┘         └──────────────┘         └─────────────┘
+                                │
+                                ▼
+                        ┌──────────────┐
+                        │  RSX Memory  │
+                        │ (256MB VRAM) │
+                        └──────────────┘
+```
+
+## Initialization
+
+Initializing the RSX involves setting up the command buffer, configuring video output, and allocating framebuffers.
+
+<Steps>
+  <Step title="Create RSX Context">
+    Initialize the RSX with a command buffer and I/O memory:
+
+    ```c
+    #include <rsx/rsx.h>
+
+    #define COMMAND_BUFFER_SIZE  0x80000   // 512KB
+    #define HOSTBUFFER_SIZE      (128*1024*1024) // 128MB
+
+    gcmContextData *context;
+    void *host_addr = memalign(1024*1024, HOSTBUFFER_SIZE);
+
+    // Initialize RSX with command buffer
+    rsxInit(&context, COMMAND_BUFFER_SIZE, HOSTBUFFER_SIZE, host_addr);
+    ```
+
+    The `rsxInit()` function from `rsx/rsx.h:106` creates a command buffer context and initializes the RSX memory manager.
+  </Step>
+
+  <Step title="Configure Video Output">
+    Set up the video mode and display settings:
+
+    ```c
+    #include <sysutil/video.h>
+
+    videoState state;
+    videoConfiguration vconfig;
+
+    // Get current video state
+    videoGetState(0, 0, &state);
+
+    // Configure video mode
+    memset(&vconfig, 0, sizeof(videoConfiguration));
+    vconfig.resolution = state.displayMode.resolution;
+    vconfig.format = VIDEO_BUFFER_COLOR_FORMAT_X8R8G8B8;
+    vconfig.pitch = 1920 * 4; // Width * bytes per pixel
+    vconfig.aspect = state.displayMode.aspect;
+
+    videoConfigure(0, &vconfig, NULL, 0);
+    videoGetState(0, 0, &state);
+    ```
+  </Step>
+
+  <Step title="Set Flip Mode">
+    Configure screen flipping to synchronize with vertical refresh:
+
+    ```c
+    // Sync flips with vsync to prevent tearing
+    gcmSetFlipMode(GCM_FLIP_VSYNC);
+    ```
+
+    Available flip modes from `rsx/gcm_sys.h:34-39`:
+    - `GCM_FLIP_HSYNC` - Horizontal sync (accurate)
+    - `GCM_FLIP_VSYNC` - Vertical sync (recommended)
+    - `GCM_FLIP_HSYNC_AND_BREAK_EVERYTHING` - Horizontal sync (inaccurate)
+  </Step>
+
+  <Step title="Allocate Framebuffers">
+    Create double-buffered framebuffers in RSX memory:
+
+    ```c
+    #define FRAME_BUFFER_COUNT 2
+
+    u32 color_pitch;
+    u32 color_offset[FRAME_BUFFER_COUNT];
+    u32 *color_buffer[FRAME_BUFFER_COUNT];
+
+    u32 display_width = 1920;
+    u32 display_height = 1080;
+
+    // Calculate pitch (must be multiple of 64)
+    color_pitch = display_width * 4; // 4 bytes per pixel (ARGB8888)
+
+    // Allocate each framebuffer (64-byte aligned)
+    for (int i = 0; i < FRAME_BUFFER_COUNT; i++) {
+        color_buffer[i] = (u32*)rsxMemalign(64, color_pitch * display_height);
+        rsxAddressToOffset(color_buffer[i], &color_offset[i]);
+        
+        // Configure display buffer
+        gcmSetDisplayBuffer(i, color_offset[i], color_pitch, 
+                           display_width, display_height);
+    }
+    ```
+
+    The `rsxMemalign()` function allocates aligned memory in RSX VRAM.
+  </Step>
+
+  <Step title="Allocate Depth Buffer">
+    Create a depth buffer for 3D rendering:
+
+    ```c
+    u32 depth_pitch;
+    u32 depth_offset;
+    u32 *depth_buffer;
+
+    // Allocate 16-bit depth buffer
+    depth_pitch = display_width * 2; // 2 bytes per pixel
+    depth_buffer = (u32*)rsxMemalign(64, depth_pitch * display_height);
+    rsxAddressToOffset(depth_buffer, &depth_offset);
+    ```
+  </Step>
+
+  <Step title="Reset Flip Status">
+    Prepare for rendering:
+
+    ```c
+    gcmResetFlipStatus();
+    ```
+  </Step>
+</Steps>
+
+## Framebuffer Configuration
+
+### Surface Setup
+
+Before rendering, configure the render target surface using `gcmSurface`:
+
+```c
+gcmSurface surface;
+
+memset(&surface, 0, sizeof(gcmSurface));
+
+// Surface type
+surface.type = GCM_SURFACE_TYPE_LINEAR;
+
+// Anti-aliasing
+surface.antiAlias = GCM_SURFACE_CENTER_1; // No multisampling
+
+// Color buffer format
+surface.colorFormat = GCM_SURFACE_A8R8G8B8;
+surface.colorTarget = GCM_SURFACE_TARGET_0;
+surface.colorLocation[0] = GCM_LOCATION_RSX;
+surface.colorOffset[0] = color_offset[curr_fb];
+surface.colorPitch[0] = color_pitch;
+
+// Depth buffer format
+surface.depthFormat = GCM_SURFACE_ZETA_Z16;
+surface.depthLocation = GCM_LOCATION_RSX;
+surface.depthOffset = depth_offset;
+surface.depthPitch = depth_pitch;
+
+// Dimensions
+surface.width = display_width;
+surface.height = display_height;
+surface.x = 0;
+surface.y = 0;
+
+// Apply surface configuration
+rsxSetSurface(context, &surface);
+```
+
+### Surface Formats
+
+Available color formats (from `rsx/gcm_sys.h:62-76`):
+
+<CodeGroup>
+```c 16-bit formats
+GCM_SURFACE_X1R5G5B5_Z1R5G5B5  // 1-bit alpha, 5-5-5 RGB
+GCM_SURFACE_X1R5G5B5_O1R5G5B5  // 1-bit unused, 5-5-5 RGB  
+GCM_SURFACE_R5G5B5             // 5-5-5 RGB
+```
+
+```c 32-bit formats
+GCM_SURFACE_X8R8G8B8_Z8R8G8B8  // 8-bit unused, 8-8-8 RGB
+GCM_SURFACE_X8R8G8B8           // 8-bit unused, 8-8-8 RGB
+GCM_SURFACE_A8R8G8B8           // 8-bit alpha, 8-8-8 RGB (recommended)
+GCM_SURFACE_A8B8G8R8           // 8-bit alpha, 8-8-8 BGR
+```
+
+```c Special formats
+GCM_SURFACE_B8                 // 8-bit grayscale
+GCM_SURFACE_G8B8               // 16-bit two-channel
+GCM_SURFACE_F_W16Z16Y16X16     // 16-bit float per channel
+GCM_SURFACE_F_W32Z32Y32X32     // 32-bit float per channel
+```
+</CodeGroup>
+
+Depth buffer formats (from `rsx/gcm_sys.h:77-80`):
+
+- `GCM_SURFACE_ZETA_Z16` - 16-bit depth buffer
+- `GCM_SURFACE_ZETA_Z24S8` - 24-bit depth + 8-bit stencil
+
+## Rendering Loop
+
+A typical rendering loop follows this pattern:
+
+```c
+u32 curr_fb = 0;
+
+while (running) {
+    // Wait for previous flip to complete
+    waitflip();
+    
+    // Set render target to back buffer
+    setRenderTarget(curr_fb);
+    
+    // Clear buffers
+    rsxSetClearColor(context, 0x00000000);
+    rsxSetClearDepthStencil(context, 0xffffff00);
+    rsxClearSurface(context, GCM_CLEAR_R | GCM_CLEAR_G | 
+                            GCM_CLEAR_B | GCM_CLEAR_A |
+                            GCM_CLEAR_S | GCM_CLEAR_Z);
+    
+    // Render scene...
+    drawScene();
+    
+    // Flip to display the rendered frame
+    flip(curr_fb);
+    
+    // Swap buffers
+    curr_fb = !curr_fb;
+}
+```
+
+### Wait for Flip
+
+```c
+void waitflip() {
+    while (gcmGetFlipStatus() != 0) {
+        usleep(200); // Sleep to avoid busy-waiting
+    }
+    gcmResetFlipStatus();
+}
+```
+
+### Flip Display
+
+```c
+void flip(u32 buffer) {
+    // Queue flip command
+    gcmSetFlip(context, buffer);
+    
+    // Flush command buffer
+    rsxFlushBuffer(context);
+    
+    // Wait for flip
+    gcmSetWaitFlip(context);
+}
+```
+
+## Memory Management
+
+The RSX has access to two memory regions:
+
+### RSX Memory (VRAM)
+
+256MB of dedicated video memory. Fast access from RSX.
+
+```c
+// Allocate in RSX memory (64-byte aligned)
+void *rsx_buffer = rsxMemalign(64, size);
+
+// Convert address to RSX offset
+u32 offset;
+rsxAddressToOffset(rsx_buffer, &offset);
+
+// Free RSX memory
+rsxFree(rsx_buffer);
+```
+
+### Main Memory (I/O Mapped)
+
+System RAM mapped for RSX access. Slower but more flexible.
+
+```c
+// Allocate in main memory
+void *main_buffer = memalign(1024*1024, size);
+
+// Map for RSX access
+u32 offset;
+gcmMapMainMemory(main_buffer, size, &offset);
+
+// Use offset for RSX commands...
+
+// Free when done
+free(main_buffer);
+```
+
+<Note>
+  Memory locations are specified with:
+  - `GCM_LOCATION_RSX` - Data in RSX video memory (faster)
+  - `GCM_LOCATION_CELL` - Data in main memory (more flexible)
+</Note>
+
+## Command Buffer Management
+
+The command buffer is a circular buffer where commands are written:
+
+```c
+// Get current command buffer pointer
+u32 *current = rsxGetCurrentBuffer();
+
+// Flush pending commands to RSX
+rsxFlushBuffer(context);
+
+// Wait for RSX to finish processing
+rsxFinish(context, 1);
+```
+
+<Warning>
+  Always flush the command buffer after enqueuing rendering commands to ensure they are sent to the RSX.
+</Warning>
+
+## Example: Complete Setup
+
+Here's a complete initialization example from `samples/graphics/rsxtest/source/main.cpp`:
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <malloc.h>
+#include <rsx/rsx.h>
+#include <sysutil/video.h>
+
+#define COMMAND_BUFFER_SIZE  0x80000
+#define HOSTBUFFER_SIZE      (128*1024*1024)
+#define FRAME_BUFFER_COUNT   2
+
+gcmContextData *context;
+u32 display_width = 1920;
+u32 display_height = 1080;
+u32 color_pitch;
+u32 color_offset[FRAME_BUFFER_COUNT];
+u32 *color_buffer[FRAME_BUFFER_COUNT];
+u32 depth_pitch;
+u32 depth_offset;
+u32 *depth_buffer;
+
+void init_screen() {
+    void *host_addr = memalign(1024*1024, HOSTBUFFER_SIZE);
+    
+    // Initialize RSX
+    rsxInit(&context, COMMAND_BUFFER_SIZE, HOSTBUFFER_SIZE, host_addr);
+    
+    // Get video state
+    videoState state;
+    videoGetState(0, 0, &state);
+    
+    // Set display mode based on current state
+    display_width = state.displayMode.resolution.width;
+    display_height = state.displayMode.resolution.height;
+    
+    // Configure video
+    videoConfiguration vconfig;
+    memset(&vconfig, 0, sizeof(videoConfiguration));
+    vconfig.resolution = state.displayMode.resolution;
+    vconfig.format = VIDEO_BUFFER_COLOR_FORMAT_X8R8G8B8;
+    vconfig.pitch = display_width * 4;
+    vconfig.aspect = state.displayMode.aspect;
+    
+    videoConfigure(0, &vconfig, NULL, 0);
+    videoGetState(0, 0, &state);
+    
+    // Set flip mode
+    gcmSetFlipMode(GCM_FLIP_VSYNC);
+    
+    // Allocate color buffers
+    color_pitch = display_width * 4;
+    for (int i = 0; i < FRAME_BUFFER_COUNT; i++) {
+        color_buffer[i] = (u32*)rsxMemalign(64, color_pitch * display_height);
+        rsxAddressToOffset(color_buffer[i], &color_offset[i]);
+        gcmSetDisplayBuffer(i, color_offset[i], color_pitch, 
+                           display_width, display_height);
+    }
+    
+    // Allocate depth buffer
+    depth_pitch = display_width * 2;
+    depth_buffer = (u32*)rsxMemalign(64, depth_pitch * display_height);
+    rsxAddressToOffset(depth_buffer, &depth_offset);
+    
+    gcmResetFlipStatus();
+}
+
+int main() {
+    init_screen();
+    
+    // Render loop...
+    
+    return 0;
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GCM System" icon="microchip" href="/graphics/gcm-system">
+    Learn about the Graphics Command Manager and command buffer operations
+  </Card>
+  <Card title="Vertex Shaders" icon="cube" href="/graphics/vertex-shaders">
+    Write and compile vertex programs using the Cg Toolkit
+  </Card>
+  <Card title="Rendering Pipeline" icon="paintbrush" href="/graphics/rendering">
+    Set up the rendering pipeline and draw 3D geometry
+  </Card>
+  <Card title="Font Rendering" icon="font" href="/graphics/font-rendering">
+    Render text using the PSL1GHT font library
+  </Card>
+</CardGroup>
+
+## API Reference
+
+### Core Functions
+
+<AccordionGroup>
+  <Accordion title="rsxInit()">
+    **Location**: `ppu/include/rsx/rsx.h:106`
+    
+    Initialize the RSX context and memory manager.
+    
+    ```c
+    s32 rsxInit(gcmContextData **context, u32 cmdSize, 
+                u32 ioSize, const void *ioAddress);
+    ```
+    
+    **Parameters**:
+    - `context` - Pointer to receive context address
+    - `cmdSize` - Command buffer size (typically 512KB)
+    - `ioSize` - I/O buffer size (typically 128MB)
+    - `ioAddress` - Pointer to allocated I/O buffer
+    
+    **Returns**: Zero on success, non-zero on error
+  </Accordion>
+  
+  <Accordion title="rsxMemalign()">
+    Allocate aligned memory in RSX VRAM.
+    
+    ```c
+    void* rsxMemalign(u32 alignment, u32 size);
+    ```
+    
+    **Parameters**:
+    - `alignment` - Alignment boundary (typically 64 or 128 bytes)
+    - `size` - Size in bytes to allocate
+    
+    **Returns**: Pointer to allocated memory, or NULL on failure
+  </Accordion>
+  
+  <Accordion title="rsxAddressToOffset()">
+    **Location**: `ppu/include/rsx/rsx.h:121`
+    
+    Convert RSX memory pointer to offset for use in commands.
+    
+    ```c
+    s32 rsxAddressToOffset(const void *ptr, u32 *offset);
+    ```
+    
+    **Parameters**:
+    - `ptr` - RSX memory pointer to convert
+    - `offset` - Pointer to receive offset value
+    
+    **Returns**: Zero on success, non-zero on error
+  </Accordion>
+</AccordionGroup>
+
+### Display Functions
+
+<AccordionGroup>
+  <Accordion title="gcmSetDisplayBuffer()">
+    Configure a framebuffer for display.
+    
+    ```c
+    s32 gcmSetDisplayBuffer(u8 bufferId, u32 offset, u32 pitch,
+                           u32 width, u32 height);
+    ```
+  </Accordion>
+  
+  <Accordion title="gcmSetFlip()">
+    Queue a flip command to display a framebuffer.
+    
+    ```c
+    s32 gcmSetFlip(gcmContextData *context, u8 bufferId);
+    ```
+  </Accordion>
+  
+  <Accordion title="gcmGetFlipStatus()">
+    Check if a flip has occurred.
+    
+    ```c
+    u32 gcmGetFlipStatus();
+    ```
+    
+    **Returns**: Zero if flip completed, non-zero otherwise
+  </Accordion>
+</AccordionGroup>

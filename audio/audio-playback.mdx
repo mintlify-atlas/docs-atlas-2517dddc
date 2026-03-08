@@ -1,0 +1,265 @@
+---
+title: Audio Playback
+description: Play PCM audio on PlayStation 3 using the audio library
+---
+
+The PSL1GHT audio library provides a simple interface to play raw PCM audio by filling a circular buffer. Audio samples are 32-bit floating point values ranging from -1 to 1.
+
+## Overview
+
+The audio system uses a producer-consumer model where your application fills audio blocks in a circular buffer, and the hardware consumes them for playback. Events notify you when blocks are ready to be filled.
+
+Key concepts:
+- **Audio ports**: Logical audio output channels (2-channel stereo or 8-channel)
+- **Blocks**: Fixed-size buffers (256 samples) that you fill with audio data
+- **Event queue**: Notifies when the next block is ready to be written
+
+## Initialization
+
+<Steps>
+  <Step title="Initialize the audio subsystem">
+    Call `audioInit()` to initialize the audio system for your application.
+
+    ```c audio/audio.h
+    #include <audio/audio.h>
+
+    s32 ret = audioInit();
+    if (ret != 0) {
+        printf("Failed to initialize audio: %d\n", ret);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Configure audio port parameters">
+    Set up the port configuration with channel count, buffer blocks, and initial volume.
+
+    ```c samples/audio/audiotest/source/main.c
+    audioPortParam params;
+    params.numChannels = AUDIO_PORT_2CH;  // 2 or 8 channels
+    params.numBlocks = AUDIO_BLOCK_8;     // 8, 16, or 32 blocks
+    params.attrib = 0;                    // or AUDIO_PORT_INITLEVEL
+    params.level = 1.0f;                  // volume (0.0 to 1.0)
+    ```
+
+    <Note>
+      Use `AUDIO_PORT_INITLEVEL` in the `attrib` field to set an initial volume level. Otherwise, set `attrib` to 0.
+    </Note>
+  </Step>
+
+  <Step title="Open the audio port">
+    Open an audio port with your parameters. This returns a unique port number.
+
+    ```c samples/audio/audiotest/source/main.c
+    u32 portNum;
+    s32 ret = audioPortOpen(&params, &portNum);
+    if (ret != 0) {
+        printf("Failed to open audio port: %d\n", ret);
+        audioQuit();
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Get the port configuration">
+    Retrieve the actual configuration including buffer addresses.
+
+    ```c samples/audio/audiotest/source/main.c
+    audioPortConfig config;
+    ret = audioGetPortConfig(portNum, &config);
+    printf("Audio buffer start: 0x%X\n", config.audioDataStart);
+    printf("Read index: 0x%X\n", config.readIndex);
+    printf("Blocks: %ld\n", config.numBlocks);
+    ```
+  </Step>
+</Steps>
+
+## Playing Audio
+
+### Basic Playback (Polling)
+
+The simplest approach polls the hardware read index and writes ahead of it:
+
+```c samples/audio/audiotest/source/main.c
+void fillBuffer(float *buf) {
+    static float pos = 0;
+    
+    for (unsigned int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+        // Generate stereo sine wave
+        buf[i*2 + 0] = sin(pos);      // Left channel
+        buf[i*2 + 1] = sin(pos * 2);  // Right channel
+        pos += 0.01f;
+        if (pos > M_PI)
+            pos -= 2 * M_PI;
+    }
+}
+
+u32 playOneBlock(u64 *readIndex, float *audioDataStart) {
+    static u32 audio_block_index = 1;
+    
+    // Get current hardware position
+    u64 current_block = *readIndex;
+    
+    // Don't overwrite block being played
+    if (audio_block_index == current_block)
+        return 0;
+    
+    // Calculate block address
+    float *buf = audioDataStart + 2 * AUDIO_BLOCK_SAMPLES * audio_block_index;
+    fillBuffer(buf);
+    
+    // Advance to next block
+    audio_block_index = (audio_block_index + 1) % AUDIO_BLOCK_8;
+    return 1;
+}
+
+// Start playback
+audioPortStart(portNum);
+
+// Play audio blocks
+while (playing) {
+    playOneBlock(
+        (u64*)(u64)config.readIndex,
+        (float*)(u64)config.audioDataStart
+    );
+}
+```
+
+<Warning>
+  Never write to the block currently being read by the hardware (`readIndex`). Always stay at least one block ahead.
+</Warning>
+
+### Event-Driven Playback
+
+For more precise timing, use event queues to know exactly when blocks are ready:
+
+```c samples/audio/audiosync/source/main.c
+#include <audio/audio.h>
+#include <sys/event_queue.h>
+
+sys_event_queue_t snd_queue;
+sys_ipc_key_t snd_key;
+
+// Create event queue for audio notifications
+ret = audioCreateNotifyEventQueue(&snd_queue, &snd_key);
+ret = audioSetNotifyEventQueue(snd_key);
+ret = sysEventQueueDrain(snd_queue);  // Clear initial events
+
+// Start playback
+audioPortStart(portNum);
+
+// Wait for events and fill blocks
+void playOneBlock(audioPortConfig *config) {
+    sys_event_t event;
+    
+    // Wait for block ready event (20ms timeout)
+    s32 ret = sysEventQueueReceive(snd_queue, &event, 20*1000);
+    if (ret != 0) return;
+    
+    u64 current_block = *(u64*)((u64)config->readIndex);
+    f32 *dataStart = (f32*)((u64)config->audioDataStart);
+    u32 audio_block_index = (current_block + 1) % config->numBlocks;
+    
+    // Fill the next block
+    f32 *buf = dataStart + config->channelCount * AUDIO_BLOCK_SAMPLES * audio_block_index;
+    fillBuffer(buf);
+}
+```
+
+## Audio Format
+
+### Sample Format
+
+- **Type**: 32-bit floating point (`float`)
+- **Range**: -1.0 to 1.0
+- **Samples per block**: 256 (`AUDIO_BLOCK_SAMPLES`)
+
+### Channel Layout
+
+Samples are **interleaved** by channel:
+
+<CodeGroup>
+```c Stereo (2 channels)
+// For each sample index i:
+buf[i*2 + 0] = left_sample;   // Left channel
+buf[i*2 + 1] = right_sample;  // Right channel
+```
+
+```c 8 Channel
+// For each sample index i:
+buf[i*8 + 0] = channel_0;
+buf[i*8 + 1] = channel_1;
+// ... and so on for channels 2-7
+```
+</CodeGroup>
+
+### Block Size Calculation
+
+```c
+// Size of one block in bytes
+size_t block_size = numChannels * AUDIO_BLOCK_SAMPLES * sizeof(float);
+
+// Address of block N
+float *block_addr = audioDataStart + N * numChannels * AUDIO_BLOCK_SAMPLES;
+```
+
+## Shutdown
+
+Always clean up audio resources in reverse order:
+
+<Steps>
+  <Step title="Stop the audio port">
+    ```c
+    audioPortStop(portNum);
+    ```
+  </Step>
+
+  <Step title="Remove event queue (if used)">
+    ```c samples/audio/audiosync/source/main.c
+    audioRemoveNotifyEventQueue(snd_key);
+    sysEventQueueDestroy(snd_queue, 0);
+    ```
+  </Step>
+
+  <Step title="Close the port">
+    ```c
+    audioPortClose(portNum);
+    ```
+  </Step>
+
+  <Step title="Quit the audio subsystem">
+    ```c
+    audioQuit();
+    ```
+  </Step>
+</Steps>
+
+## Port Status
+
+The `audioPortConfig::status` field indicates the current port state:
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `AUDIO_STATUS_READY` | 1 | Port is ready to play |
+| `AUDIO_STATUS_RUN` | 2 | Port is currently playing |
+| `AUDIO_STATUS_CLOSE` | 0x1010 | Port has been closed |
+
+## API Reference
+
+See `audio/audio.h` for the complete audio API:
+
+- `audioInit()` - Initialize audio subsystem
+- `audioQuit()` - Shut down audio subsystem
+- `audioPortOpen()` - Open an audio port
+- `audioPortStart()` - Start playback
+- `audioPortStop()` - Stop playback
+- `audioPortClose()` - Close an audio port
+- `audioGetPortConfig()` - Get port configuration
+- `audioCreateNotifyEventQueue()` - Create event queue
+- `audioSetNotifyEventQueue()` - Set current event queue
+- `audioRemoveNotifyEventQueue()` - Disconnect event queue
+
+## Examples
+
+- **Basic playback**: `samples/audio/audiotest/` - Simple polling-based audio playback
+- **Event-driven**: `samples/audio/audiosync/` - Audio-video synchronization using events

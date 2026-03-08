@@ -1,0 +1,549 @@
+---
+title: Save Data
+description: Save and load game data using the PS3 save data system
+---
+
+The save data system provides a robust API for managing game saves with support for save lists, icons, metadata, and automatic error handling.
+
+## Overview
+
+The save data API (`sysutil/save.h`) supports:
+- Multiple save slots with user selection
+- Save data icons and screenshots
+- Metadata (title, subtitle, description)
+- Automatic space checking
+- Corruption detection
+- Protected files
+
+## Save System Architecture
+
+The save system uses a callback-based architecture with three main callbacks:
+
+1. **List Callback** - Display and select save slots
+2. **Status Callback** - Configure save metadata and check status
+3. **File Callback** - Read/write files
+
+<Note>
+All save operations run asynchronously. You must continue calling `sysUtilCheckCallback()` during save operations.
+</Note>
+
+## Quick Start
+
+<Steps>
+
+<Step title="Create Memory Container">
+
+Allocate memory for save operations (typically 5MB):
+
+```c
+#include <sys/memory.h>
+#include <sysutil/save.h>
+
+sys_mem_container_t container;
+s32 ret = sysMemContainerCreate(&container, 5 * 1024 * 1024);
+if (ret != 0) {
+    printf("Failed to create container: %d\n", ret);
+    return -1;
+}
+```
+
+</Step>
+
+<Step title="Configure List Settings">
+
+Define how saves are sorted and filtered:
+
+```c
+sysSaveListSettings listSettings;
+memset(&listSettings, 0, sizeof(sysSaveListSettings));
+listSettings.sortType = SYS_SAVE_SORT_TYPE_TIMESTAMP;
+listSettings.sortOrder = SYS_SAVE_SORT_ORDER_DESCENDING;
+listSettings.pathPrefix = "MYGAME-SAVE"; // Save directory prefix
+listSettings.reserved = NULL;
+```
+
+</Step>
+
+<Step title="Configure Buffer Settings">
+
+Allocate buffers for directory and file lists:
+
+```c
+#define MAX_DIRECTORIES 100
+#define MAX_FILES 3
+#define BUFFER_SIZE (MAX_DIRECTORIES * sizeof(sysSaveDirectoryList))
+
+sysSaveBufferSettings bufferSettings;
+memset(&bufferSettings, 0, sizeof(sysSaveBufferSettings));
+bufferSettings.maxDirectories = MAX_DIRECTORIES;
+bufferSettings.maxFiles = MAX_FILES;
+bufferSettings.bufferSize = BUFFER_SIZE;
+bufferSettings.buffer = malloc(BUFFER_SIZE);
+```
+
+</Step>
+
+<Step title="Implement Callbacks">
+
+See the callback examples below for detailed implementations.
+
+</Step>
+
+<Step title="Call Save/Load Function">
+
+```c
+// To save
+ret = sysSaveListSave2(
+    SYS_SAVE_CURRENT_VERSION,
+    &listSettings,
+    &bufferSettings,
+    list_callback,
+    status_callback,
+    file_callback,
+    container,
+    NULL  // user_data
+);
+
+// To load
+ret = sysSaveListLoad2(
+    SYS_SAVE_CURRENT_VERSION,
+    &listSettings,
+    &bufferSettings,
+    list_callback,
+    status_callback,
+    file_callback,
+    container,
+    NULL  // user_data
+);
+
+if (ret == SYS_SAVE_RETURN_DONE) {
+    printf("Save/Load completed successfully\n");
+} else if (ret == SYS_SAVE_RETURN_CANCELED) {
+    printf("Operation canceled by user\n");
+}
+```
+
+</Step>
+
+<Step title="Cleanup">
+
+```c
+free(bufferSettings.buffer);
+sysMemContainerDestroy(container);
+```
+
+</Step>
+
+</Steps>
+
+## List Callback
+
+The list callback displays available saves and allows creating new saves:
+
+```c
+void save_list_callback(
+    sysSaveCallbackResult *result,
+    sysSaveListIn *in,
+    sysSaveListOut *out
+) {
+    printf("Found %d save directories\n", in->maxDirectories);
+    
+    // List all saves
+    for (int i = 0; i < in->numDirectories; i++) {
+        printf("  Save: %s [%s]\n",
+            in->directoryList[i].directoryName,
+            in->directoryList[i].listParameter);
+    }
+    
+    // Set up output
+    memset(out, 0, sizeof(sysSaveListOut));
+    out->focus = SYS_SAVE_FOCUS_POSITION_LIST_HEAD;
+    out->numDirectories = in->numDirectories;
+    out->directoryList = in->directoryList;
+    
+    // If saving and not at max, allow creating new save
+    if (is_saving && out->numDirectories < MAX_DIRECTORIES) {
+        // Find unused directory name
+        char *dir = malloc(SYS_SAVE_MAX_DIRECTORY_NAME);
+        for (int i = 0; i < 100; i++) {
+            snprintf(dir, SYS_SAVE_MAX_DIRECTORY_NAME, "MYGAME-SAVE%d", i);
+            
+            // Check if name is already used
+            int found = 0;
+            for (int j = 0; j < in->numDirectories; j++) {
+                if (strcmp(dir, in->directoryList[j].directoryName) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                // Set up new save option
+                sysSaveNewSaveGame *newSave = &new_save_data;
+                sysSaveNewSaveGameIcon *newIcon = &new_save_icon;
+                
+                memset(newSave, 0, sizeof(sysSaveNewSaveGame));
+                memset(newIcon, 0, sizeof(sysSaveNewSaveGameIcon));
+                
+                newSave->position = SYS_SAVE_NEW_SAVE_POSITION_TOP;
+                newSave->directoryName = dir;
+                
+                if (icon_data && icon_size > 0) {
+                    newSave->icon = newIcon;
+                    newIcon->iconBufferSize = icon_size;
+                    newIcon->iconBuffer = icon_data;
+                }
+                
+                out->newSaveGame = newSave;
+                break;
+            }
+        }
+    }
+    
+    result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+}
+```
+
+## Status Callback
+
+The status callback configures save metadata and checks available space:
+
+<CodeGroup>
+
+```c Saving
+void save_status_callback(
+    sysSaveCallbackResult *result,
+    sysSaveStatusIn *in,
+    sysSaveStatusOut *out
+) {
+    printf("Save status callback\n");
+    printf("  Free space: %d KB\n", in->freeSpaceKB);
+    printf("  Is new: %d\n", in->isNew);
+    printf("  Directory: %s\n", in->directoryStatus.directoryName);
+    
+    // Set up output
+    result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+    out->setParam = &in->getParam;
+    out->recreateMode = SYS_SAVE_RECREATE_MODE_DELETE;
+    
+    // Check free space (assume we need 1MB)
+    int needed_kb = 1024 + in->systemSizeKB;
+    int available_kb = in->freeSpaceKB + in->sizeKB;
+    
+    if (available_kb < needed_kb) {
+        result->result = SYS_SAVE_CALLBACK_RESULT_NO_SPACE_LEFT;
+        result->missingSpaceKB = needed_kb - available_kb;
+        return;
+    }
+    
+    // Set metadata
+    strncpy(in->getParam.title, "My Game Save", SYS_SAVE_MAX_TITLE);
+    strncpy(in->getParam.subtitle, "Level 5", SYS_SAVE_MAX_SUBTITLE);
+    strncpy(in->getParam.detail,
+            "Character: Hero\n"
+            "HP: 100\n"
+            "Level: 5\n",
+            SYS_SAVE_MAX_DETAIL);
+    
+    save_mode = SAVE_MODE_ICON; // Start with icon
+}
+```
+
+```c Loading
+void load_status_callback(
+    sysSaveCallbackResult *result,
+    sysSaveStatusIn *in,
+    sysSaveStatusOut *out
+) {
+    printf("Load status callback\n");
+    printf("  Directory: %s\n", in->directoryStatus.directoryName);
+    printf("  Total files: %d\n", in->totalFiles);
+    
+    result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+    out->setParam = &in->getParam;
+    out->recreateMode = SYS_SAVE_RECREATE_MODE_OVERWRITE_NOT_CORRUPTED;
+    
+    // Find save data file size
+    save_data_size = 0;
+    for (int i = 0; i < in->numFiles; i++) {
+        if (in->fileList[i].fileType == SYS_SAVE_FILETYPE_STANDARD_FILE) {
+            save_data_size = in->fileList[i].fileSize;
+            break;
+        }
+    }
+    
+    if (save_data_size == 0) {
+        printf("Save data not found!\n");
+        result->result = SYS_SAVE_CALLBACK_RESULT_CORRUPTED;
+        return;
+    }
+    
+    // Allocate buffer for loading
+    save_data_buffer = malloc(save_data_size);
+    save_mode = SAVE_MODE_DATA; // Load data directly
+}
+```
+
+</CodeGroup>
+
+## File Callback
+
+The file callback handles reading and writing individual files:
+
+```c
+enum SaveMode {
+    SAVE_MODE_ICON,
+    SAVE_MODE_SCREENSHOT,
+    SAVE_MODE_DATA,
+    SAVE_MODE_DONE
+};
+
+void save_file_callback(
+    sysSaveCallbackResult *result,
+    sysSaveFileIn *in,
+    sysSaveFileOut *out
+) {
+    printf("File callback - mode: %d\n", save_mode);
+    printf("  Last operation size: %d bytes\n", in->previousOperationResultSize);
+    
+    memset(out, 0, sizeof(sysSaveFileOut));
+    
+    switch (save_mode) {
+        case SAVE_MODE_ICON:
+            printf("Saving icon\n");
+            out->fileOperation = SYS_SAVE_FILE_OPERATION_WRITE;
+            out->fileType = SYS_SAVE_FILETYPE_CONTENT_ICON0;
+            out->size = icon_size;
+            out->bufferSize = icon_size;
+            out->buffer = icon_data;
+            
+            result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+            result->incrementProgress = 30;
+            save_mode = SAVE_MODE_SCREENSHOT;
+            break;
+            
+        case SAVE_MODE_SCREENSHOT:
+            printf("Saving screenshot\n");
+            out->fileOperation = SYS_SAVE_FILE_OPERATION_WRITE;
+            out->fileType = SYS_SAVE_FILETYPE_CONTENT_PIC1;
+            out->size = screenshot_size;
+            out->bufferSize = screenshot_size;
+            out->buffer = screenshot_data;
+            
+            result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+            result->incrementProgress = 30;
+            save_mode = SAVE_MODE_DATA;
+            break;
+            
+        case SAVE_MODE_DATA:
+            if (is_saving) {
+                printf("Writing save data\n");
+                out->fileOperation = SYS_SAVE_FILE_OPERATION_WRITE;
+            } else {
+                printf("Reading save data\n");
+                out->fileOperation = SYS_SAVE_FILE_OPERATION_READ;
+            }
+            
+            out->filename = "GAMEDATA";
+            out->fileType = SYS_SAVE_FILETYPE_STANDARD_FILE;
+            out->size = save_data_size;
+            out->bufferSize = save_data_size;
+            out->buffer = save_data_buffer;
+            
+            result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+            result->incrementProgress = 100;
+            save_mode = SAVE_MODE_DONE;
+            break;
+            
+        case SAVE_MODE_DONE:
+        default:
+            result->result = SYS_SAVE_CALLBACK_RESULT_DONE;
+            
+            // Verify loaded data
+            if (!is_saving && in->previousOperationResultSize != save_data_size) {
+                result->result = SYS_SAVE_CALLBACK_RESULT_CORRUPTED;
+            }
+            break;
+    }
+}
+```
+
+## File Types
+
+The save system supports different file types:
+
+| File Type | Description |
+|-----------|-------------|
+| `SYS_SAVE_FILETYPE_STANDARD_FILE` | Regular save data files |
+| `SYS_SAVE_FILETYPE_PROTECTED_FILE` | Copy-protected files |
+| `SYS_SAVE_FILETYPE_CONTENT_ICON0` | Save icon (PNG) |
+| `SYS_SAVE_FILETYPE_CONTENT_ICON1` | Alternative icon |
+| `SYS_SAVE_FILETYPE_CONTENT_PIC1` | Screenshot (PNG) |
+| `SYS_SAVE_FILETYPE_CONTENT_SND0` | Sound file |
+
+<Note>
+Icons and screenshots should be PNG format. The system automatically resizes them for display in the save menu.
+</Note>
+
+## Auto Save/Load
+
+For simpler save operations without user selection:
+
+<CodeGroup>
+
+```c Auto Save
+ret = sysSaveAutoSave2(
+    SYS_SAVE_CURRENT_VERSION,
+    "MYGAME-AUTOSAVE",  // Directory name
+    SYS_SAVE_ERROR_DIALOG_SHOW,
+    &bufferSettings,
+    status_callback,
+    file_callback,
+    container,
+    NULL
+);
+```
+
+```c Auto Load
+ret = sysSaveAutoLoad2(
+    SYS_SAVE_CURRENT_VERSION,
+    "MYGAME-AUTOSAVE",  // Directory name
+    SYS_SAVE_ERROR_DIALOG_SHOW,
+    &bufferSettings,
+    status_callback,
+    file_callback,
+    container,
+    NULL
+);
+```
+
+</CodeGroup>
+
+## Fixed Save/Load
+
+Use fixed callbacks when you already know the save directory:
+
+```c
+void fixed_callback(
+    sysSaveCallbackResult *result,
+    sysSaveListIn *in,
+    sysSaveFixedOut *out
+) {
+    memset(out, 0, sizeof(sysSaveFixedOut));
+    out->directoryName = "MYGAME-SAVE0";
+    result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+}
+
+ret = sysSaveFixedSave2(
+    SYS_SAVE_CURRENT_VERSION,
+    &listSettings,
+    &bufferSettings,
+    fixed_callback,
+    status_callback,
+    file_callback,
+    container,
+    NULL
+);
+```
+
+## Error Handling
+
+Callback results control flow and error display:
+
+| Result | Description |
+|--------|-------------|
+| `SYS_SAVE_CALLBACK_RESULT_CONTINUE` | Continue to next callback |
+| `SYS_SAVE_CALLBACK_RESULT_DONE` | Operation complete |
+| `SYS_SAVE_CALLBACK_RESULT_NO_SPACE_LEFT` | Insufficient space |
+| `SYS_SAVE_CALLBACK_RESULT_ERROR` | Generic error |
+| `SYS_SAVE_CALLBACK_RESULT_CORRUPTED` | Save data corrupted |
+| `SYS_SAVE_CALLBACK_RESULT_NOT_FOUND` | Save not found |
+| `SYS_SAVE_CALLBACK_RESULT_ERROR_CUSTOM` | Custom error message |
+
+### Custom Error Messages
+
+```c
+if (custom_error_occurred) {
+    result->result = SYS_SAVE_CALLBACK_RESULT_ERROR_CUSTOM;
+    result->customErrorMessage = "Failed to save: Invalid game state";
+}
+```
+
+## Sort and Focus Options
+
+<CodeGroup>
+
+```c Sort by Timestamp
+listSettings.sortType = SYS_SAVE_SORT_TYPE_TIMESTAMP;
+listSettings.sortOrder = SYS_SAVE_SORT_ORDER_DESCENDING; // Newest first
+```
+
+```c Sort by Title
+listSettings.sortType = SYS_SAVE_SORT_TYPE_TITLE;
+listSettings.sortOrder = SYS_SAVE_SORT_ORDER_ASCENDING; // A to Z
+```
+
+```c Focus Position
+out->focus = SYS_SAVE_FOCUS_POSITION_LIST_HEAD;      // Top of list
+out->focus = SYS_SAVE_FOCUS_POSITION_LIST_TAIL;      // Bottom of list
+out->focus = SYS_SAVE_FOCUS_POSITION_LATEST;         // Latest save
+out->focus = SYS_SAVE_FOCUS_POSITION_OLDEST;         // Oldest save
+out->focus = SYS_SAVE_FOCUS_POSITION_NEW_SAVE;       // New save button
+out->focus = SYS_SAVE_FOCUS_POSITION_DIRECTORY_NAME; // Specific directory
+
+// If using DIRECTORY_NAME, specify which one:
+out->focusDirectoryName = "MYGAME-SAVE3";
+```
+
+</CodeGroup>
+
+## Return Values
+
+The save/load functions return:
+
+| Return Value | Description |
+|--------------|-------------|
+| `SYS_SAVE_RETURN_DONE` | Success |
+| `SYS_SAVE_RETURN_CANCELED` | User canceled |
+| `SYS_SAVE_RETURN_ERROR_CALLBACK` | Callback error |
+| `SYS_SAVE_RETURN_ERROR_HDD_ERROR` | Hard drive error |
+| `SYS_SAVE_RETURN_ERROR_INTERNAL` | Internal error |
+| `SYS_SAVE_RETURN_ERROR_INVALID_ARG` | Invalid argument |
+| `SYS_SAVE_RETURN_ERROR_NO_SPACE_LEFT` | Insufficient space |
+| `SYS_SAVE_RETURN_ERROR_CORRUPTED` | Corrupted data |
+| `SYS_SAVE_RETURN_ERROR_ALREADY_IN_USE` | Save in use |
+
+## Complete Example
+
+See the full implementation in `samples/sys/save/source/main.c` which demonstrates:
+- Creating save directories with icons
+- Saving multiple file types
+- Loading and verifying save data
+- Handling errors and user cancellation
+- Using threaded save operations
+
+## Best Practices
+
+<Warning>
+- Always check free space before saving
+- Allocate sufficient memory container (5MB recommended)
+- Use unique directory name prefixes for your game
+- Set appropriate metadata for save selection UI
+- Handle all callback results properly
+- Continue calling `sysUtilCheckCallback()` during operations
+- Free allocated buffers after operations complete
+</Warning>
+
+<Note>
+**Save Directory Names:**
+- Must be uppercase
+- Maximum 32 characters
+- Should include your game's title ID or unique prefix
+- Example: `MYGAME-SAVE0`, `BLUS12345-AUTO`
+
+**Icons and Screenshots:**
+- Use PNG format
+- Recommended icon size: 320x176
+- Recommended screenshot size: 480x272
+- Store in save directory as `ICON0.PNG` and `PIC1.PNG`
+</Note>

@@ -1,0 +1,265 @@
+---
+title: 'PPU Architecture'
+description: 'Understanding the PowerPC Processor Unit in PSL1GHT'
+---
+
+## Overview
+
+The **PPU (PowerPC Processor Unit)** is the main 64-bit PowerPC processor in the PlayStation 3's Cell Broadband Engine. It runs the primary application code and coordinates work with the six available SPUs.
+
+<Note>
+The PPU is a dual-threaded PowerPC 64-bit processor running at 3.2 GHz with VMX (AltiVec) SIMD extensions.
+</Note>
+
+## PPU Type System
+
+PSL1GHT provides a comprehensive type system for PPU development in `ppu-types.h`:
+
+### Basic Types
+
+```c ppu/include/ppu-types.h
+typedef uint8_t   u8;
+typedef uint16_t  u16;
+typedef uint32_t  u32;
+typedef uint64_t  u64;
+
+typedef int8_t    s8;
+typedef int16_t   s16;
+typedef int32_t   s32;
+typedef int64_t   s64;
+
+typedef float     f32;
+typedef double    f64;
+```
+
+### Volatile Types
+
+For hardware register access and concurrent programming:
+
+```c ppu/include/ppu-types.h
+typedef volatile u8   vu8;
+typedef volatile u16  vu16;
+typedef volatile u32  vu32;
+typedef volatile u64  vu64;
+```
+
+### System Types
+
+```c ppu/include/ppu-types.h
+typedef u32 sys_pid_t;              // Process ID
+typedef u64 sys_ppu_thread_t;       // PPU thread identifier
+typedef s32 sys_mutex_t;            // Mutex identifier
+typedef u32 sys_event_queue_t;      // Event queue ID
+typedef u32 sys_event_port_t;       // Event port ID
+typedef u32 sys_sem_t;              // Semaphore
+```
+
+## LV2 Syscall Mechanism
+
+PSL1GHT provides inline syscall wrappers that directly invoke PlayStation 3 system calls using the PowerPC `sc` (system call) instruction.
+
+### Syscall Macros
+
+The `ppu-lv2.h` header defines macros for making system calls with 0-8 parameters:
+
+```c ppu/include/ppu-lv2.h
+#define LV2_SYSCALL LV2_INLINE s32
+
+#define lv2syscall1(syscall,a1) \
+        register u64 p1 asm("3") = (a1); \
+        register u64 p2 asm("4"); \
+        register u64 p3 asm("5"); \
+        register u64 p4 asm("6"); \
+        register u64 p5 asm("7"); \
+        register u64 p6 asm("8"); \
+        register u64 p7 asm("9"); \
+        register u64 p8 asm("10"); \
+        register u64 scn asm("11") = (syscall); \
+        __asm__ __volatile__("sc" \
+                             : "=r"(p1), "=r"(p2), "=r"(p3), "=r"(p4), \
+                               "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8), "=r"(scn) \
+                             : "r"(p1), "r"(p2), "r"(p3), "r"(p4), \
+                               "r"(p5), "r"(p6), "r"(p7), "r"(p8), "r"(scn) \
+                             : "r0","r12","lr","ctr","xer","cr0","cr1","cr5","cr6","cr7","memory")
+```
+
+<Accordion title="Understanding the Syscall Mechanism">
+  - **Registers r3-r10**: Used for passing up to 8 parameters
+  - **Register r11**: Contains the syscall number
+  - **sc instruction**: PowerPC system call instruction that transitions to hypervisor mode
+  - **Return value**: Result is returned in register r3 (p1)
+  - **Clobbered registers**: Listed in the clobber list to inform the compiler
+</Accordion>
+
+### Return Value Handling
+
+```c ppu/include/ppu-lv2.h
+#define return_to_user_prog(ret_type)  return (ret_type)(p1)
+```
+
+Syscalls return their result through the first parameter register (r3/p1).
+
+## PPU Library Structure
+
+The PPU libraries are organized into logical modules:
+
+### Core System Headers
+
+<CardGroup cols={2}>
+  <Card title="ppu-types.h" icon="code">
+    Basic type definitions and system types
+  </Card>
+  <Card title="ppu-lv2.h" icon="microchip">
+    Low-level syscall interface macros
+  </Card>
+  <Card title="ppu-asm.h" icon="terminal">
+    Assembly utilities and inline functions
+  </Card>
+</CardGroup>
+
+### LV2 System Services (`lv2/`)
+
+Low-level system call wrappers:
+
+- `lv2/memory.h` - Memory mapper functions
+- `lv2/spu.h` - SPU image and thread management
+- `lv2/mutex.h` - Mutex primitives
+- `lv2/cond.h` - Condition variables
+- `lv2/process.h` - Process management
+
+### High-Level System APIs (`sys/`)
+
+Higher-level APIs built on LV2 syscalls:
+
+- `sys/memory.h` - Memory allocation and management
+- `sys/spu.h` - SPU thread and group management
+- `sys/thread.h` - PPU threading
+- `sys/event_queue.h` - Event queues for synchronization
+- `sys/file.h` - File I/O operations
+
+### Subsystem Libraries
+
+<CardGroup cols={2}>
+  <Card title="RSX Graphics" icon="image">
+    `rsx/` - Reality Synthesizer graphics
+  </Card>
+  <Card title="Audio" icon="volume">
+    `audio/` - Audio output and mixing
+  </Card>
+  <Card title="Networking" icon="network-wired">
+    `net/`, `http/`, `ssl/` - Network stack
+  </Card>
+  <Card title="System Utilities" icon="wrench">
+    `sysutil/` - System dialogs and utilities
+  </Card>
+</CardGroup>
+
+## Function Pointer Descriptors
+
+PowerPC 64-bit ABI uses function descriptors for indirect calls:
+
+```c ppu/include/ppu-types.h
+typedef struct _opd64
+{
+    void *func;  // Function address
+    void *rtoc;  // Table of contents (r2) value
+    u64 zero;    // Reserved
+} opd64;
+
+typedef struct _opd32
+{
+    u32 func;    // Function address
+    u32 rtoc;    // Table of contents value
+} opd32;
+```
+
+<Warning>
+When passing function pointers to system calls or between PPU and SPU, ensure proper descriptor handling.
+</Warning>
+
+## Alignment Requirements
+
+The Cell architecture has strict alignment requirements:
+
+```c ppu/include/ppu-types.h
+#define SPU_ALIGNMENT        128
+#define SPU_ALIGNSIZE(x)     (((x) + 127)&~127)
+
+// Stack alignment macro
+#define STACK_ALIGN(type, name, cnt, alignment) \
+    u8 _al__##name[((sizeof(type)*(cnt)) + (alignment) + \
+    (((sizeof(type)*(cnt))%(alignment)) > 0 ? \
+    ((alignment) - ((sizeof(type)*(cnt))%(alignment))) : 0))]; \
+    type *name = (type*)(((u64)(_al__##name)) + \
+    ((alignment) - (((u64)(_al__##name))&((alignment)-1))))
+```
+
+### Usage Example
+
+```c
+// Allocate 128-byte aligned buffer for SPU DMA
+STACK_ALIGN(u8, buffer, 1024, 128);
+
+// buffer is now guaranteed to be 128-byte aligned
+sysSpuThreadWriteLocalStorage(thread, 0, (u64)buffer, 1024);
+```
+
+## Compiler Flags
+
+The PPU toolchain uses specific optimization flags defined in `ppu_rules`:
+
+```makefile ppu_rules
+MACHDEP = -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
+```
+
+<Accordion title="Compiler Flag Explanations">
+  - **-mhard-float**: Use hardware floating-point instructions
+  - **-fmodulo-sched**: Enable modulo scheduling for loops (Cell optimization)
+  - **-ffunction-sections**: Place each function in its own section
+  - **-fdata-sections**: Place each data item in its own section
+  - These enable better dead code elimination and smaller executables
+</Accordion>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use System Types">
+    Always use PSL1GHT system types (`u32`, `s64`, etc.) instead of standard C types for consistency.
+  </Step>
+  
+  <Step title="Respect Alignment">
+    Use `SPU_ALIGNMENT` and `STACK_ALIGN` macros when allocating buffers for SPU DMA transfers.
+  </Step>
+  
+  <Step title="Check Return Values">
+    All LV2 syscalls return 0 on success. Always check return values:
+    
+    ```c
+    s32 ret = sysMemoryAllocate(size, flags, &addr);
+    if (ret != 0) {
+        // Handle error
+    }
+    ```
+  </Step>
+  
+  <Step title="Understand Endianness">
+    The Cell processor is big-endian. Be careful when exchanging data with external systems.
+  </Step>
+</Steps>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="SPU Programming" icon="microchip" href="/concepts/spu-programming">
+    Learn about programming the Synergistic Processing Units
+  </Card>
+  <Card title="Memory Management" icon="memory" href="/concepts/memory-management">
+    Understand memory allocation and management
+  </Card>
+  <Card title="Build System" icon="hammer" href="/concepts/build-system">
+    Set up your build environment
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/rsx">
+    Complete API documentation
+  </Card>
+</CardGroup>

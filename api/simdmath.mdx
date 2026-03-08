@@ -1,0 +1,794 @@
+---
+title: SIMD Math Library
+description: High-performance vectorized math functions for PPU and SPU
+---
+
+## Overview
+
+The SIMD Math library provides vectorized versions of standard C math functions, operating on 4 floats or 2 doubles simultaneously. Available for both PPU (using AltiVec) and SPU (using SPU intrinsics).
+
+### Key Features
+
+- **4-wide float operations**: Process 4 floats at once
+- **2-wide double operations**: Process 2 doubles at once (SPU only)
+- **Standard math coverage**: All common math.h functions
+- **Integer SIMD**: Vectorized integer operations
+- **Cross-platform**: PPU and SPU support
+
+### Headers
+
+<Tabs>
+  <Tab title="PPU">
+    ```c
+    #include <simdmath.h>  // PPU: float4 operations only
+    ```
+  </Tab>
+  <Tab title="SPU">
+    ```c
+    #include <simdmath.h>  // SPU: float4 and double2 operations
+    ```
+  </Tab>
+</Tabs>
+
+## Vector Types
+
+### PPU Types
+
+```c
+vector float          // 4 floats
+vector signed int     // 4 signed ints
+vector unsigned int   // 4 unsigned ints
+```
+
+### SPU Types (additional)
+
+```c
+vector double              // 2 doubles
+vector signed long long    // 2 signed 64-bit ints
+vector unsigned long long  // 2 unsigned 64-bit ints
+```
+
+## Trigonometric Functions
+
+### sinf4
+
+Compute sine of 4 floats.
+
+```c
+vector float sinf4(vector float x)
+```
+
+<ParamField path="x" type="vector float" required>
+  Input angles in radians
+</ParamField>
+
+<ResponseField name="return" type="vector float">
+  Sine values for each input
+</ResponseField>
+
+On SPU:
+```c
+vector double sind2(vector double x)  // 2-wide double version
+```
+
+### cosf4
+
+Compute cosine of 4 floats.
+
+```c
+vector float cosf4(vector float x)
+```
+
+### tanf4
+
+Compute tangent of 4 floats.
+
+```c
+vector float tanf4(vector float x)
+```
+
+### sincosf4
+
+Compute both sine and cosine simultaneously (faster than separate calls).
+
+```c
+void sincosf4(vector float x, vector float *s, vector float *c)
+```
+
+<ParamField path="x" type="vector float" required>
+  Input angles
+</ParamField>
+
+<ParamField path="s" type="vector float*" required>
+  Pointer to store sine results
+</ParamField>
+
+<ParamField path="c" type="vector float*" required>
+  Pointer to store cosine results
+</ParamField>
+
+### asinf4
+
+Compute arcsine.
+
+```c
+vector float asinf4(vector float x)
+```
+
+<ParamField path="x" type="vector float" required>
+  Input values (must be in [-1, 1])
+</ParamField>
+
+### acosf4
+
+Compute arccosine.
+
+```c
+vector float acosf4(vector float x)
+```
+
+### atanf4
+
+Compute arctangent.
+
+```c
+vector float atanf4(vector float x)
+```
+
+### atan2f4
+
+Compute arctangent of y/x with correct quadrant.
+
+```c
+vector float atan2f4(vector float y, vector float x)
+```
+
+## Exponential and Logarithmic
+
+### expf4
+
+Compute e^x.
+
+```c
+vector float expf4(vector float x)
+```
+
+### exp2f4
+
+Compute 2^x (faster than expf4).
+
+```c
+vector float exp2f4(vector float x)
+```
+
+### expm1f4
+
+Compute e^x - 1 (more accurate for small x).
+
+```c
+vector float expm1f4(vector float x)
+```
+
+### logf4
+
+Compute natural logarithm.
+
+```c
+vector float logf4(vector float x)
+```
+
+<ParamField path="x" type="vector float" required>
+  Input values (must be &gt; 0)
+</ParamField>
+
+### log2f4
+
+Compute base-2 logarithm.
+
+```c
+vector float log2f4(vector float x)
+```
+
+### log10f4
+
+Compute base-10 logarithm.
+
+```c
+vector float log10f4(vector float x)
+```
+
+### log1pf4
+
+Compute ln(1 + x) (more accurate for small x).
+
+```c
+vector float log1pf4(vector float x)
+```
+
+### powf4
+
+Compute x^y.
+
+```c
+vector float powf4(vector float x, vector float y)
+```
+
+## Square Root and Reciprocal
+
+### sqrtf4
+
+Compute square root.
+
+```c
+vector float sqrtf4(vector float x)
+```
+
+### rsqrtf4
+
+Compute reciprocal square root (1/sqrt(x)) - faster than 1/sqrtf4.
+
+```c
+vector float rsqrtf4(vector float x)
+```
+
+### recipf4
+
+Compute reciprocal (1/x).
+
+```c
+vector float recipf4(vector float x)
+```
+
+### cbrtf4
+
+Compute cube root.
+
+```c
+vector float cbrtf4(vector float x)
+```
+
+### hypotf4
+
+Compute sqrt(x² + y²).
+
+```c
+vector float hypotf4(vector float x, vector float y)
+```
+
+## Rounding and Absolute Value
+
+### floorf4
+
+Round down to nearest integer.
+
+```c
+vector float floorf4(vector float x)
+```
+
+### ceilf4
+
+Round up to nearest integer.
+
+```c
+vector float ceilf4(vector float x)
+```
+
+### truncf4
+
+Round toward zero.
+
+```c
+vector float truncf4(vector float x)
+```
+
+### roundf4
+
+Round to nearest integer.
+
+```c
+vector float roundf4(vector float x)
+```
+
+### fabsf4
+
+Compute absolute value.
+
+```c
+vector float fabsf4(vector float x)
+```
+
+### negatef4
+
+Negate values.
+
+```c
+vector float negatef4(vector float x)
+```
+
+### absi4
+
+Absolute value for integers.
+
+```c
+vector signed int absi4(vector signed int x)
+```
+
+## Min, Max, and Clamping
+
+### fminf4
+
+Compute minimum of two vectors.
+
+```c
+vector float fminf4(vector float x, vector float y)
+```
+
+### fmaxf4
+
+Compute maximum of two vectors.
+
+```c
+vector float fmaxf4(vector float x, vector float y)
+```
+
+### fdimf4
+
+Positive difference: max(x - y, 0).
+
+```c
+vector float fdimf4(vector float x, vector float y)
+```
+
+## Division and Modulo
+
+### divf4
+
+Divide two vectors.
+
+```c
+vector float divf4(vector float x, vector float y)
+```
+
+### fmodf4
+
+Floating-point remainder.
+
+```c
+vector float fmodf4(vector float x, vector float y)
+```
+
+### remainderf4
+
+IEEE remainder.
+
+```c
+vector float remainderf4(vector float x, vector float y)
+```
+
+### divi4
+
+Integer division with quotient and remainder.
+
+```c
+typedef struct {
+    vector signed int quot;
+    vector signed int rem;
+} divi4_t;
+
+divi4_t divi4(vector signed int x, vector signed int y)
+```
+
+<ResponseField name="quot" type="vector signed int">
+  Quotients
+</ResponseField>
+
+<ResponseField name="rem" type="vector signed int">
+  Remainders
+</ResponseField>
+
+### divu4
+
+Unsigned integer division.
+
+```c
+typedef struct {
+    vector unsigned int quot;
+    vector unsigned int rem;
+} divu4_t;
+
+divu4_t divu4(vector unsigned int x, vector unsigned int y)
+```
+
+## Fused Multiply-Add
+
+### fmaf4
+
+Fused multiply-add: (x * y) + z with single rounding.
+
+```c
+vector float fmaf4(vector float x, vector float y, vector float z)
+```
+
+<ParamField path="x" type="vector float" required>
+  First multiplicand
+</ParamField>
+
+<ParamField path="y" type="vector float" required>
+  Second multiplicand
+</ParamField>
+
+<ParamField path="z" type="vector float" required>
+  Addend
+</ParamField>
+
+<ResponseField name="return" type="vector float">
+  Result of (x * y) + z
+</ResponseField>
+
+## Floating-Point Manipulation
+
+### frexpf4
+
+Extract mantissa and exponent.
+
+```c
+vector float frexpf4(vector float x, vector signed int *exp)
+```
+
+<ParamField path="x" type="vector float" required>
+  Input values
+</ParamField>
+
+<ParamField path="exp" type="vector signed int*" required>
+  Pointer to store exponents
+</ParamField>
+
+<ResponseField name="return" type="vector float">
+  Mantissas (in range [0.5, 1.0))
+</ResponseField>
+
+### ldexpf4
+
+Construct float from mantissa and exponent: x * 2^exp.
+
+```c
+vector float ldexpf4(vector float x, vector signed int exp)
+```
+
+### modff4
+
+Split into integer and fractional parts.
+
+```c
+vector float modff4(vector float x, vector float *iptr)
+```
+
+<ParamField path="x" type="vector float" required>
+  Input values
+</ParamField>
+
+<ParamField path="iptr" type="vector float*" required>
+  Pointer to store integer parts
+</ParamField>
+
+<ResponseField name="return" type="vector float">
+  Fractional parts
+</ResponseField>
+
+### copysignf4
+
+Copy sign from one vector to another.
+
+```c
+vector float copysignf4(vector float x, vector float y)
+```
+
+<ResponseField name="return" type="vector float">
+  Magnitude of x with sign of y
+</ResponseField>
+
+### logbf4
+
+Extract exponent.
+
+```c
+vector float logbf4(vector float x)
+```
+
+### ilogbf4
+
+Extract exponent as integer.
+
+```c
+vector signed int ilogbf4(vector float x)
+```
+
+## Classification Functions
+
+### isnanf4
+
+Check if values are NaN.
+
+```c
+vector unsigned int isnanf4(vector float x)
+```
+
+<ResponseField name="return" type="vector unsigned int">
+  0xFFFFFFFF for NaN, 0 otherwise
+</ResponseField>
+
+### isinff4
+
+Check if values are infinite.
+
+```c
+vector unsigned int isinff4(vector float x)
+```
+
+### isfinitef4
+
+Check if values are finite.
+
+```c
+vector unsigned int isfinitef4(vector float x)
+```
+
+### isnormalf4
+
+Check if values are normal (not zero, denormal, infinite, or NaN).
+
+```c
+vector unsigned int isnormalf4(vector float x)
+```
+
+### signbitf4
+
+Check if sign bit is set.
+
+```c
+vector unsigned int signbitf4(vector float x)
+```
+
+### fpclassifyf4
+
+Classify floating-point values.
+
+```c
+vector signed int fpclassifyf4(vector float x)
+```
+
+<ResponseField name="return" type="vector signed int">
+  Classification: FP_NORMAL, FP_ZERO, FP_INFINITE, FP_NAN, or FP_SUBNORMAL
+</ResponseField>
+
+## Comparison Functions
+
+### isequalf4
+
+Test equality (handles NaN correctly).
+
+```c
+vector unsigned int isequalf4(vector float x, vector float y)
+```
+
+### islessf4
+
+Test less-than.
+
+```c
+vector unsigned int islessf4(vector float x, vector float y)
+```
+
+### islessequalf4
+
+Test less-than-or-equal.
+
+```c
+vector unsigned int islessequalf4(vector float x, vector float y)
+```
+
+### isgreaterf4
+
+Test greater-than.
+
+```c
+vector unsigned int isgreaterf4(vector float x, vector float y)
+```
+
+### isgreaterequalf4
+
+Test greater-than-or-equal.
+
+```c
+vector unsigned int isgreaterequalf4(vector float x, vector float y)
+```
+
+### islessgreaterf4
+
+Test not equal (handles NaN correctly).
+
+```c
+vector unsigned int islessgreaterf4(vector float x, vector float y)
+```
+
+### isunorderedf4
+
+Check if comparison is unordered (either value is NaN).
+
+```c
+vector unsigned int isunorderedf4(vector float x, vector float y)
+```
+
+## Example Usage
+
+### Basic Trigonometry
+
+```c
+#include <simdmath.h>
+
+// Compute sine of 4 angles
+vector float angles = {0.0f, 3.14159f/2.0f, 3.14159f, 3.14159f*1.5f};
+vector float sines = sinf4(angles);
+
+// Results: approximately {0.0, 1.0, 0.0, -1.0}
+float result[4];
+*((vector float*)result) = sines;
+for (int i = 0; i < 4; i++) {
+    printf("sin(%.2f) = %.4f\n", ((float*)&angles)[i], result[i]);
+}
+```
+
+### Fast Normalization (Vector Math)
+
+```c
+// Normalize 4 vectors at once
+vector float x = {1.0f, 2.0f, 3.0f, 4.0f};
+vector float y = {2.0f, 3.0f, 4.0f, 5.0f};
+vector float z = {3.0f, 4.0f, 5.0f, 6.0f};
+
+// Compute lengths: sqrt(x² + y² + z²)
+vector float x2 = x * x;
+vector float y2 = y * y;
+vector float z2 = z * z;
+vector float lengthSq = x2 + y2 + z2;
+vector float length = sqrtf4(lengthSq);
+
+// Normalize
+vector float nx = divf4(x, length);
+vector float ny = divf4(y, length);
+vector float nz = divf4(z, length);
+
+// Or use fast reciprocal sqrt
+vector float invLength = rsqrtf4(lengthSq);
+nx = x * invLength;
+ny = y * invLength;
+nz = z * invLength;
+```
+
+### Sine and Cosine Together
+
+```c
+vector float angles = {0.0f, 0.785398f, 1.5708f, 2.35619f};
+vector float sines, cosines;
+
+// Compute both sin and cos in one call (faster)
+sincosf4(angles, &sines, &cosines);
+
+printf("Angle\tSin\tCos\n");
+for (int i = 0; i < 4; i++) {
+    printf("%.2f\t%.4f\t%.4f\n",
+           ((float*)&angles)[i],
+           ((float*)&sines)[i],
+           ((float*)&cosines)[i]);
+}
+```
+
+### Integer Division
+
+```c
+vector signed int dividends = {100, 200, 300, 400};
+vector signed int divisors = {7, 9, 11, 13};
+
+divi4_t result = divi4(dividends, divisors);
+
+printf("Dividend\tDivisor\tQuotient\tRemainder\n");
+for (int i = 0; i < 4; i++) {
+    printf("%d\t\t%d\t%d\t\t%d\n",
+           ((int*)&dividends)[i],
+           ((int*)&divisors)[i],
+           ((int*)&result.quot)[i],
+           ((int*)&result.rem)[i]);
+}
+```
+
+### Min/Max and Clamping
+
+```c
+vector float values = {-5.0f, 15.0f, 50.0f, 125.0f};
+vector float minVal = {0.0f, 0.0f, 0.0f, 0.0f};
+vector float maxVal = {100.0f, 100.0f, 100.0f, 100.0f};
+
+// Clamp to range [0, 100]
+vector float clamped = fminf4(fmaxf4(values, minVal), maxVal);
+// Results: {0.0, 15.0, 50.0, 100.0}
+```
+
+### Floating-Point Classification
+
+```c
+vector float values = {1.0f, 0.0f, 1.0f/0.0f, 0.0f/0.0f};
+// {normal, zero, infinity, NaN}
+
+vector unsigned int is_finite = isfinitef4(values);
+vector unsigned int is_nan = isnanf4(values);
+vector unsigned int is_inf = isinff4(values);
+
+printf("Value\tFinite\tNaN\tInfinite\n");
+for (int i = 0; i < 4; i++) {
+    printf("%.1f\t%s\t%s\t%s\n",
+           ((float*)&values)[i],
+           ((unsigned*)&is_finite)[i] ? "yes" : "no",
+           ((unsigned*)&is_nan)[i] ? "yes" : "no",
+           ((unsigned*)&is_inf)[i] ? "yes" : "no");
+}
+```
+
+### Power and Exponential
+
+```c
+vector float bases = {2.0f, 3.0f, 4.0f, 5.0f};
+vector float exponents = {3.0f, 2.0f, 1.5f, 0.5f};
+
+// Compute x^y
+vector float powers = powf4(bases, exponents);
+// Results: {8.0, 9.0, 8.0, 2.236}
+
+// Compute e^x
+vector float values = {0.0f, 1.0f, 2.0f, 3.0f};
+vector float exponentials = expf4(values);
+// Results: {1.0, 2.718, 7.389, 20.086}
+
+// Compute 2^x (faster)
+vector float powers_of_2 = exp2f4(values);
+// Results: {1.0, 2.0, 4.0, 8.0}
+```
+
+## Performance Comparison
+
+### Scalar vs SIMD
+
+```c
+// Scalar version
+float scalar_result[4];
+for (int i = 0; i < 4; i++) {
+    scalar_result[i] = sinf(angles[i]);  // 4 separate sin calls
+}
+
+// SIMD version
+vector float simd_angles = {angles[0], angles[1], angles[2], angles[3]};
+vector float simd_result = sinf4(simd_angles);  // 1 vectorized call
+
+// SIMD is typically 2-4x faster
+```
+
+## Accuracy Notes
+
+- Most functions provide accuracy within a few ULPs (Units in Last Place)
+- Trigonometric functions: ~2-4 ULP error
+- Exponential/logarithmic: ~2-3 ULP error
+- Division/sqrt: Full hardware precision
+- For highest precision, use double2 versions on SPU
+
+## PPU vs SPU Differences
+
+| Feature | PPU | SPU |
+|---------|-----|-----|
+| Float4 operations | Yes | Yes |
+| Double2 operations | No | Yes |
+| 64-bit integer | No | Yes |
+| Performance | Good | Excellent |
+| Available functions | ~80% | 100% |
+
+## See Also
+
+- [Vector Math Library](/api/vectormath) - Higher-level 3D math primitives

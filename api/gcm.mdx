@@ -1,0 +1,811 @@
+---
+title: GCM System
+description: Low-level RSX management for command buffers, display, and memory operations
+---
+
+The GCM (Graphics Command Management) system provides low-level control over the RSX graphics processor, including command buffer management, display configuration, memory mapping, and rendering operations.
+
+## Context Initialization
+
+### gcmInitBody
+
+Initialize the RSX/GCM context.
+
+```c
+s32 gcmInitBody(gcmContextData **ctx, const u32 cmdSize, const u32 ioSize, const void *ioAddress);
+```
+
+<ParamField path="ctx" type="gcmContextData**" required>
+  Pointer to receive the effective address of the allocated context structure
+</ParamField>
+
+<ParamField path="cmdSize" type="u32" required>
+  Command buffer size in bytes
+</ParamField>
+
+<ParamField path="ioSize" type="u32" required>
+  IO buffer size in bytes
+</ParamField>
+
+<ParamField path="ioAddress" type="const void*" required>
+  Pointer to allocated IO buffer
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmGetConfiguration
+
+Retrieve the current RSX configuration.
+
+```c
+s32 gcmGetConfiguration(gcmConfiguration *config);
+```
+
+<ParamField path="config" type="gcmConfiguration*" required>
+  Pointer to configuration structure to be filled
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+<Accordion title="gcmConfiguration Structure">
+```c
+typedef struct _gcmCfg {
+    void *localAddress;    // Effective start address of RSX memory
+    void *ioAddress;       // Effective start address of I/O mapped main memory
+    u32 localSize;         // Maximum available RSX memory size
+    u32 ioSize;            // Maximum available I/O mapped memory size
+    u32 memoryFreq;        // RSX memory clock frequency
+    u32 coreFreq;          // RSX core clock frequency
+} gcmConfiguration;
+```
+</Accordion>
+
+```c Example
+gcmConfiguration config;
+gcmGetConfiguration(&config);
+printf("RSX Memory: %d MB\n", config.localSize / (1024*1024));
+printf("Core Freq: %d MHz\n", config.coreFreq / 1000000);
+```
+
+## Memory Management
+
+### gcmAddressToOffset
+
+Convert an effective address in RSX memory to an offset.
+
+```c
+s32 gcmAddressToOffset(const void *address, u32 *offset);
+```
+
+<ParamField path="address" type="const void*" required>
+  Effective address to convert
+</ParamField>
+
+<ParamField path="offset" type="u32*" required>
+  Pointer to receive the offset value
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmIoOffsetToAddress
+
+Convert an offset to an effective address in RSX memory.
+
+```c
+s32 gcmIoOffsetToAddress(u32 offset, void **address);
+```
+
+<ParamField path="offset" type="u32" required>
+  Offset to convert
+</ParamField>
+
+<ParamField path="address" type="void**" required>
+  Pointer to receive the effective address
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmMapMainMemory
+
+Map a memory block in main memory for RSX access.
+
+```c
+s32 gcmMapMainMemory(const void *address, const u32 size, u32 *offset);
+```
+
+<ParamField path="address" type="const void*" required>
+  Pointer to the block to be mapped
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size of the block in bytes
+</ParamField>
+
+<ParamField path="offset" type="u32*" required>
+  Pointer to receive the mapped offset value
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+```c Example
+// Map main memory buffer for RSX access
+void *buffer = memalign(1024*1024, 4*1024*1024);
+u32 offset;
+gcmMapMainMemory(buffer, 4*1024*1024, &offset);
+```
+
+### gcmMapEaIoAddress
+
+Map an effective address to an IO address.
+
+```c
+s32 gcmMapEaIoAddress(const void *ea, const u32 io, const u32 size);
+```
+
+<ParamField path="ea" type="const void*" required>
+  Effective address to map
+</ParamField>
+
+<ParamField path="io" type="u32" required>
+  IO address
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size in bytes
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmUnmapIoAddress
+
+Unmap a previously mapped IO address.
+
+```c
+s32 gcmUnmapIoAddress(const u32 io);
+```
+
+<ParamField path="io" type="u32" required>
+  IO address to unmap
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmMapLocalMemory
+
+Map local RSX memory.
+
+```c
+s32 gcmMapLocalMemory(void **address, u32 *size);
+```
+
+<ParamField path="address" type="void**" required>
+  Pointer to receive the mapped address
+</ParamField>
+
+<ParamField path="size" type="u32*" required>
+  Pointer to receive the size of mapped memory
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmGetMaxIoMapSize
+
+Get the maximum IO map size available.
+
+```c
+u32 gcmGetMaxIoMapSize();
+```
+
+<ResponseField name="return" type="u32">
+  Maximum IO map size in bytes
+</ResponseField>
+
+## Display Management
+
+### gcmSetDisplayBuffer
+
+Configure a display framebuffer.
+
+```c
+s32 gcmSetDisplayBuffer(const u8 bufferId, const u32 offset, const u32 pitch, const u32 width, const u32 height);
+```
+
+<ParamField path="bufferId" type="u8" required>
+  Buffer ID (0-7)
+</ParamField>
+
+<ParamField path="offset" type="u32" required>
+  Offset of the buffer in video memory (from rsxAddressToOffset)
+</ParamField>
+
+<ParamField path="pitch" type="u32" required>
+  Size of a buffer line in bytes (width * bytes_per_pixel)
+</ParamField>
+
+<ParamField path="width" type="u32" required>
+  Buffer width in pixels
+</ParamField>
+
+<ParamField path="height" type="u32" required>
+  Buffer height in pixels
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+```c Example
+// Configure two display buffers for double buffering
+for (int i = 0; i < 2; i++) {
+    void *buffer = rsxMemalign(64, 1920 * 1080 * 4);
+    u32 offset;
+    rsxAddressToOffset(buffer, &offset);
+    gcmSetDisplayBuffer(i, offset, 1920 * 4, 1920, 1080);
+}
+```
+
+### gcmSetFlip
+
+Enqueue a flip command into the command buffer.
+
+```c
+s32 gcmSetFlip(gcmContextData *context, const u8 bufferId);
+```
+
+<ParamField path="context" type="gcmContextData*" required>
+  Pointer to the context object
+</ParamField>
+
+<ParamField path="bufferId" type="u8" required>
+  Framebuffer ID to flip to (as configured with gcmSetDisplayBuffer)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmSetFlipMode
+
+Set the flip synchronization mode.
+
+```c
+void gcmSetFlipMode(const u32 mode);
+```
+
+<ParamField path="mode" type="u32" required>
+  Flip mode: GCM_FLIP_HSYNC, GCM_FLIP_VSYNC, or GCM_FLIP_HSYNC_AND_BREAK_EVERYTHING
+</ParamField>
+
+Use `GCM_FLIP_VSYNC` to synchronize with vertical refresh and prevent tearing.
+
+### gcmSetWaitFlip
+
+Wait for a flip to complete.
+
+```c
+void gcmSetWaitFlip(gcmContextData *context);
+```
+
+<ParamField path="context" type="gcmContextData*" required>
+  Pointer to the context object
+</ParamField>
+
+### gcmGetFlipStatus
+
+Get the flip status.
+
+```c
+u32 gcmGetFlipStatus();
+```
+
+<ResponseField name="return" type="u32">
+  Returns nonzero if a flip occurred, 0 otherwise
+</ResponseField>
+
+Once a flip has occurred, you must call `gcmResetFlipStatus()` before querying again.
+
+### gcmResetFlipStatus
+
+Reset the flip status.
+
+```c
+void gcmResetFlipStatus();
+```
+
+Call this after a flip has completed to prepare for the next flip query.
+
+### gcmSetPrepareFlip
+
+Perform preprocessing for display output.
+
+```c
+u32 gcmSetPrepareFlip(gcmContextData *context, const u8 id);
+```
+
+<ParamField path="context" type="gcmContextData*" required>
+  Pointer to context object
+</ParamField>
+
+<ParamField path="id" type="u8" required>
+  Buffer ID
+</ParamField>
+
+<ResponseField name="return" type="u32">
+  Returns status value
+</ResponseField>
+
+### gcmGetLastFlipTime
+
+Get the timestamp of the last flip.
+
+```c
+s64 gcmGetLastFlipTime();
+```
+
+<ResponseField name="return" type="s64">
+  Timestamp of last flip
+</ResponseField>
+
+### gcmSetFlipImmediate
+
+Perform an immediate flip without waiting for VSync.
+
+```c
+s32 gcmSetFlipImmediate(const u8 id);
+```
+
+<ParamField path="id" type="u8" required>
+  Buffer ID to flip to
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmGetCurrentDisplayBufferId
+
+Get the currently displayed buffer ID.
+
+```c
+s32 gcmGetCurrentDisplayBufferId(u8 *id);
+```
+
+<ParamField path="id" type="u8*" required>
+  Pointer to receive the current buffer ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmGetVBlankCount
+
+Get the VBlank count.
+
+```c
+u64 gcmGetVBlankCount();
+```
+
+<ResponseField name="return" type="u64">
+  Current VBlank count
+</ResponseField>
+
+## Event Handlers
+
+### gcmSetVBlankHandler
+
+Register a callback function to be called on VBlank.
+
+```c
+void gcmSetVBlankHandler(void (*handler)(const u32 head));
+```
+
+<ParamField path="handler" type="void (*)(const u32 head)" required>
+  Callback function (NULL to cancel)
+</ParamField>
+
+```c Example
+void vblank_handler(const u32 head) {
+    // Called every VBlank
+}
+
+gcmSetVBlankHandler(vblank_handler);
+```
+
+### gcmSetFlipHandler
+
+Register a callback function to be called when a flip is executed.
+
+```c
+void gcmSetFlipHandler(void (*handler)(const u32 head));
+```
+
+<ParamField path="handler" type="void (*)(const u32 head)" required>
+  Callback function (NULL to cancel)
+</ParamField>
+
+### gcmSetGraphicsHandler
+
+Register a callback function for graphics pipeline exceptions.
+
+```c
+void gcmSetGraphicsHandler(void (*handler)(const u32 val));
+```
+
+<ParamField path="handler" type="void (*)(const u32 val)" required>
+  Callback function (NULL to cancel)
+</ParamField>
+
+### gcmSetUserHandler
+
+Register a user-defined handler.
+
+```c
+void gcmSetUserHandler(void (*handler)(const u32 cause));
+```
+
+<ParamField path="handler" type="void (*)(const u32 cause)" required>
+  Callback function
+</ParamField>
+
+## Command Buffer Control
+
+### gcmGetControlRegister
+
+Obtain registers for controlling the command buffer.
+
+```c
+gcmControlRegister* gcmGetControlRegister();
+```
+
+<ResponseField name="return" type="gcmControlRegister*">
+  Pointer to control register structure
+</ResponseField>
+
+<Accordion title="gcmControlRegister Structure">
+```c
+typedef struct _gcmCtrlRegister {
+    vu32 put;    // PUT register
+    vu32 get;    // GET register
+    vu32 ref;    // REF register (initial value: 0xFFFFFFFF)
+} gcmControlRegister;
+```
+</Accordion>
+
+### gcmSetDefaultCommandBuffer
+
+Set the default command buffer.
+
+```c
+void gcmSetDefaultCommandBuffer();
+```
+
+## Render Operations
+
+### gcmSetTile
+
+Configure a tile region.
+
+```c
+void gcmSetTile(const u8 index, const u8 location, const u32 offset, const u32 size, 
+                const u32 pitch, const u8 comp, const u16 base, const u8 bank);
+```
+
+<ParamField path="index" type="u8" required>
+  Tile index (0-14)
+</ParamField>
+
+<ParamField path="location" type="u8" required>
+  Memory location (GCM_LOCATION_RSX or GCM_LOCATION_CELL)
+</ParamField>
+
+<ParamField path="offset" type="u32" required>
+  Memory offset
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Tile size
+</ParamField>
+
+<ParamField path="pitch" type="u32" required>
+  Tile pitch
+</ParamField>
+
+<ParamField path="comp" type="u8" required>
+  Compression mode
+</ParamField>
+
+<ParamField path="base" type="u16" required>
+  Base value
+</ParamField>
+
+<ParamField path="bank" type="u8" required>
+  Bank value
+</ParamField>
+
+### gcmSetInvalidateTile
+
+Invalidate a tile region.
+
+```c
+void gcmSetInvalidateTile(const u8 index);
+```
+
+<ParamField path="index" type="u8" required>
+  Tile index to invalidate
+</ParamField>
+
+### gcmBindTile
+
+Bind a tile region.
+
+```c
+s32 gcmBindTile(const u8 index);
+```
+
+<ParamField path="index" type="u8" required>
+  Tile index to bind
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmUnbindTile
+
+Unbind a tile region.
+
+```c
+s32 gcmUnbindTile(const u8 index);
+```
+
+<ParamField path="index" type="u8" required>
+  Tile index to unbind
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmSetZcull
+
+Configure Z-culling.
+
+```c
+void gcmSetZcull(const u8 index, const u32 offset, const u32 width, const u32 height,
+                 const u32 cullStart, const u32 zFormat, const u32 aaFormat, 
+                 const u32 zCullDir, const u32 zCullFormat, const u32 sFunc, 
+                 const u32 sRef, const u32 sMask);
+```
+
+<ParamField path="index" type="u8" required>
+  Zcull region index
+</ParamField>
+
+<ParamField path="offset" type="u32" required>
+  Memory offset
+</ParamField>
+
+<ParamField path="width" type="u32" required>
+  Width in pixels
+</ParamField>
+
+<ParamField path="height" type="u32" required>
+  Height in pixels
+</ParamField>
+
+<ParamField path="cullStart" type="u32" required>
+  Cull start offset
+</ParamField>
+
+<ParamField path="zFormat" type="u32" required>
+  Depth format (GCM_ZCULL_Z16 or GCM_ZCULL_Z24S8)
+</ParamField>
+
+<ParamField path="aaFormat" type="u32" required>
+  Anti-aliasing format
+</ParamField>
+
+<ParamField path="zCullDir" type="u32" required>
+  Z-cull direction (GCM_ZCULL_LESS or GCM_ZCULL_GREATER)
+</ParamField>
+
+<ParamField path="zCullFormat" type="u32" required>
+  Z-cull format
+</ParamField>
+
+<ParamField path="sFunc" type="u32" required>
+  Stencil function
+</ParamField>
+
+<ParamField path="sRef" type="u32" required>
+  Stencil reference value
+</ParamField>
+
+<ParamField path="sMask" type="u32" required>
+  Stencil mask
+</ParamField>
+
+### gcmGetLabelAddress
+
+Get the address of a specified label.
+
+```c
+u32* gcmGetLabelAddress(const u8 index);
+```
+
+<ParamField path="index" type="u8" required>
+  Label index
+</ParamField>
+
+<ResponseField name="return" type="u32*">
+  Pointer to the label address
+</ResponseField>
+
+### gcmGetReport
+
+Get a report value.
+
+```c
+u32 gcmGetReport(const u32 type, const u32 index);
+```
+
+<ParamField path="type" type="u32" required>
+  Report type
+</ParamField>
+
+<ParamField path="index" type="u32" required>
+  Report index
+</ParamField>
+
+<ResponseField name="return" type="u32">
+  Report value
+</ResponseField>
+
+### gcmGetTimeStamp
+
+Get a timestamp value.
+
+```c
+u64 gcmGetTimeStamp(const u32 index);
+```
+
+<ParamField path="index" type="u32" required>
+  Timestamp index
+</ParamField>
+
+<ResponseField name="return" type="u64">
+  Timestamp value
+</ResponseField>
+
+## Hardware Cursor
+
+### gcmInitCursor
+
+Initialize hardware cursor support.
+
+```c
+s32 gcmInitCursor();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmSetCursorEnable
+
+Enable the hardware cursor.
+
+```c
+s32 gcmSetCursorEnable();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmSetCursorDisable
+
+Disable the hardware cursor.
+
+```c
+s32 gcmSetCursorDisable();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmSetCursorPosition
+
+Set the cursor position.
+
+```c
+s32 gcmSetCursorPosition(const s32 x, const s32 y);
+```
+
+<ParamField path="x" type="s32" required>
+  X coordinate
+</ParamField>
+
+<ParamField path="y" type="s32" required>
+  Y coordinate
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmSetCursorImageOffset
+
+Set the cursor image offset.
+
+```c
+s32 gcmSetCursorImageOffset(const u32 offset);
+```
+
+<ParamField path="offset" type="u32" required>
+  Image offset in video memory
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### gcmUpdateCursor
+
+Update the cursor display.
+
+```c
+s32 gcmUpdateCursor();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+## Constants
+
+### Memory Locations
+
+- `GCM_LOCATION_RSX` (0) - Buffer in RSX video memory
+- `GCM_LOCATION_CELL` (1) - Buffer in main memory  
+- `GCM_LOCATION_REPORT` (2) - Buffer in report memory
+
+### Flip Modes
+
+- `GCM_FLIP_HSYNC` (1) - Flip on horizontal sync (accurate)
+- `GCM_FLIP_VSYNC` (2) - Flip on vertical sync
+- `GCM_FLIP_HSYNC_AND_BREAK_EVERYTHING` (3) - Flip on horizontal sync (inaccurate)
+
+### Surface Formats
+
+- `GCM_SURFACE_X8R8G8B8` (5) - 32-bit color without alpha
+- `GCM_SURFACE_A8R8G8B8` (8) - 32-bit color with alpha
+- `GCM_SURFACE_R5G6B5` (3) - 16-bit color
+
+### Depth Formats
+
+- `GCM_SURFACE_ZETA_Z16` (1) - 16-bit depth buffer
+- `GCM_SURFACE_ZETA_Z24S8` (2) - 24-bit depth + 8-bit stencil
+
+## See Also
+
+- [RSX](/api/rsx) - High-level RSX initialization and management
+- [RESC](/api/resc) - Resolution scaling library

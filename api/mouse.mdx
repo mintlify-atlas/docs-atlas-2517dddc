@@ -1,0 +1,560 @@
+---
+title: 'Mouse'
+description: 'USB mouse input and management'
+---
+
+The Mouse API provides functions for managing USB mice connected to the PlayStation 3, including reading mouse movement, button presses, and scroll wheel data.
+
+## Initialization
+
+### ioMouseInit
+
+Initialize the mouse I/O management system.
+
+```c
+s32 ioMouseInit(u32 max);
+```
+
+<ParamField path="max" type="u32" required>
+  Maximum number of mice allowed to connect (max limit is 7)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+**Example:**
+```c
+#include <io/mouse.h>
+
+// Initialize mouse system for up to 7 mice
+if (ioMouseInit(7) != 0) {
+    printf("Failed to initialize mouse\n");
+    return -1;
+}
+```
+
+### ioMouseEnd
+
+End mouse I/O management and cleanup resources.
+
+```c
+s32 ioMouseEnd();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+## Reading Mouse Information
+
+### ioMouseGetInfo
+
+Get information about connected mice.
+
+```c
+s32 ioMouseGetInfo(mouseInfo* info);
+```
+
+<ParamField path="info" type="mouseInfo*" required>
+  Pointer to mouseInfo structure to receive mouse information
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+**mouseInfo Structure:**
+```c
+typedef struct _mouse_info {
+    u32 max;                    // max mice allowed to connect
+    u32 connected;              // how many mice connected
+    u32 info;                   // bit 0: system intercept flag
+    u16 vendor_id[MAX_MICE];    // vendor ids
+    u16 product_id[MAX_MICE];   // product ids
+    u8  status[MAX_MICE];       // connection status
+} mouseInfo;
+```
+
+<Expandable title="mouseInfo Fields">
+  <ParamField path="max" type="u32">
+    Maximum number of mice that can be connected
+  </ParamField>
+  <ParamField path="connected" type="u32">
+    Number of currently connected mice
+  </ParamField>
+  <ParamField path="info" type="u32">
+    Bit 0: lets the system intercept mouse input; other bits reserved
+  </ParamField>
+  <ParamField path="vendor_id" type="u16[127]">
+    Array of vendor IDs for each mouse slot
+  </ParamField>
+  <ParamField path="product_id" type="u16[127]">
+    Array of product IDs for each mouse slot
+  </ParamField>
+  <ParamField path="status" type="u8[127]">
+    Array of connection statuses:
+    - 0: Not connected
+    - 1: Connected
+    - 5: Connected to custom controller
+  </ParamField>
+</Expandable>
+
+**Example:**
+```c
+mouseInfo info;
+ioMouseGetInfo(&info);
+
+printf("Max mice: %d, Connected: %d\n", info.max, info.connected);
+
+for (int i = 0; i < MAX_MICE; i++) {
+    if (info.status[i]) {
+        printf("Mouse %d: Vendor=0x%04X, Product=0x%04X\n",
+               i, info.vendor_id[i], info.product_id[i]);
+    }
+}
+```
+
+## Reading Mouse Data
+
+### ioMouseGetData
+
+Read current mouse data from a specific port.
+
+```c
+s32 ioMouseGetData(u32 port, mouseData* data);
+```
+
+<ParamField path="port" type="u32" required>
+  Mouse port number (0-6)
+</ParamField>
+
+<ParamField path="data" type="mouseData*" required>
+  Pointer to mouseData structure to receive mouse input
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+**mouseData Structure:**
+```c
+typedef struct _mouse_data {
+    u8 update;      // update flag
+    u8 buttons;     // button state (bitfield)
+    s8 x_axis;      // X axis movement (delta)
+    s8 y_axis;      // Y axis movement (delta)
+    s8 wheel;       // scroll wheel movement (delta)
+    s8 tilt;        // tilt wheel movement (delta)
+} mouseData;
+```
+
+<Expandable title="mouseData Fields">
+  <ParamField path="update" type="u8">
+    Update flag indicating if data has changed
+  </ParamField>
+  <ParamField path="buttons" type="u8">
+    Button state bitfield:
+    - Bit 0: Left button
+    - Bit 1: Right button
+    - Bit 2: Middle button
+    - Bit 3: Button 4 (side button)
+    - Bit 4: Button 5 (side button)
+  </ParamField>
+  <ParamField path="x_axis" type="s8">
+    Horizontal movement delta (-127 to +127)
+  </ParamField>
+  <ParamField path="y_axis" type="s8">
+    Vertical movement delta (-127 to +127)
+  </ParamField>
+  <ParamField path="wheel" type="s8">
+    Scroll wheel delta (-127 to +127). Positive = scroll up, negative = scroll down.
+  </ParamField>
+  <ParamField path="tilt" type="s8">
+    Tilt wheel delta for mice with horizontal scroll (-127 to +127)
+  </ParamField>
+</Expandable>
+
+**Example:**
+```c
+mouseData data;
+int mouse_x = 0, mouse_y = 0;
+
+while (1) {
+    ioMouseGetData(0, &data);
+    
+    if (data.update) {
+        // Update cursor position
+        mouse_x += data.x_axis;
+        mouse_y += data.y_axis;
+        
+        printf("Mouse position: (%d, %d)\n", mouse_x, mouse_y);
+        
+        // Check buttons
+        if (data.buttons & 0x01) {
+            printf("Left button pressed\n");
+        }
+        if (data.buttons & 0x02) {
+            printf("Right button pressed\n");
+        }
+        if (data.buttons & 0x04) {
+            printf("Middle button pressed\n");
+        }
+        
+        // Check scroll wheel
+        if (data.wheel > 0) {
+            printf("Scrolled up: %d\n", data.wheel);
+        } else if (data.wheel < 0) {
+            printf("Scrolled down: %d\n", -data.wheel);
+        }
+        
+        // Check tilt wheel (horizontal scroll)
+        if (data.tilt != 0) {
+            printf("Horizontal scroll: %d\n", data.tilt);
+        }
+    }
+    
+    usleep(10000);  // 10ms delay
+}
+```
+
+### ioMouseGetDataList
+
+Read a list of mouse data events from a specific port.
+
+```c
+s32 ioMouseGetDataList(u32 port, mouseDataList* dataList);
+```
+
+<ParamField path="port" type="u32" required>
+  Mouse port number (0-6)
+</ParamField>
+
+<ParamField path="dataList" type="mouseDataList*" required>
+  Pointer to mouseDataList structure to receive multiple mouse events
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+**mouseDataList Structure:**
+```c
+typedef struct _mouse_data_list {
+    u32 count;                          // number of events in list
+    mouseData list[MOUSE_MAX_DATA_LIST];// array of mouse data
+} mouseDataList;
+```
+
+<Note>
+  This function allows reading multiple queued mouse events at once, which is useful for high-precision mouse tracking when the application can't poll frequently enough.
+</Note>
+
+**Example:**
+```c
+mouseDataList dataList;
+ioMouseGetDataList(0, &dataList);
+
+printf("Received %d mouse events\n", dataList.count);
+
+for (int i = 0; i < dataList.count; i++) {
+    mouseData* data = &dataList.list[i];
+    printf("Event %d: dx=%d, dy=%d, buttons=0x%02X\n",
+           i, data->x_axis, data->y_axis, data->buttons);
+}
+```
+
+### ioMouseGetRawData
+
+Get raw mouse data without processing.
+
+```c
+s32 ioMouseGetRawData(u32 port, mouseRawData* rawData);
+```
+
+<ParamField path="port" type="u32" required>
+  Mouse port number
+</ParamField>
+
+<ParamField path="rawData" type="mouseRawData*" required>
+  Pointer to mouseRawData structure
+</ParamField>
+
+**mouseRawData Structure:**
+```c
+typedef struct _mouse_raw_data {
+    s32 len;                    // length of data
+    u8 data[MOUSE_MAX_CODES];   // raw data bytes
+} mouseRawData;
+```
+
+## Tablet Mode
+
+Some mice support tablet/absolute positioning mode.
+
+### ioMouseInfoTabletMode
+
+Get tablet mode information for a mouse.
+
+```c
+s32 ioMouseInfoTabletMode(u32 port, mouseInfoTablet* infoTablet);
+```
+
+<ParamField path="port" type="u32" required>
+  Mouse port number
+</ParamField>
+
+<ParamField path="infoTablet" type="mouseInfoTablet*" required>
+  Pointer to mouseInfoTablet structure
+</ParamField>
+
+**mouseInfoTablet Structure:**
+```c
+typedef struct _mouse_info_tablet {
+    u32 supported;  // 1 if tablet mode is supported, 0 otherwise
+    u32 mode;       // current tablet mode
+} mouseInfoTablet;
+```
+
+### ioMouseSetTabletMode
+
+Set tablet mode for a mouse.
+
+```c
+s32 ioMouseSetTabletMode(u32 port, u32 mode);
+```
+
+<ParamField path="port" type="u32" required>
+  Mouse port number
+</ParamField>
+
+<ParamField path="mode" type="u32" required>
+  Tablet mode to set (device-specific)
+</ParamField>
+
+### ioMouseGetTabletDataList
+
+Get tablet data from a mouse in tablet mode.
+
+```c
+s32 ioMouseGetTabletDataList(u32 port, mouseTabletDataList* tabletDataList);
+```
+
+<ParamField path="port" type="u32" required>
+  Mouse port number
+</ParamField>
+
+<ParamField path="tabletDataList" type="mouseTabletDataList*" required>
+  Pointer to mouseTabletDataList structure
+</ParamField>
+
+**mouseTabletDataList Structure:**
+```c
+typedef struct _mouse_tablet_data_list {
+    u32 count;                                  // number of tablet events
+    mouseTabletData list[MOUSE_MAX_DATA_LIST];  // array of tablet data
+} mouseTabletDataList;
+```
+
+**mouseTabletData Structure:**
+```c
+typedef struct _mouse_tablet_data {
+    s32 len;                    // length of data
+    u8 data[MOUSE_MAX_CODES];   // tablet data bytes
+} mouseTabletData;
+```
+
+## Utility Functions
+
+### ioMouseClearBuf
+
+Clear the mouse input buffer.
+
+```c
+s32 ioMouseClearBuf(u32 port);
+```
+
+<ParamField path="port" type="u32" required>
+  Mouse port number to clear
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+## Constants
+
+```c
+#define MAX_MICE                127   // Maximum number of mice
+#define MOUSE_MAX_CODES         64    // Maximum raw data size
+#define MOUSE_MAX_DATA_LIST     8     // Maximum events in data list
+```
+
+## Button Bit Masks
+
+When checking the `buttons` field in `mouseData`:
+
+```c
+#define MOUSE_BUTTON_LEFT       0x01  // Left button (bit 0)
+#define MOUSE_BUTTON_RIGHT      0x02  // Right button (bit 1)
+#define MOUSE_BUTTON_MIDDLE     0x04  // Middle button (bit 2)
+#define MOUSE_BUTTON_4          0x08  // Side button 4 (bit 3)
+#define MOUSE_BUTTON_5          0x10  // Side button 5 (bit 4)
+```
+
+## Complete Example
+
+```c
+#include <io/mouse.h>
+#include <stdio.h>
+#include <unistd.h>
+
+// Mouse button helper macros
+#define MOUSE_LEFT_BTN(x)   ((x) & 0x01)
+#define MOUSE_RIGHT_BTN(x)  ((x) & 0x02)
+#define MOUSE_MIDDLE_BTN(x) ((x) & 0x04)
+
+int main() {
+    mouseInfo info;
+    mouseData data;
+    int cursor_x = 0, cursor_y = 0;
+    
+    // Initialize mouse system
+    if (ioMouseInit(7) != 0) {
+        printf("Failed to initialize mouse\n");
+        return -1;
+    }
+    
+    printf("Mouse initialized successfully\n");
+    
+    // Get mouse info
+    ioMouseGetInfo(&info);
+    printf("Max mice: %d, Connected: %d\n", info.max, info.connected);
+    
+    if (info.connected == 0) {
+        printf("No mice connected\n");
+        ioMouseEnd();
+        return -1;
+    }
+    
+    // Find first connected mouse
+    int mouse_port = -1;
+    for (int i = 0; i < MAX_MICE; i++) {
+        if (info.status[i]) {
+            mouse_port = i;
+            printf("Using mouse at port %d\n", i);
+            printf("  Vendor ID: 0x%04X\n", info.vendor_id[i]);
+            printf("  Product ID: 0x%04X\n", info.product_id[i]);
+            break;
+        }
+    }
+    
+    if (mouse_port < 0) {
+        printf("No valid mouse found\n");
+        ioMouseEnd();
+        return -1;
+    }
+    
+    // Main loop
+    printf("Reading mouse input (move mouse to see data)...\n");
+    int exit_flag = 0;
+    
+    while (!exit_flag) {
+        // Read mouse data
+        if (ioMouseGetData(mouse_port, &data) == 0) {
+            if (data.update) {
+                // Update cursor position
+                cursor_x += data.x_axis;
+                cursor_y += data.y_axis;
+                
+                // Clamp cursor to screen bounds (example: 1920x1080)
+                if (cursor_x < 0) cursor_x = 0;
+                if (cursor_x > 1920) cursor_x = 1920;
+                if (cursor_y < 0) cursor_y = 0;
+                if (cursor_y > 1080) cursor_y = 1080;
+                
+                // Display cursor position
+                printf("\rCursor: (%4d, %4d) ", cursor_x, cursor_y);
+                
+                // Check mouse movement
+                if (data.x_axis != 0 || data.y_axis != 0) {
+                    printf("Delta: (%3d, %3d) ", data.x_axis, data.y_axis);
+                }
+                
+                // Check buttons
+                if (MOUSE_LEFT_BTN(data.buttons)) {
+                    printf("[LEFT]");
+                }
+                if (MOUSE_RIGHT_BTN(data.buttons)) {
+                    printf("[RIGHT]");
+                    // Exit on right click for this example
+                    exit_flag = 1;
+                }
+                if (MOUSE_MIDDLE_BTN(data.buttons)) {
+                    printf("[MIDDLE]");
+                }
+                
+                // Check scroll wheel
+                if (data.wheel != 0) {
+                    printf("Scroll: %d ", data.wheel);
+                }
+                
+                // Check tilt wheel
+                if (data.tilt != 0) {
+                    printf("Tilt: %d ", data.tilt);
+                }
+                
+                fflush(stdout);
+            }
+        }
+        
+        usleep(10000);  // 10ms delay (100Hz polling)
+    }
+    
+    printf("\n\nCleaning up...\n");
+    ioMouseEnd();
+    return 0;
+}
+```
+
+## Advanced Example - Multiple Mice
+
+```c
+#include <io/mouse.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+    mouseInfo info;
+    mouseData data[MAX_MICE];
+    int cursors_x[MAX_MICE] = {0};
+    int cursors_y[MAX_MICE] = {0};
+    
+    ioMouseInit(7);
+    
+    while (1) {
+        ioMouseGetInfo(&info);
+        
+        // Poll all connected mice
+        for (int i = 0; i < MAX_MICE; i++) {
+            if (info.status[i]) {
+                ioMouseGetData(i, &data[i]);
+                
+                if (data[i].update) {
+                    // Update cursor for this mouse
+                    cursors_x[i] += data[i].x_axis;
+                    cursors_y[i] += data[i].y_axis;
+                    
+                    printf("Mouse %d: (%d, %d) Buttons: 0x%02X\n",
+                           i, cursors_x[i], cursors_y[i], data[i].buttons);
+                }
+            }
+        }
+        
+        usleep(10000);
+    }
+    
+    ioMouseEnd();
+    return 0;
+}
+```

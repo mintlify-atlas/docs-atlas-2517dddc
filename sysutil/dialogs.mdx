@@ -1,0 +1,377 @@
+---
+title: Message Dialogs
+description: Display system message dialogs with buttons and progress bars
+---
+
+Message dialogs provide a system-level UI for displaying messages, errors, and progress to users. The PS3 handles rendering and input automatically.
+
+## Overview
+
+The message dialog system (`sysutil/msg.h`) allows you to:
+- Display informational messages
+- Show Yes/No confirmation dialogs
+- Present error codes to users
+- Display progress bars for long operations
+
+## Dialog Types
+
+Dialog appearance is controlled by combining `msgType` flags:
+
+<CodeGroup>
+
+```c Normal Dialog
+msgType type = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_OK);
+msgDialogOpen2(type, "Operation complete!", callback, NULL, NULL);
+```
+
+```c Yes/No Dialog
+msgType type = (msgType)(
+    MSG_DIALOG_NORMAL | 
+    MSG_DIALOG_BTN_TYPE_YESNO |
+    MSG_DIALOG_DISABLE_CANCEL_ON |
+    MSG_DIALOG_DEFAULT_CURSOR_NO
+);
+msgDialogOpen2(type, "Do you want to continue?", callback, NULL, NULL);
+```
+
+```c Error Dialog
+msgType type = MSG_DIALOG_ERROR | MSG_DIALOG_BTN_OK;
+msgDialogOpen2(type, "An error occurred!", callback, NULL, NULL);
+```
+
+```c Progress Bar
+msgType type = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_SINGLE_PROGRESSBAR);
+msgDialogOpen2(type, "Loading...", callback, NULL, NULL);
+```
+
+</CodeGroup>
+
+### Available Dialog Flags
+
+| Flag | Description |
+|------|-------------|
+| `MSG_DIALOG_NORMAL` | Standard dialog appearance |
+| `MSG_DIALOG_ERROR` | Error dialog style |
+| `MSG_DIALOG_MUTE_ON` | Disable dialog sound effects |
+| `MSG_DIALOG_BKG_INVISIBLE` | Make background transparent |
+| `MSG_DIALOG_BTN_TYPE_OK` | Show OK button |
+| `MSG_DIALOG_BTN_TYPE_YESNO` | Show Yes/No buttons |
+| `MSG_DIALOG_DISABLE_CANCEL_ON` | Prevent canceling with PS button |
+| `MSG_DIALOG_DEFAULT_CURSOR_NO` | Default cursor on No button |
+| `MSG_DIALOG_SINGLE_PROGRESSBAR` | Show single progress bar |
+| `MSG_DIALOG_DOUBLE_PROGRESSBAR` | Show two progress bars |
+
+## Basic Usage
+
+<Steps>
+
+<Step title="Register System Callback">
+
+Before using dialogs, register a system utility callback:
+
+```c
+void sysutil_callback(u64 status, u64 param, void *usrdata) {
+    switch(status) {
+        case SYSUTIL_EXIT_GAME:
+            // Handle exit request
+            break;
+        case SYSUTIL_DRAW_BEGIN:
+        case SYSUTIL_DRAW_END:
+            // Handle draw events
+            break;
+    }
+}
+
+sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, sysutil_callback, NULL);
+```
+
+</Step>
+
+<Step title="Create Dialog Callback">
+
+Define a callback to handle button presses:
+
+```c
+static vs32 dialog_result = 0;
+
+void dialog_handler(msgButton button, void *usrData) {
+    switch(button) {
+        case MSG_DIALOG_BTN_OK:
+            dialog_result = 1;
+            break;
+        case MSG_DIALOG_BTN_YES:
+            dialog_result = 1;
+            break;
+        case MSG_DIALOG_BTN_NO:
+            dialog_result = 2;
+            break;
+        case MSG_DIALOG_BTN_ESCAPE:
+            dialog_result = -1;
+            break;
+        case MSG_DIALOG_BTN_NONE:
+            dialog_result = -1;
+            break;
+    }
+}
+```
+
+</Step>
+
+<Step title="Open the Dialog">
+
+Display the dialog and wait for user input:
+
+```c
+msgType type = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_OK);
+dialog_result = 0;
+
+msgDialogOpen2(type, "Hello from PSL1GHT!", dialog_handler, NULL, NULL);
+
+// Keep rendering and checking callbacks
+while(!dialog_result) {
+    sysUtilCheckCallback();
+    flip(); // Your flip/render function
+}
+
+msgDialogAbort();
+```
+
+</Step>
+
+</Steps>
+
+## Error Code Dialogs
+
+Display system error codes with formatted messages:
+
+```c
+u32 errorCode = 0x80010001; // Any error code
+
+msgDialogOpenErrorCode(errorCode, dialog_handler, NULL, NULL);
+
+dialog_result = 0;
+while(dialog_result != -1) {
+    sysUtilCheckCallback();
+    flip();
+}
+
+msgDialogAbort();
+```
+
+<Note>
+Error code dialogs automatically format the error code and display it to the user in a system-standard format.
+</Note>
+
+## Progress Bars
+
+Show operation progress with single or double progress bars:
+
+<CodeGroup>
+
+```c Single Progress Bar
+msgType type = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_SINGLE_PROGRESSBAR);
+msgDialogOpen2(type, "Processing files...", NULL, NULL, NULL);
+
+// Update progress
+for(int i = 0; i <= 100; i += 10) {
+    msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, i);
+    sysUtilCheckCallback();
+    usleep(100000);
+}
+
+msgDialogClose(1000.0f); // Close after 1 second
+```
+
+```c Double Progress Bar
+msgType type = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_DOUBLE_PROGRESSBAR);
+msgDialogOpen2(type, "Installing...", NULL, NULL, NULL);
+
+// Update both progress bars
+msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, "Copying files...");
+msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, 50);
+
+msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX1, "Verifying...");
+msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX1, 75);
+
+msgDialogClose(1000.0f);
+```
+
+```c Reset Progress
+// Reset progress bar to 0
+msgDialogProgressBarReset(MSG_PROGRESSBAR_INDEX0);
+msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, "Starting over...");
+```
+
+</CodeGroup>
+
+## Complete Example
+
+Here's a complete example from `samples/sys/msgdialog/source/main.cpp`:
+
+```c
+#include <sysutil/msg.h>
+#include <sysutil/sysutil.h>
+
+static vs32 dialog_action = 0;
+
+void dialog_handler(msgButton button, void *usrData) {
+    switch(button) {
+        case MSG_DIALOG_BTN_OK:
+            dialog_action = 1;
+            break;
+        case MSG_DIALOG_BTN_NO:
+        case MSG_DIALOG_BTN_ESCAPE:
+            dialog_action = 2;
+            break;
+        case MSG_DIALOG_BTN_NONE:
+            dialog_action = -1;
+            break;
+    }
+}
+
+void sysutil_exit_callback(u64 status, u64 param, void *usrdata) {
+    switch(status) {
+        case SYSUTIL_EXIT_GAME:
+            break;
+        case SYSUTIL_DRAW_BEGIN:
+        case SYSUTIL_DRAW_END:
+            break;
+    }
+}
+
+int main() {
+    msgType dialogType;
+    
+    sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, sysutil_exit_callback, NULL);
+    
+    // Show error code
+    msgDialogOpenErrorCode(0xBADC0FFE, dialog_handler, NULL, NULL);
+    msgDialogClose(3000.0f);
+    
+    dialog_action = 0;
+    while(dialog_action != -1) {
+        sysUtilCheckCallback();
+        flip();
+    }
+    msgDialogAbort();
+    
+    // Yes/No dialog
+    dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO | 
+                          MSG_DIALOG_DISABLE_CANCEL_ON | MSG_DIALOG_DEFAULT_CURSOR_NO);
+    msgDialogOpen2(dialogType, "Do you want to continue?", dialog_handler, NULL, NULL);
+    
+    dialog_action = 0;
+    while(!dialog_action) {
+        sysUtilCheckCallback();
+        flip();
+    }
+    msgDialogAbort();
+    
+    // Show result
+    dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_OK);
+    if(dialog_action == 1)
+        msgDialogOpen2(dialogType, "Your answer was YES", dialog_handler, NULL, NULL);
+    else
+        msgDialogOpen2(dialogType, "Your answer was NO", dialog_handler, NULL, NULL);
+    
+    dialog_action = 0;
+    while(!dialog_action) {
+        sysUtilCheckCallback();
+        flip();
+    }
+    msgDialogAbort();
+    
+    return 0;
+}
+```
+
+## API Reference
+
+### Opening Dialogs
+
+<CodeGroup>
+
+```c msgDialogOpen2
+s32 msgDialogOpen2(
+    msgType type,
+    const char *msg,
+    msgDialogCallback cb,
+    void *usrData,
+    void *unused
+);
+```
+
+```c msgDialogOpenErrorCode
+s32 msgDialogOpenErrorCode(
+    u32 errorCode,
+    msgDialogCallback cb,
+    void *usrData,
+    void *unused
+);
+```
+
+</CodeGroup>
+
+### Closing Dialogs
+
+<CodeGroup>
+
+```c msgDialogClose
+// Close after specified milliseconds
+s32 msgDialogClose(f32 waitMs);
+```
+
+```c msgDialogAbort
+// Close immediately
+s32 msgDialogAbort();
+```
+
+</CodeGroup>
+
+### Progress Bar Functions
+
+<CodeGroup>
+
+```c msgDialogProgressBarInc
+// Set progress percentage (0-100)
+s32 msgDialogProgressBarInc(u32 index, u32 percent);
+```
+
+```c msgDialogProgressBarSetMsg
+// Change progress bar message
+s32 msgDialogProgressBarSetMsg(u32 index, const char *msg);
+```
+
+```c msgDialogProgressBarReset
+// Reset progress to 0
+s32 msgDialogProgressBarReset(u32 index);
+```
+
+</CodeGroup>
+
+<Warning>
+Always call `sysUtilCheckCallback()` in your main loop to process dialog events. Without this, dialogs will not respond to user input.
+</Warning>
+
+## Button Results
+
+The callback receives one of these `msgButton` values:
+
+| Button | Value | Description |
+|--------|-------|-------------|
+| `MSG_DIALOG_BTN_NONE` | -1 | No button pressed yet |
+| `MSG_DIALOG_BTN_INVALID` | 0 | Invalid button |
+| `MSG_DIALOG_BTN_OK` | 1 | OK button pressed |
+| `MSG_DIALOG_BTN_YES` | 1 | Yes button pressed |
+| `MSG_DIALOG_BTN_NO` | 2 | No button pressed |
+| `MSG_DIALOG_BTN_ESCAPE` | 3 | Dialog canceled |
+
+## Best Practices
+
+<Note>
+- Always register a system utility callback before opening dialogs
+- Store dialog results in a static or global variable accessible from your callback
+- Call `sysUtilCheckCallback()` every frame to process events
+- Use `msgDialogAbort()` to ensure cleanup when exiting
+- Avoid opening multiple dialogs simultaneously
+</Note>

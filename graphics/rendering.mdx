@@ -1,0 +1,845 @@
+---
+title: Rendering Pipeline
+description: Complete 3D rendering pipeline setup with shaders, textures, and draw calls
+---
+
+The RSX rendering pipeline processes vertices through programmable shaders, applies textures and lighting, and outputs pixels to the framebuffer. This guide covers the complete rendering workflow.
+
+## Rendering Pipeline Overview
+
+```
+Vertex Data → Vertex Shader → Rasterization → Fragment Shader → Framebuffer
+     │              │                               │
+     │              │                               │
+  Attributes    Transformation                       Texturing
+  Indices       Lighting                             Lighting
+                Per-vertex                           Per-pixel
+```
+
+## Complete Rendering Setup
+
+<Steps>
+  <Step title="Initialize RSX">
+    Set up the graphics context:
+    
+    ```c
+    #include <rsx/rsx.h>
+    
+    gcmContextData *context;
+    void *host_addr = memalign(1024*1024, 128*1024*1024);
+    rsxInit(&context, 0x80000, 128*1024*1024, host_addr);
+    ```
+  </Step>
+  
+  <Step title="Configure Display">
+    Set up framebuffers and video output:
+    
+    ```c
+    // Configure video mode
+    videoState state;
+    videoGetState(0, 0, &state);
+    
+    // Allocate framebuffers
+    u32 display_width = 1920;
+    u32 display_height = 1080;
+    u32 color_pitch = display_width * 4;
+    
+    for (int i = 0; i < 2; i++) {
+        color_buffer[i] = rsxMemalign(64, color_pitch * display_height);
+        rsxAddressToOffset(color_buffer[i], &color_offset[i]);
+        gcmSetDisplayBuffer(i, color_offset[i], color_pitch,
+                           display_width, display_height);
+    }
+    
+    gcmSetFlipMode(GCM_FLIP_VSYNC);
+    ```
+  </Step>
+  
+  <Step title="Load Shaders">
+    Load and initialize vertex and fragment programs:
+    
+    ```c
+    #include "my_shader_vpo.h"
+    #include "my_shader_fpo.h"
+    
+    rsxVertexProgram *vpo = (rsxVertexProgram*)my_shader_vpo;
+    rsxFragmentProgram *fpo = (rsxFragmentProgram*)my_shader_fpo;
+    
+    void *vp_ucode, *fp_ucode;
+    u32 vpsize, fpsize;
+    
+    rsxVertexProgramGetUCode(vpo, &vp_ucode, &vpsize);
+    rsxFragmentProgramGetUCode(fpo, &fp_ucode, &fpsize);
+    
+    // Fragment program must be in RSX memory
+    u32 *fp_buffer = (u32*)rsxMemalign(64, fpsize);
+    memcpy(fp_buffer, fp_ucode, fpsize);
+    u32 fp_offset;
+    rsxAddressToOffset(fp_buffer, &fp_offset);
+    ```
+  </Step>
+  
+  <Step title="Set Render State">
+    Configure rendering state:
+    
+    ```c
+    // Enable depth testing
+    rsxSetDepthTestEnable(context, GCM_TRUE);
+    rsxSetDepthFunc(context, GCM_LESS);
+    rsxSetDepthWriteEnable(context, 1);
+    
+    // Set shading mode
+    rsxSetShadeModel(context, GCM_SHADE_MODEL_SMOOTH);
+    
+    // Set culling
+    rsxSetCullFaceEnable(context, GCM_TRUE);
+    rsxSetCullFace(context, GCM_CULL_BACK);
+    rsxSetFrontFace(context, GCM_FRONTFACE_CCW);
+    
+    // Set color mask
+    rsxSetColorMask(context, GCM_COLOR_MASK_R |
+                            GCM_COLOR_MASK_G |
+                            GCM_COLOR_MASK_B |
+                            GCM_COLOR_MASK_A);
+    ```
+  </Step>
+</Steps>
+
+## Setting Up the Viewport
+
+Configure the viewport and scissor rectangle:
+
+```c
+void setupViewport(u16 width, u16 height) {
+    f32 scale[4], offset[4];
+    f32 min = 0.0f, max = 1.0f;
+    
+    // Calculate viewport transform
+    scale[0] = width * 0.5f;
+    scale[1] = height * -0.5f;  // Negative for Y-down
+    scale[2] = (max - min) * 0.5f;
+    scale[3] = 0.0f;
+    
+    offset[0] = width * 0.5f;
+    offset[1] = height * 0.5f;
+    offset[2] = (max + min) * 0.5f;
+    offset[3] = 0.0f;
+    
+    // Set viewport
+    rsxSetViewport(context, 0, 0, width, height, min, max, 
+                   scale, offset);
+    
+    // Set scissor (clipping rectangle)
+    rsxSetScissor(context, 0, 0, width, height);
+    
+    // Set viewport clip
+    for (int i = 0; i < 8; i++) {
+        rsxSetViewportClip(context, i, width, height);
+    }
+}
+```
+
+## Configuring the Surface
+
+Set the render target before drawing:
+
+```c
+void setRenderTarget(u32 buffer_index) {
+    gcmSurface surface;
+    
+    memset(&surface, 0, sizeof(gcmSurface));
+    
+    // Color buffer
+    surface.type = GCM_SURFACE_TYPE_LINEAR;
+    surface.antiAlias = GCM_SURFACE_CENTER_1;
+    surface.colorFormat = GCM_SURFACE_A8R8G8B8;
+    surface.colorTarget = GCM_SURFACE_TARGET_0;
+    surface.colorLocation[0] = GCM_LOCATION_RSX;
+    surface.colorOffset[0] = color_offset[buffer_index];
+    surface.colorPitch[0] = color_pitch;
+    
+    // Depth buffer
+    surface.depthFormat = GCM_SURFACE_ZETA_Z16;
+    surface.depthLocation = GCM_LOCATION_RSX;
+    surface.depthOffset = depth_offset;
+    surface.depthPitch = depth_pitch;
+    
+    // Dimensions
+    surface.width = display_width;
+    surface.height = display_height;
+    surface.x = 0;
+    surface.y = 0;
+    
+    rsxSetSurface(context, &surface);
+}
+```
+
+## Clearing Buffers
+
+Clear color and depth buffers before rendering:
+
+```c
+void clearBuffers() {
+    // Set clear color (ARGB)
+    u32 color = 0xFF000000; // Black with full alpha
+    rsxSetClearColor(context, color);
+    
+    // Set clear depth/stencil
+    rsxSetClearDepthStencil(context, 0xffffff00);
+    
+    // Clear all buffers
+    rsxClearSurface(context, GCM_CLEAR_R | // Red
+                            GCM_CLEAR_G | // Green
+                            GCM_CLEAR_B | // Blue
+                            GCM_CLEAR_A | // Alpha
+                            GCM_CLEAR_Z | // Depth
+                            GCM_CLEAR_S); // Stencil
+}
+```
+
+### Clear Flags
+
+From `rsx/gcm_sys.h:128-141`:
+
+```c
+GCM_CLEAR_Z  // Clear depth buffer
+GCM_CLEAR_S  // Clear stencil buffer
+GCM_CLEAR_R  // Clear red channel
+GCM_CLEAR_G  // Clear green channel
+GCM_CLEAR_B  // Clear blue channel
+GCM_CLEAR_A  // Clear alpha channel
+GCM_CLEAR_M  // Clear all channels + depth + stencil
+```
+
+## Loading Textures
+
+### Texture Structure
+
+From `rsx/gcm_sys.h:877-963`:
+
+```c
+typedef struct _gcmTexture {
+    u8 format;      // Texture format
+    u8 mipmap;      // Mipmap enable
+    u8 dimension;   // 1D, 2D, or 3D
+    u8 cubemap;     // Cubemap enable
+    u32 remap;      // Color component remapping
+    u16 width;      // Width in pixels
+    u16 height;     // Height in pixels
+    u16 depth;      // Depth (for 3D textures)
+    u8 location;    // Memory location
+    u32 pitch;      // Pitch in bytes
+    u32 offset;     // Memory offset
+} gcmTexture;
+```
+
+### Loading a Texture
+
+```c
+void loadTexture(u8 unit, void *data, u32 width, u32 height) {
+    gcmTexture texture;
+    u32 pitch = width * 4; // 4 bytes per pixel
+    
+    // Allocate texture memory
+    u32 *tex_buffer = (u32*)rsxMemalign(128, pitch * height);
+    memcpy(tex_buffer, data, pitch * height);
+    
+    u32 tex_offset;
+    rsxAddressToOffset(tex_buffer, &tex_offset);
+    
+    // Configure texture
+    texture.format = GCM_TEXTURE_FORMAT_A8R8G8B8 | 
+                     GCM_TEXTURE_FORMAT_LIN;
+    texture.mipmap = 1;
+    texture.dimension = GCM_TEXTURE_DIMS_2D;
+    texture.cubemap = GCM_FALSE;
+    
+    // Color remapping (ARGB -> ARGB)
+    texture.remap = 
+        (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_B_SHIFT) |
+        (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_G_SHIFT) |
+        (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_R_SHIFT) |
+        (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_A_SHIFT) |
+        (GCM_TEXTURE_REMAP_COLOR_B << GCM_TEXTURE_REMAP_COLOR_B_SHIFT) |
+        (GCM_TEXTURE_REMAP_COLOR_G << GCM_TEXTURE_REMAP_COLOR_G_SHIFT) |
+        (GCM_TEXTURE_REMAP_COLOR_R << GCM_TEXTURE_REMAP_COLOR_R_SHIFT) |
+        (GCM_TEXTURE_REMAP_COLOR_A << GCM_TEXTURE_REMAP_COLOR_A_SHIFT);
+    
+    texture.width = width;
+    texture.height = height;
+    texture.depth = 1;
+    texture.location = GCM_LOCATION_RSX;
+    texture.pitch = pitch;
+    texture.offset = tex_offset;
+    
+    // Invalidate texture cache
+    rsxInvalidateTextureCache(context, GCM_INVALIDATE_TEXTURE);
+    
+    // Load texture
+    rsxLoadTexture(context, unit, &texture);
+    
+    // Set texture control
+    rsxTextureControl(context, unit, GCM_TRUE, 0<<8, 12<<8,
+                     GCM_TEXTURE_MAX_ANISO_1);
+    
+    // Set texture filter
+    rsxTextureFilter(context, unit, 0,
+                    GCM_TEXTURE_LINEAR,
+                    GCM_TEXTURE_LINEAR,
+                    GCM_TEXTURE_CONVOLUTION_QUINCUNX);
+    
+    // Set texture wrap mode
+    rsxTextureWrapMode(context, unit,
+                      GCM_TEXTURE_CLAMP_TO_EDGE,
+                      GCM_TEXTURE_CLAMP_TO_EDGE,
+                      GCM_TEXTURE_CLAMP_TO_EDGE,
+                      0, GCM_TEXTURE_ZFUNC_LESS, 0);
+}
+```
+
+### Texture Formats
+
+From `rsx/gcm_sys.h:251-304`:
+
+<Tabs>
+  <Tab title="Uncompressed">
+    ```c
+    GCM_TEXTURE_FORMAT_B8            // 8-bit grayscale
+    GCM_TEXTURE_FORMAT_A1R5G5B5      // 16-bit 1-5-5-5
+    GCM_TEXTURE_FORMAT_A4R4G4B4      // 16-bit 4-4-4-4
+    GCM_TEXTURE_FORMAT_R5G6B5        // 16-bit 5-6-5
+    GCM_TEXTURE_FORMAT_A8R8G8B8      // 32-bit 8-8-8-8
+    GCM_TEXTURE_FORMAT_G8B8          // 16-bit two-channel
+    ```
+  </Tab>
+  
+  <Tab title="Compressed">
+    ```c
+    GCM_TEXTURE_FORMAT_DXT1          // 4x4 pixels to 8 bytes
+    GCM_TEXTURE_FORMAT_DXT23         // 4x4 pixels to 16 bytes (DXT3)
+    GCM_TEXTURE_FORMAT_DXT45         // 4x4 pixels to 16 bytes (DXT5)
+    ```
+  </Tab>
+  
+  <Tab title="Floating Point">
+    ```c
+    GCM_TEXTURE_FORMAT_W16_Z16_Y16_X16_FLOAT  // 16-bit float per channel
+    GCM_TEXTURE_FORMAT_W32_Z32_Y32_X32_FLOAT  // 32-bit float per channel
+    GCM_TEXTURE_FORMAT_X32_FLOAT              // Single 32-bit float
+    GCM_TEXTURE_FORMAT_Y16_X16_FLOAT          // Two 16-bit floats
+    ```
+  </Tab>
+  
+  <Tab title="Depth">
+    ```c
+    GCM_TEXTURE_FORMAT_DEPTH24_D8       // 24-bit fixed + 8-bit dummy
+    GCM_TEXTURE_FORMAT_DEPTH24_D8_FLOAT // 24-bit float + 8-bit dummy
+    GCM_TEXTURE_FORMAT_DEPTH16          // 16-bit fixed
+    GCM_TEXTURE_FORMAT_DEPTH16_FLOAT    // 16-bit float
+    ```
+  </Tab>
+</Tabs>
+
+### Texture Filtering
+
+Filter modes from `rsx/gcm_sys.h:384-391`:
+
+```c
+GCM_TEXTURE_NEAREST                    // Point sampling
+GCM_TEXTURE_LINEAR                     // Bilinear
+GCM_TEXTURE_NEAREST_MIPMAP_NEAREST     // Nearest mipmap
+GCM_TEXTURE_LINEAR_MIPMAP_NEAREST      // Bilinear, nearest mipmap
+GCM_TEXTURE_NEAREST_MIPMAP_LINEAR      // Nearest, lerp mipmaps
+GCM_TEXTURE_LINEAR_MIPMAP_LINEAR       // Trilinear
+GCM_TEXTURE_CONVOLUTION_MIN            // Convolution minify
+GCM_TEXTURE_CONVOLUTION_MAG            // Convolution magnify
+```
+
+### Texture Wrap Modes
+
+From `rsx/gcm_sys.h:397-404`:
+
+```c
+GCM_TEXTURE_REPEAT                     // Repeat texture
+GCM_TEXTURE_MIRRORED_REPEAT            // Mirror repeat
+GCM_TEXTURE_CLAMP_TO_EDGE              // Clamp to edge
+GCM_TEXTURE_BORDER                     // Border color
+GCM_TEXTURE_CLAMP                      // Clamp to [0,1]
+GCM_TEXTURE_MIRROR_ONCE_CLAMP_TO_EDGE  // Mirror once then clamp
+GCM_TEXTURE_MIRROR_ONCE_CLAMP_TO_BORDER// Mirror once then border
+GCM_TEXTURE_MIRROR_ONCE_CLAMP          // Mirror once then clamp
+```
+
+## Rendering Geometry
+
+### Vertex Buffer Setup
+
+Create and bind vertex buffers:
+
+```c
+typedef struct {
+    float pos[3];
+    float nrm[3];
+    float u, v;
+} Vertex;
+
+Vertex *vertices;
+u16 *indices;
+u32 vertex_count, index_count;
+
+void setupGeometry() {
+    // Allocate in RSX memory
+    vertices = (Vertex*)rsxMemalign(128, 
+                                    vertex_count * sizeof(Vertex));
+    indices = (u16*)rsxMemalign(128,
+                                index_count * sizeof(u16));
+    
+    // Fill with data...
+    
+    // Get offsets
+    u32 voffset, ioffset;
+    rsxAddressToOffset(vertices, &voffset);
+    rsxAddressToOffset(indices, &ioffset);
+}
+```
+
+### Drawing Primitives
+
+Draw geometry using index buffers:
+
+```c
+void drawMesh() {
+    u32 offset;
+    
+    // Bind vertex attributes
+    rsxAddressToOffset(&vertices[0].pos, &offset);
+    rsxBindVertexArrayAttrib(context, GCM_VERTEX_ATTRIB_POS, 0,
+                            offset, sizeof(Vertex), 3,
+                            GCM_VERTEX_DATA_TYPE_F32,
+                            GCM_LOCATION_RSX);
+    
+    rsxAddressToOffset(&vertices[0].nrm, &offset);
+    rsxBindVertexArrayAttrib(context, GCM_VERTEX_ATTRIB_NORMAL, 0,
+                            offset, sizeof(Vertex), 3,
+                            GCM_VERTEX_DATA_TYPE_F32,
+                            GCM_LOCATION_RSX);
+    
+    rsxAddressToOffset(&vertices[0].u, &offset);
+    rsxBindVertexArrayAttrib(context, GCM_VERTEX_ATTRIB_TEX0, 0,
+                            offset, sizeof(Vertex), 2,
+                            GCM_VERTEX_DATA_TYPE_F32,
+                            GCM_LOCATION_RSX);
+    
+    // Draw indexed triangles
+    rsxAddressToOffset(indices, &offset);
+    rsxDrawIndexArray(context, GCM_TYPE_TRIANGLES,
+                     offset, index_count,
+                     GCM_INDEX_TYPE_16B,
+                     GCM_LOCATION_RSX);
+}
+```
+
+### Primitive Types
+
+From `rsx/gcm_sys.h:209-228`:
+
+```c
+GCM_TYPE_POINTS          // Individual points
+GCM_TYPE_LINES           // Line segments
+GCM_TYPE_LINE_LOOP       // Connected lines, closed
+GCM_TYPE_LINE_STRIP      // Connected lines, open
+GCM_TYPE_TRIANGLES       // Individual triangles
+GCM_TYPE_TRIANGLE_STRIP  // Triangle strip
+GCM_TYPE_TRIANGLE_FAN    // Triangle fan
+GCM_TYPE_QUADS           // Individual quads
+GCM_TYPE_QUAD_STRIP      // Quad strip
+GCM_TYPE_POLYGON         // Polygon
+```
+
+## Fragment Shader Setup
+
+Fragment shaders (pixel shaders) process each pixel.
+
+### Fragment Shader Example
+
+From `samples/graphics/rsxtest/shaders/diffuse_specular_shader.fcg`:
+
+```cg
+void main
+(
+    float4 position : TEXCOORD0,
+    float3 normal   : TEXCOORD1,
+    float2 texcoord : TEXCOORD2,
+    
+    uniform float3 globalAmbient,
+    uniform float3 lightPosition,
+    uniform float3 lightColor,
+    uniform float3 eyePosition,
+    uniform float3 Kd,  // Diffuse coefficient
+    uniform float3 Ks,  // Specular coefficient
+    uniform float  shininess,
+    
+    uniform sampler2D texture,
+    
+    out float4 oColor : COLOR
+)
+{
+    float3 N = normalize(normal);
+    
+    // Diffuse lighting
+    float3 L = normalize(lightPosition - position.xyz);
+    float diffuseLight = max(dot(N, L), 0.0f);
+    float3 diffuse = Kd * lightColor * diffuseLight;
+    
+    // Specular lighting
+    float3 V = normalize(eyePosition - position.xyz);
+    float3 H = normalize(L + V);
+    float specularLight = pow(max(dot(H, N), 0.0f), shininess);
+    if (diffuseLight <= 0) specularLight = 0;
+    float3 specular = Ks * specularLight;
+    
+    // Sample texture
+    float3 texColor = tex2D(texture, texcoord).xyz;
+    
+    // Combine
+    float3 color = texColor * (diffuse + globalAmbient) + specular;
+    
+    oColor = float4(color, 1.0f);
+}
+```
+
+### Loading Fragment Program
+
+```c
+void setupFragmentShader() {
+    void *fp_ucode;
+    u32 fpsize;
+    
+    // Get microcode
+    rsxFragmentProgramGetUCode(fpo, &fp_ucode, &fpsize);
+    
+    // Fragment program MUST be in RSX memory
+    u32 *fp_buffer = (u32*)rsxMemalign(64, fpsize);
+    memcpy(fp_buffer, fp_ucode, fpsize);
+    
+    u32 fp_offset;
+    rsxAddressToOffset(fp_buffer, &fp_offset);
+    
+    // Get shader parameters
+    eyePosition = rsxFragmentProgramGetConst(fpo, "eyePosition");
+    globalAmbient = rsxFragmentProgramGetConst(fpo, "globalAmbient");
+    litPosition = rsxFragmentProgramGetConst(fpo, "lightPosition");
+    litColor = rsxFragmentProgramGetConst(fpo, "lightColor");
+    Kd = rsxFragmentProgramGetConst(fpo, "Kd");
+    Ks = rsxFragmentProgramGetConst(fpo, "Ks");
+    spec = rsxFragmentProgramGetConst(fpo, "shininess");
+    
+    // Get texture unit
+    textureUnit = rsxFragmentProgramGetAttrib(fpo, "texture");
+}
+```
+
+### Setting Fragment Parameters
+
+```c
+void setFragmentParameters() {
+    float eye[3] = {0.0f, 0.0f, 20.0f};
+    float ambient[3] = {0.1f, 0.1f, 0.1f};
+    float lightPos[3] = {250.0f, 150.0f, 150.0f};
+    float lightCol[3] = {0.95f, 0.95f, 0.95f};
+    float diffuse[3] = {0.5f, 0.0f, 0.0f};
+    float specular[3] = {0.7f, 0.6f, 0.6f};
+    float shine = 17.8954f;
+    
+    // Set parameters (note: requires fp_offset and location)
+    rsxSetFragmentProgramParameter(context, fpo, eyePosition,
+                                   eye, fp_offset, GCM_LOCATION_RSX);
+    rsxSetFragmentProgramParameter(context, fpo, globalAmbient,
+                                   ambient, fp_offset, GCM_LOCATION_RSX);
+    rsxSetFragmentProgramParameter(context, fpo, litPosition,
+                                   lightPos, fp_offset, GCM_LOCATION_RSX);
+    rsxSetFragmentProgramParameter(context, fpo, litColor,
+                                   lightCol, fp_offset, GCM_LOCATION_RSX);
+    rsxSetFragmentProgramParameter(context, fpo, Kd,
+                                   diffuse, fp_offset, GCM_LOCATION_RSX);
+    rsxSetFragmentProgramParameter(context, fpo, Ks,
+                                   specular, fp_offset, GCM_LOCATION_RSX);
+    rsxSetFragmentProgramParameter(context, fpo, spec,
+                                   &shine, fp_offset, GCM_LOCATION_RSX);
+    
+    // Load fragment program
+    rsxLoadFragmentProgramLocation(context, fpo, fp_offset,
+                                  GCM_LOCATION_RSX);
+}
+```
+
+## Complete Render Loop
+
+From `samples/graphics/rsxtest/source/main.cpp:555-606`:
+
+```c
+u32 curr_fb = 0;
+
+int main() {
+    // Initialize...
+    init_screen();
+    init_shader();
+    init_texture();
+    
+    // Create geometry
+    sphere = createSphere(3.0f, 32, 32);
+    
+    // Projection matrix
+    Matrix4 P = transpose(
+        Matrix4::perspective(DEGTORAD(45.0f), 
+                           aspect_ratio, 1.0f, 3000.0f)
+    );
+    
+    while (running) {
+        // Wait for previous flip
+        waitflip();
+        
+        // Set render target
+        setRenderTarget(curr_fb);
+        
+        // Clear buffers
+        rsxSetClearColor(context, 0x00000000);
+        rsxSetClearDepthStencil(context, 0xffffff00);
+        rsxClearSurface(context, GCM_CLEAR_R | GCM_CLEAR_G |
+                               GCM_CLEAR_B | GCM_CLEAR_A |
+                               GCM_CLEAR_S | GCM_CLEAR_Z);
+        
+        // Set viewport
+        setupViewport(display_width, display_height);
+        
+        // Set depth control
+        rsxSetZMinMaxControl(context, 0, 1, 1);
+        
+        // Calculate matrices
+        Matrix4 viewMatrix = Matrix4::lookAt(eye_pos, eye_dir, up_vec);
+        Matrix4 modelMatrix = rotX * rotY;
+        Matrix4 modelViewMatrix = transpose(viewMatrix * modelMatrix);
+        
+        // Bind vertex data
+        bindVertexData(sphere);
+        
+        // Load vertex program
+        rsxLoadVertexProgram(context, vpo, vp_ucode);
+        rsxSetVertexProgramParameter(context, vpo, projMatrix, 
+                                    (float*)&P);
+        rsxSetVertexProgramParameter(context, vpo, mvMatrix,
+                                    (float*)&modelViewMatrix);
+        
+        // Set fragment parameters
+        setFragmentParameters();
+        
+        // Set texture
+        loadTexture(textureUnit->index, tex_data, 128, 128);
+        
+        // Set user clip planes
+        rsxSetUserClipPlaneControl(context,
+                                  GCM_USER_CLIP_PLANE_DISABLE,
+                                  GCM_USER_CLIP_PLANE_DISABLE,
+                                  GCM_USER_CLIP_PLANE_DISABLE,
+                                  GCM_USER_CLIP_PLANE_DISABLE,
+                                  GCM_USER_CLIP_PLANE_DISABLE,
+                                  GCM_USER_CLIP_PLANE_DISABLE);
+        
+        // Draw
+        u32 offset;
+        rsxAddressToOffset(&sphere->indices[0], &offset);
+        rsxDrawIndexArray(context, GCM_TYPE_TRIANGLES,
+                         offset, sphere->cnt_indices,
+                         GCM_INDEX_TYPE_16B, GCM_LOCATION_RSX);
+        
+        // Flip
+        flip(curr_fb);
+        curr_fb = !curr_fb;
+    }
+    
+    return 0;
+}
+```
+
+## Depth Testing
+
+Configure depth buffer operations:
+
+```c
+// Enable depth test
+rsxSetDepthTestEnable(context, GCM_TRUE);
+
+// Set depth function
+rsxSetDepthFunc(context, GCM_LESS);
+
+// Enable depth writes
+rsxSetDepthWriteEnable(context, 1);
+
+// Set depth bounds
+rsxSetZMinMaxControl(context, 0, 1, 1);
+```
+
+### Depth Functions
+
+From `rsx/gcm_sys.h:143-158`:
+
+```c
+GCM_NEVER     // Never pass
+GCM_LESS      // Pass if less
+GCM_EQUAL     // Pass if equal
+GCM_LEQUAL    // Pass if less or equal
+GCM_GREATER   // Pass if greater
+GCM_NOTEQUAL  // Pass if not equal
+GCM_GEQUAL    // Pass if greater or equal
+GCM_ALWAYS    // Always pass
+```
+
+## Blending
+
+Configure alpha blending:
+
+```c
+// Enable blending
+rsxSetBlendEnable(context, GCM_TRUE);
+
+// Set blend equation
+rsxSetBlendEquation(context, GCM_FUNC_ADD, GCM_FUNC_ADD);
+
+// Set blend function
+rsxSetBlendFunc(context,
+               GCM_SRC_ALPHA,           // Source factor
+               GCM_ONE_MINUS_SRC_ALPHA, // Dest factor  
+               GCM_SRC_ALPHA,           // Alpha source
+               GCM_ONE_MINUS_SRC_ALPHA); // Alpha dest
+```
+
+### Blend Factors
+
+From `rsx/gcm_sys.h:523-552`:
+
+```c
+GCM_ZERO
+GCM_ONE
+GCM_SRC_COLOR
+GCM_ONE_MINUS_SRC_COLOR
+GCM_SRC_ALPHA
+GCM_ONE_MINUS_SRC_ALPHA
+GCM_DST_ALPHA
+GCM_ONE_MINUS_DST_ALPHA
+GCM_DST_COLOR
+GCM_ONE_MINUS_DST_COLOR
+GCM_SRC_ALPHA_SATURATE
+GCM_CONSTANT_COLOR
+GCM_ONE_MINUS_CONSTANT_COLOR
+GCM_CONSTANT_ALPHA
+GCM_ONE_MINUS_CONSTANT_ALPHA
+```
+
+### Blend Equations
+
+From `rsx/gcm_sys.h:554-569`:
+
+```c
+GCM_FUNC_ADD                      // Src + Dst
+GCM_FUNC_MIN                      // min(Src, Dst)
+GCM_FUNC_MAX                      // max(Src, Dst)
+GCM_FUNC_SUBTRACT                 // Src - Dst
+GCM_FUNC_REVERSE_SUBTRACT         // Dst - Src
+GCM_FUNC_REVERSE_SUBTRACT_SIGNED  // Dst - Src (signed)
+GCM_FUNC_ADD_SIGNED               // Src + Dst (signed)
+GCM_FUNC_REVERSE_ADD_SIGNED       // Dst + Src (signed)
+```
+
+## Culling
+
+Configure face culling:
+
+```c
+// Enable culling
+rsxSetCullFaceEnable(context, GCM_TRUE);
+
+// Set which face to cull
+rsxSetCullFace(context, GCM_CULL_BACK);
+
+// Set front face winding
+rsxSetFrontFace(context, GCM_FRONTFACE_CCW);
+```
+
+Cull modes from `rsx/gcm_sys.h:160-165`:
+
+```c
+GCM_CULL_FRONT  // Cull front faces
+GCM_CULL_BACK   // Cull back faces
+GCM_CULL_ALL    // Cull all faces
+```
+
+Front face from `rsx/gcm_sys.h:174-177`:
+
+```c
+GCM_FRONTFACE_CW   // Clockwise
+GCM_FRONTFACE_CCW  // Counter-clockwise
+```
+
+## Flip and Sync
+
+Present the rendered frame:
+
+```c
+void flip(u32 buffer) {
+    // Queue flip command
+    gcmSetFlip(context, buffer);
+    
+    // Flush command buffer
+    rsxFlushBuffer(context);
+    
+    // Wait for flip to be queued
+    gcmSetWaitFlip(context);
+}
+
+void waitflip() {
+    // Wait for flip to complete
+    while (gcmGetFlipStatus() != 0) {
+        usleep(200);
+    }
+    gcmResetFlipStatus();
+}
+```
+
+## Performance Tips
+
+<Steps>
+  <Step title="Batch Draw Calls">
+    Minimize draw calls by batching geometry.
+  </Step>
+  
+  <Step title="Use Index Buffers">
+    Share vertices between triangles using indexed rendering.
+  </Step>
+  
+  <Step title="Optimize Shaders">
+    Keep shaders simple. Move constant calculations to the CPU.
+  </Step>
+  
+  <Step title="Texture Compression">
+    Use DXT compression for textures to save memory bandwidth.
+  </Step>
+  
+  <Step title="Minimize State Changes">
+    Sort objects by texture and shader to reduce state changes.
+  </Step>
+  
+  <Step title="Use Mipmaps">
+    Enable mipmaps for better texture filtering and performance.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Font Rendering" icon="font" href="/graphics/font-rendering">
+    Render text and UI elements
+  </Card>
+  <Card title="Advanced Techniques" icon="wand-magic-sparkles">
+    Shadows, post-processing, and advanced effects
+  </Card>
+</CardGroup>

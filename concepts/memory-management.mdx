@@ -1,0 +1,528 @@
+---
+title: 'Memory Management'
+description: 'Memory allocation and management in PSL1GHT'
+---
+
+## Overview
+
+The PlayStation 3 provides multiple memory management APIs for different use cases. PSL1GHT exposes both high-level convenience functions and low-level memory mapper (mmap) syscalls.
+
+<Note>
+The PS3 has 256 MB of main XDR RAM available to user applications, shared between PPU and SPU programs.
+</Note>
+
+## Memory Regions and Access Rights
+
+### Page Sizes
+
+```c ppu/include/sys/memory.h
+#define SYS_MEMORY_PAGE_SIZE_1M     0x0000000000000400ULL
+#define SYS_MEMORY_PAGE_SIZE_64K    0x0000000000000200ULL
+```
+
+The system supports two page sizes:
+- **1 MB pages**: Better for large allocations, reduced TLB pressure
+- **64 KB pages**: More granular control, less waste for small allocations
+
+### Access Rights
+
+```c ppu/include/sys/memory.h
+#define SYS_MEMORY_ACCESS_RIGHT_PPU_THR    0x0000000000000008ULL
+#define SYS_MEMORY_ACCESS_RIGHT_HANDLER    0x0000000000000004ULL
+#define SYS_MEMORY_ACCESS_RIGHT_SPU_THR    0x0000000000000002ULL
+#define SYS_MEMORY_ACCESS_RIGHT_RAW_SPU    0x0000000000000001ULL
+
+#define SYS_MEMORY_ACCESS_RIGHT_ANY (SYS_MEMORY_ACCESS_RIGHT_PPU_THR | \
+                                     SYS_MEMORY_ACCESS_RIGHT_HANDLER | \
+                                     SYS_MEMORY_ACCESS_RIGHT_SPU_THR | \
+                                     SYS_MEMORY_ACCESS_RIGHT_RAW_SPU)
+```
+
+<Accordion title="Access Right Types">
+  - **PPU_THR**: PPU threads can access this memory
+  - **HANDLER**: Interrupt handlers can access this memory
+  - **SPU_THR**: SPU threads can DMA to/from this memory
+  - **RAW_SPU**: Raw SPU programs can DMA to/from this memory
+  - **ANY**: All processors can access this memory
+</Accordion>
+
+### Protection Flags
+
+```c ppu/include/sys/memory.h
+#define SYS_MEMORY_PROT_READ_ONLY     0x0000000000080000ULL
+#define SYS_MEMORY_PROT_READ_WRITE    0x0000000000040000ULL
+```
+
+## High-Level Memory Allocation
+
+### Simple Allocation
+
+The easiest way to allocate memory:
+
+```c ppu/include/sys/memory.h
+LV2_SYSCALL sysMemoryAllocate(size_t size, u64 flags, sys_mem_addr_t *alloc_addr)
+{
+    lv2syscall3(348, size, flags, (u64)alloc_addr);
+    return_to_user_prog(s32);
+}
+
+LV2_SYSCALL sysMemoryFree(sys_mem_addr_t start_addr)
+{
+    lv2syscall1(349, start_addr);
+    return_to_user_prog(s32);
+}
+```
+
+### Usage Example
+
+```c
+#include <sys/memory.h>
+
+int main()
+{
+    sys_mem_addr_t addr;
+    u64 flags = SYS_MEMORY_PAGE_SIZE_1M | 
+                SYS_MEMORY_ACCESS_RIGHT_ANY;
+    
+    // Allocate 10 MB
+    s32 ret = sysMemoryAllocate(10 * 1024 * 1024, flags, &addr);
+    if (ret != 0) {
+        printf("Failed to allocate memory: %d\n", ret);
+        return 1;
+    }
+    
+    printf("Allocated memory at: 0x%08x\n", addr);
+    
+    // Use the memory
+    u8 *ptr = (u8*)addr;
+    ptr[0] = 0x42;
+    
+    // Free when done
+    sysMemoryFree(addr);
+    
+    return 0;
+}
+```
+
+<Warning>
+**Important**: Always check return values. Memory allocation can fail if:
+- Insufficient memory available
+- Invalid flags combination
+- System memory fragmentation
+</Warning>
+
+## Memory Containers
+
+Memory containers allow you to partition memory and limit allocations:
+
+```c ppu/include/sys/memory.h
+LV2_SYSCALL sysMemContainerCreate(sys_mem_container_t *container, size_t size)
+{
+    lv2syscall2(324, (u64)container, size);
+    return_to_user_prog(s32);
+}
+
+LV2_SYSCALL sysMemContainerDestroy(sys_mem_container_t container)
+{
+    lv2syscall1(325, container);
+    return_to_user_prog(s32);
+}
+
+LV2_SYSCALL sysMemAllocateFromContainer(size_t size, 
+                                        sys_mem_container_t container,
+                                        u64 flags, 
+                                        sys_mem_addr_t *alloc_addr)
+{
+    lv2syscall4(350, size, container, flags, (u64)alloc_addr);
+    return_to_user_prog(s32);
+}
+```
+
+### Container Usage
+
+```c
+sys_mem_container_t container;
+
+// Create a 50 MB container
+sysMemContainerCreate(&container, 50 * 1024 * 1024);
+
+// Allocate from container
+sys_mem_addr_t addr1, addr2;
+u64 flags = SYS_MEMORY_PAGE_SIZE_64K | SYS_MEMORY_ACCESS_RIGHT_ANY;
+
+sysMemAllocateFromContainer(5 * 1024 * 1024, container, flags, &addr1);
+sysMemAllocateFromContainer(10 * 1024 * 1024, container, flags, &addr2);
+
+// Cleanup
+sysMemoryFree(addr1);
+sysMemoryFree(addr2);
+sysMemContainerDestroy(container);
+```
+
+<Note>
+Containers are useful for:
+- Memory budget enforcement
+- Isolating subsystems
+- SPU thread groups with memory limits
+</Note>
+
+## Low-Level Memory Mapper
+
+The memory mapper provides fine-grained control over memory allocation:
+
+```c ppu/include/lv2/memory.h
+s32 sysMMapperAllocateMemory(size_t size, u64 flags, sys_mem_id_t *mem_id);
+s32 sysMMapperAllocateMemoryFromContainer(size_t size, 
+                                          sys_mem_container_t container,
+                                          u64 flags, 
+                                          sys_mem_id_t *mem_id);
+s32 sysMMapperFreeMemory(sys_mem_id_t mem_id);
+s32 sysMMapperMapMemory(sys_mem_addr_t start_addr, 
+                        sys_mem_id_t mem_id, 
+                        u64 flags);
+s32 sysMMapperUnmapMemory(sys_mem_addr_t start_addr, 
+                          sys_mem_id_t *mem_id);
+```
+
+### Address Allocation
+
+```c ppu/include/sys/memory.h
+LV2_SYSCALL sysMMapperAllocateAddress(size_t size, 
+                                      u64 flags, 
+                                      size_t alignment,
+                                      sys_mem_addr_t *alloc_addr)
+{
+    lv2syscall4(330, size, flags, alignment, (u64)alloc_addr);
+    return_to_user_prog(s32);
+}
+
+LV2_SYSCALL sysMMapperFreeAddress(sys_mem_addr_t start_addr)
+{
+    lv2syscall1(331, start_addr);
+    return_to_user_prog(s32);
+}
+```
+
+### Two-Phase Allocation
+
+The memory mapper uses a two-phase approach:
+
+1. **Allocate virtual address space**
+2. **Allocate physical memory and map it**
+
+```c
+#include <sys/memory.h>
+#include <lv2/memory.h>
+
+sys_mem_addr_t vaddr;
+sys_mem_id_t mem_id;
+u64 flags = SYS_MEMORY_PAGE_SIZE_1M | SYS_MEMORY_ACCESS_RIGHT_ANY;
+
+// Phase 1: Allocate virtual address space
+sysMMapperAllocateAddress(16 * 1024 * 1024,  // 16 MB
+                          flags,
+                          0,                   // No special alignment
+                          &vaddr);
+
+// Phase 2: Allocate physical memory
+sysMMapperAllocateMemory(16 * 1024 * 1024, flags, &mem_id);
+
+// Map physical to virtual
+sysMMapperMapMemory(vaddr, mem_id, flags | SYS_MEMORY_PROT_READ_WRITE);
+
+// Use memory at vaddr...
+
+// Cleanup
+sysMMapperUnmapMemory(vaddr, &mem_id);
+sysMMapperFreeMemory(mem_id);
+sysMMapperFreeAddress(vaddr);
+```
+
+<Accordion title="Why Use Memory Mapper?">
+  The memory mapper provides advanced features:
+  - **Custom alignment**: Align addresses to specific boundaries
+  - **Remapping**: Map same physical memory to multiple virtual addresses
+  - **Lazy allocation**: Reserve address space, allocate physical memory later
+  - **Fine-grained control**: Separate virtual and physical memory lifecycle
+</Accordion>
+
+### Search and Map
+
+Convenience function that finds an available address and maps:
+
+```c ppu/include/sys/memory.h
+LV2_SYSCALL sysMMapperSearchAndMap(sys_mem_addr_t start_addr,
+                                   sys_mem_id_t mem_id,
+                                   u64 flags,
+                                   sys_mem_addr_t *alloc_addr)
+{
+    lv2syscall4(337, start_addr, mem_id, flags, (u64)alloc_addr);
+    return_to_user_prog(s32);
+}
+```
+
+```c
+sys_mem_id_t mem_id;
+sys_mem_addr_t addr;
+
+// Allocate physical memory
+sysMMapperAllocateMemory(size, flags, &mem_id);
+
+// Find address and map (start_addr = 0 means "find any")
+sysMMapperSearchAndMap(0, mem_id, flags | SYS_MEMORY_PROT_READ_WRITE, &addr);
+```
+
+## Alignment Requirements
+
+### SPU DMA Alignment
+
+SPU DMA transfers have strict alignment requirements:
+
+```c ppu/include/ppu-types.h
+#define SPU_ALIGNMENT        128
+#define SPU_ALIGNSIZE(x)     (((x) + 127) & ~127)
+```
+
+### Aligned Allocation
+
+```c
+// Stack-based aligned allocation
+STACK_ALIGN(u8, buffer, 4096, 128);
+// 'buffer' is now 128-byte aligned and 4096 bytes large
+
+// Heap-based aligned allocation
+sys_mem_addr_t addr;
+sysMMapperAllocateAddress(SPU_ALIGNSIZE(size),
+                          flags,
+                          128,  // 128-byte alignment
+                          &addr);
+```
+
+<Warning>
+**SPU DMA Requirements:**
+- Local store address: 16-byte aligned
+- Effective address (main memory): 16-byte aligned
+- Transfer size: Multiple of 16 bytes (1-16384 bytes max)
+
+For transfers to/from SPU, use 128-byte alignment for best performance.
+</Warning>
+
+## Memory Usage Patterns
+
+### Pattern 1: Simple Application Memory
+
+```c
+// Single large allocation for application
+sys_mem_addr_t app_memory;
+u64 flags = SYS_MEMORY_PAGE_SIZE_1M | SYS_MEMORY_ACCESS_RIGHT_ANY;
+
+sysMemoryAllocate(32 * 1024 * 1024, flags, &app_memory);
+
+// Use your own allocator on top of this
+void* my_allocator_init((void*)app_memory, 32 * 1024 * 1024);
+```
+
+### Pattern 2: SPU Work Buffer
+
+```c
+// Allocate buffer accessible by SPUs
+sys_mem_addr_t spu_buffer;
+u64 flags = SYS_MEMORY_PAGE_SIZE_64K | 
+            SYS_MEMORY_ACCESS_RIGHT_ANY;
+
+// Size aligned to SPU requirements
+size_t size = SPU_ALIGNSIZE(1024 * 1024);
+
+sysMMapperAllocateAddress(size, flags, 128, &spu_buffer);
+sys_mem_id_t mem_id;
+sysMMapperAllocateMemory(size, flags, &mem_id);
+sysMMapperMapMemory(spu_buffer, mem_id, flags | SYS_MEMORY_PROT_READ_WRITE);
+
+// Pass effective address to SPU
+sysSpuThreadArgument args;
+args.arg0 = spu_buffer;
+sysSpuThreadInitialize(&thread, group, 0, &image, &attr, &args);
+```
+
+### Pattern 3: Memory Pool
+
+```c
+// Create memory pool for subsystem
+typedef struct {
+    sys_mem_container_t container;
+    size_t total_size;
+    size_t used_size;
+} MemoryPool;
+
+MemoryPool* create_memory_pool(size_t size)
+{
+    MemoryPool *pool = malloc(sizeof(MemoryPool));
+    pool->total_size = size;
+    pool->used_size = 0;
+    
+    if (sysMemContainerCreate(&pool->container, size) != 0) {
+        free(pool);
+        return NULL;
+    }
+    
+    return pool;
+}
+
+sys_mem_addr_t pool_allocate(MemoryPool *pool, size_t size)
+{
+    sys_mem_addr_t addr;
+    u64 flags = SYS_MEMORY_PAGE_SIZE_64K | SYS_MEMORY_ACCESS_RIGHT_ANY;
+    
+    if (sysMemAllocateFromContainer(size, pool->container, flags, &addr) == 0) {
+        pool->used_size += size;
+        return addr;
+    }
+    
+    return 0;
+}
+```
+
+## Memory Statistics
+
+You can query memory information to track usage:
+
+```c
+#include <sys/memory.h>
+
+void print_memory_info()
+{
+    // Note: These functions vary by SDK version
+    // Check your PSL1GHT headers for available functions
+    
+    printf("Memory allocated: %lu bytes\n", get_allocated_memory());
+    printf("Memory available: %lu bytes\n", get_available_memory());
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Allocate Early">
+    Allocate large memory blocks early in your application:
+    ```c
+    // During initialization
+    sysMemoryAllocate(TOTAL_APP_MEMORY, flags, &app_heap);
+    ```
+    This reduces fragmentation.
+  </Step>
+  
+  <Step title="Use Appropriate Page Sizes">
+    - Large allocations (&gt;1 MB): Use 1 MB pages
+    - Small allocations (&lt;1 MB): Use 64 KB pages
+    - Mixed: Use containers to separate them
+  </Step>
+  
+  <Step title="Respect Access Rights">
+    Only grant necessary access:
+    ```c
+    // PPU-only data
+    u64 flags = SYS_MEMORY_ACCESS_RIGHT_PPU_THR;
+    
+    // SPU-accessible data
+    u64 flags = SYS_MEMORY_ACCESS_RIGHT_ANY;
+    ```
+  </Step>
+  
+  <Step title="Align for SPU DMA">
+    Always use 128-byte alignment for SPU buffers:
+    ```c
+    STACK_ALIGN(u8, buffer, size, 128);
+    ```
+  </Step>
+  
+  <Step title="Check Return Values">
+    Memory allocation can fail:
+    ```c
+    if (sysMemoryAllocate(size, flags, &addr) != 0) {
+        // Handle error - don't continue!
+        return ERROR_OUT_OF_MEMORY;
+    }
+    ```
+  </Step>
+  
+  <Step title="Clean Up Properly">
+    Always free memory in reverse order of dependencies:
+    ```c
+    // Unmap before freeing physical memory
+    sysMMapperUnmapMemory(vaddr, &mem_id);
+    sysMMapperFreeMemory(mem_id);
+    sysMMapperFreeAddress(vaddr);
+    ```
+  </Step>
+</Steps>
+
+## Common Pitfalls
+
+<Warning>
+**Memory Leaks**: The PS3 has limited memory. Always free allocations.
+
+**Misaligned DMA**: SPU DMA will fail silently or corrupt data if alignment is wrong.
+
+**Access Violations**: Memory allocated without SPU access rights cannot be used in SPU DMA.
+
+**Fragmentation**: Allocating many small blocks with 1 MB pages wastes memory.
+</Warning>
+
+## Performance Considerations
+
+<AccordionGroup>
+  <Accordion title="Page Size Impact">
+    **1 MB Pages:**
+    - Lower TLB pressure (fewer TLB misses)
+    - Better for streaming large datasets
+    - Can waste memory on small allocations
+    
+    **64 KB Pages:**
+    - More granular allocation
+    - Better for many small allocations
+    - Higher TLB pressure
+  </Accordion>
+  
+  <Accordion title="Memory Bandwidth">
+    The XDR main memory has approximately 25.6 GB/s bandwidth:
+    - PPU can utilize ~10-15 GB/s
+    - All 6 SPUs combined can saturate the bus
+    - RSX graphics also shares this bandwidth
+    
+    **Tips:**
+    - Use SPU local store for hot data
+    - Batch DMA transfers
+    - Stream data when possible
+  </Accordion>
+  
+  <Accordion title="Cache Considerations">
+    PPU has:
+    - 32 KB L1 instruction cache
+    - 32 KB L1 data cache
+    - 512 KB L2 cache
+    
+    Keep hot data structures cache-aligned:
+    ```c
+    struct HotData {
+        // ...
+    } __attribute__((aligned(128)));
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="PPU Architecture" icon="microchip" href="/concepts/ppu-architecture">
+    Understanding the PowerPC processor
+  </Card>
+  <Card title="SPU Programming" icon="microchip" href="/concepts/spu-programming">
+    SPU DMA and local store management
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/memory">
+    Complete memory API documentation
+  </Card>
+  <Card title="Performance" icon="gauge" href="/advanced/optimization">
+    Memory optimization techniques
+  </Card>
+</CardGroup>

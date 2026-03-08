@@ -1,0 +1,272 @@
+---
+title: "System Utilities"
+description: "Core system utility functions for event handling and system parameters"
+---
+
+The System Utilities API provides essential functions for managing system events and retrieving system configuration parameters.
+
+## Event Management
+
+### sysUtilRegisterCallback
+
+Register a callback function for system events.
+
+```c
+s32 sysUtilRegisterCallback(s32 slot, sysutilCallback cb, void *usrdata);
+```
+
+<ParamField path="slot" type="s32">
+  Event slot identifier. Multiple callbacks can be registered in different slots (0-3). All system events are delivered to all slots in order.
+  
+  Possible values:
+  - `SYSUTIL_EVENT_SLOT0` (0)
+  - `SYSUTIL_EVENT_SLOT1` (1)
+  - `SYSUTIL_EVENT_SLOT2` (2)
+  - `SYSUTIL_EVENT_SLOT3` (3)
+</ParamField>
+
+<ParamField path="cb" type="sysutilCallback">
+  Pointer to callback function. The callback receives:
+  - `status` - Event value (u64)
+  - `param` - Event parameter (u64)
+  - `usrdata` - User data pointer
+</ParamField>
+
+<ParamField path="usrdata" type="void*">
+  Pointer to user data passed to the callback function. May be NULL.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns `SYSUTIL_OK` (0) on success, nonzero on error.
+</ResponseField>
+
+### sysUtilCheckCallback
+
+Check for pending system events.
+
+```c
+s32 sysUtilCheckCallback();
+```
+
+This function should be called regularly (typically in the main loop) to process system events. When an event occurs, the registered callback functions are invoked.
+
+<ResponseField name="return" type="s32">
+  Returns `SYSUTIL_OK` (0) on success, nonzero on error.
+</ResponseField>
+
+### sysUtilUnregisterCallback
+
+Unregister a callback function.
+
+```c
+s32 sysUtilUnregisterCallback(s32 slot);
+```
+
+<ParamField path="slot" type="s32">
+  Event slot identifier to unregister (0-3).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns `SYSUTIL_OK` (0) on success, nonzero on error.
+</ResponseField>
+
+## System Parameters
+
+### sysUtilGetSystemParamInt
+
+Get an integer system parameter.
+
+```c
+s32 sysUtilGetSystemParamInt(s32 id, s32 *value);
+```
+
+<ParamField path="id" type="s32">
+  Parameter ID to retrieve.
+  
+  <Expandable title="Available Parameter IDs">
+  - `SYSUTIL_SYSTEMPARAM_ID_LANG` (0x0111) - System language
+  - `SYSUTIL_SYSTEMPARAM_ID_ENTER_BUTTON_ASSIGN` (0x0112) - Enter button assignment
+  - `SYSUTIL_SYSTEMPARAM_ID_DATE_FORMAT` (0x0114) - Date format
+  - `SYSUTIL_SYSTEMPARAM_ID_TIME_FORMAT` (0x0115) - Time format
+  - `SYSUTIL_SYSTEMPARAM_ID_TIMEZONE` (0x0116) - Timezone
+  - `SYSUTIL_SYSTEMPARAM_ID_SUMMERTIME` (0x0117) - Daylight saving time
+  - `SYSUTIL_SYSTEMPARAM_ID_GAME_PARENTAL_LEVEL` (0x0121) - Parental control level
+  - `SYSUTIL_SYSTEMPARAM_ID_GAME_PARENTAL_LEVEL0_RESTRICT` (0x0123)
+  - `SYSUTIL_SYSTEMPARAM_ID_INTERNET_BROWSER_START_RESTRICT` (0x0125)
+  - `SYSUTIL_SYSTEMPARAM_ID_CURRENT_USER_HAS_NP_ACCOUNT` (0x0141) - Has PlayStation Network account
+  - `SYSUTIL_SYSTEMPARAM_ID_CAMERA_PLFREQ` (0x0151) - Camera frequency
+  - `SYSUTIL_SYSTEMPARAM_ID_PAD_RUMBLE` (0x0152) - Controller rumble enabled
+  - `SYSUTIL_SYSTEMPARAM_ID_KEYBOARD_TYPE` (0x0153) - Keyboard type
+  - `SYSUTIL_SYSTEMPARAM_ID_JAPANESE_KEYBOARD_ENTRY_METHOD` (0x0154)
+  - `SYSUTIL_SYSTEMPARAM_ID_CHINESE_KEYBOARD_ENTRY_METHOD` (0x0155)
+  - `SYSUTIL_SYSTEMPARAM_ID_PAD_AUTOOFF` (0x0156) - Controller auto-off time
+  - `SYSUTIL_SYSTEMPARAM_ID_MAGNETOMETER` (0x0157)
+  </Expandable>
+</ParamField>
+
+<ParamField path="value" type="s32*">
+  Pointer to store the retrieved integer value.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns `SYSUTIL_OK` (0) on success, nonzero on error.
+</ResponseField>
+
+### sysUtilGetSystemParamString
+
+Get a string system parameter.
+
+```c
+s32 sysUtilGetSystemParamString(s32 id, char *buf, u32 bufsize);
+```
+
+<ParamField path="id" type="s32">
+  Parameter ID to retrieve.
+  
+  Common string parameters:
+  - `SYSUTIL_SYSTEMPARAM_ID_NICKNAME` (0x0113) - User nickname
+  - `SYSUTIL_SYSTEMPARAM_ID_CURRENT_USERNAME` (0x0131) - Current username
+</ParamField>
+
+<ParamField path="buf" type="char*">
+  Buffer to store the retrieved string.
+</ParamField>
+
+<ParamField path="bufsize" type="u32">
+  Size of the buffer in bytes.
+  
+  Recommended sizes:
+  - Nickname: `SYSUTIL_SYSTEMPARAM_NICKNAME_SIZE` (128)
+  - Username: `SYSUTIL_SYSTEMPARAM_CURRENT_USERNAME_SIZE` (64)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns `SYSUTIL_OK` (0) on success, nonzero on error.
+</ResponseField>
+
+## System Events
+
+Events delivered to registered callbacks:
+
+<ParamField path="SYSUTIL_EXIT_GAME" type="0x0101">
+  Exit game requested by user.
+</ParamField>
+
+<ParamField path="SYSUTIL_DRAW_BEGIN" type="0x0121">
+  XMB menu drawing has started.
+</ParamField>
+
+<ParamField path="SYSUTIL_DRAW_END" type="0x0122">
+  XMB menu drawing has finished.
+</ParamField>
+
+<ParamField path="SYSUTIL_MENU_OPEN" type="0x0131">
+  XMB menu has been opened.
+</ParamField>
+
+<ParamField path="SYSUTIL_MENU_CLOSE" type="0x0132">
+  XMB menu has been closed.
+</ParamField>
+
+<ParamField path="SYSUTIL_OSK_LOADED" type="0x0502">
+  On-screen keyboard has been loaded.
+</ParamField>
+
+<ParamField path="SYSUTIL_OSK_DONE" type="0x0503">
+  On-screen keyboard has finished user entry.
+</ParamField>
+
+<ParamField path="SYSUTIL_OSK_UNLOADED" type="0x0504">
+  On-screen keyboard has been unloaded.
+</ParamField>
+
+<ParamField path="SYSUTIL_OSK_INPUT_ENTERED" type="0x0505">
+  On-screen keyboard user entered input.
+</ParamField>
+
+<ParamField path="SYSUTIL_OSK_INPUT_CANCELED" type="0x0506">
+  On-screen keyboard input was canceled.
+</ParamField>
+
+## Language Codes
+
+<Expandable title="Supported System Languages">
+- `SYSUTIL_LANG_JAPANESE` (0) - Japanese
+- `SYSUTIL_LANG_ENGLISH_US` (1) - English (United States)
+- `SYSUTIL_LANG_FRENCH` (2) - French
+- `SYSUTIL_LANG_SPANISH` (3) - Spanish
+- `SYSUTIL_LANG_GERMAN` (4) - German
+- `SYSUTIL_LANG_ITALIAN` (5) - Italian
+- `SYSUTIL_LANG_DUTCH` (6) - Dutch
+- `SYSUTIL_LANG_PORTUGUESE_PT` (7) - Portuguese (Portugal)
+- `SYSUTIL_LANG_RUSSIAN` (8) - Russian
+- `SYSUTIL_LANG_KOREAN` (9) - Korean
+- `SYSUTIL_LANG_CHINESE_T` (10) - Chinese (Traditional)
+- `SYSUTIL_LANG_CHINESE_S` (11) - Chinese (Simplified)
+- `SYSUTIL_LANG_FINNISH` (12) - Finnish
+- `SYSUTIL_LANG_SWEDISH` (13) - Swedish
+- `SYSUTIL_LANG_DANISH` (14) - Danish
+- `SYSUTIL_LANG_NORWEGIAN` (15) - Norwegian
+- `SYSUTIL_LANG_POLISH` (16) - Polish
+- `SYSUTIL_LANG_PORTUGUESE_BR` (17) - Portuguese (Brazil)
+- `SYSUTIL_LANG_ENGLISH_GB` (18) - English (United Kingdom)
+- `SYSUTIL_LANG_TURKISH` (19) - Turkish
+</Expandable>
+
+## Example Usage
+
+```c
+#include <sysutil/sysutil.h>
+#include <stdio.h>
+
+// Event callback function
+void eventCallback(u64 status, u64 param, void *usrdata) {
+    switch(status) {
+        case SYSUTIL_EXIT_GAME:
+            printf("Exit game requested\n");
+            // Set flag to exit main loop
+            *(int*)usrdata = 1;
+            break;
+        case SYSUTIL_MENU_OPEN:
+            printf("XMB menu opened\n");
+            break;
+        case SYSUTIL_MENU_CLOSE:
+            printf("XMB menu closed\n");
+            break;
+    }
+}
+
+int main() {
+    int exitFlag = 0;
+    s32 lang;
+    char nickname[SYSUTIL_SYSTEMPARAM_NICKNAME_SIZE];
+    
+    // Register callback for system events
+    sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, eventCallback, &exitFlag);
+    
+    // Get system language
+    if(sysUtilGetSystemParamInt(SYSUTIL_SYSTEMPARAM_ID_LANG, &lang) == SYSUTIL_OK) {
+        printf("System language: %d\n", lang);
+    }
+    
+    // Get user nickname
+    if(sysUtilGetSystemParamString(SYSUTIL_SYSTEMPARAM_ID_NICKNAME, 
+                                    nickname, 
+                                    SYSUTIL_SYSTEMPARAM_NICKNAME_SIZE) == SYSUTIL_OK) {
+        printf("User nickname: %s\n", nickname);
+    }
+    
+    // Main loop
+    while(!exitFlag) {
+        // Check for system events
+        sysUtilCheckCallback();
+        
+        // Your game logic here...
+    }
+    
+    // Cleanup
+    sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+    
+    return 0;
+}
+```

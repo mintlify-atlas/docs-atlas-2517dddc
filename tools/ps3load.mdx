@@ -1,0 +1,424 @@
+---
+title: ps3load - Network Loader
+description: Load and execute PS3 applications over network for rapid development and testing
+---
+
+## Overview
+
+The `ps3load` tool allows you to load and run PS3 SELF executables over a TCP network connection. This enables rapid development cycles without creating PKG files or using USB drives.
+
+<Note>
+Requires ps3load network listener running on your PS3 (included with PSL1GHT homebrew).
+</Note>
+
+## Why Use ps3load?
+
+<CardGroup cols={2}>
+  <Card title="Fast Iteration" icon="rocket">
+    Load executables in seconds instead of creating PKGs and transferring files.
+  </Card>
+  <Card title="Development Workflow" icon="code">
+    Test changes immediately without packaging overhead.
+  </Card>
+  <Card title="Network Debugging" icon="bug">
+    Stream stdout/stderr from your PS3 application to your development machine.
+  </Card>
+  <Card title="Automatic Compression" icon="file-zipper">
+    Transparent zlib compression reduces transfer time.
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+### On Your PS3
+
+<Steps>
+  <Step title="Install Network Listener">
+    Run a homebrew application that includes the ps3load listener (most PSL1GHT homebrew includes this).
+  </Step>
+  
+  <Step title="Note PS3 IP Address">
+    Find your PS3's IP address in network settings or use a fixed IP.
+  </Step>
+  
+  <Step title="Ensure Network Connectivity">
+    Your development machine and PS3 must be on the same network.
+  </Step>
+</Steps>
+
+### On Your Development Machine
+
+The `ps3load` tool is built as part of PSL1GHT toolchain installation.
+
+## Setup
+
+### Configure Environment Variable
+
+```bash
+# Set PS3LOAD to your PS3's IP address
+export PS3LOAD=tcp:192.168.1.100
+
+# Or use hostname if you have DNS
+export PS3LOAD=tcp:ps3.local
+
+# Add to ~/.bashrc or ~/.zshrc for persistence
+echo 'export PS3LOAD=tcp:192.168.1.100' >> ~/.bashrc
+```
+
+<Tip>
+Replace `192.168.1.100` with your PS3's actual IP address.
+</Tip>
+
+## Command-Line Usage
+
+```bash
+ps3load <filename> [application arguments]
+```
+
+### Basic Examples
+
+<CodeGroup>
+```bash Load Application
+# Load and run SELF file
+ps3load myapp.self
+
+# With arguments
+ps3load myapp.self --debug --verbose
+```
+
+```bash Make Integration
+# Using Makefile run target
+make run
+
+# Equivalent to:
+# ps3load $(OUTPUT).self
+```
+
+```bash Development Cycle
+# Edit, compile, and test in one command
+make && ps3load myapp.self
+
+# Or use make's run target
+make && make run
+```
+</CodeGroup>
+
+## Network Protocol
+
+ps3load uses a simple TCP protocol on port **4299**.
+
+### Protocol Format
+
+<Steps>
+  <Step title="Handshake">
+    Send magic bytes `HAXX` (0x48415858)
+  </Step>
+  
+  <Step title="Version">
+    Send ps3load version (major.minor) and argument length
+  </Step>
+  
+  <Step title="File Size">
+    Send compressed and uncompressed file sizes
+  </Step>
+  
+  <Step title="File Data">
+    Stream file data (optionally compressed) in 4KB blocks
+  </Step>
+  
+  <Step title="Arguments">
+    Send null-terminated argument strings
+  </Step>
+</Steps>
+
+### Implementation Details
+
+From `tools/ps3load/source/main.c:156-175`:
+
+```c
+// Protocol header
+b[0] = 'H';
+b[1] = 'A'; 
+b[2] = 'X'; 
+b[3] = 'X';
+tcp_write(s, b, 4);
+
+// Version and args length
+b[0] = PS3LOAD_VERSION_MAYOR;  // 0
+b[1] = PS3LOAD_VERSION_MINOR;  // 5
+b[2] = (args_len >> 8) & 0xff;
+b[3] = args_len & 0xff;
+tcp_write(s, b, 4);
+
+// File sizes (compressed and uncompressed)
+b[0] = (len >> 24) & 0xff;
+b[1] = (len >> 16) & 0xff;
+b[2] = (len >> 8) & 0xff;
+b[3] = len & 0xff;
+tcp_write(s, b, 4);
+```
+
+## Compression
+
+ps3load automatically compresses files using zlib (level 6) to reduce transfer time.
+
+```c
+// From tools/ps3load/source/main.c:332-362
+if (compress) {
+    bufzlen = (uLongf) ((float) fsize * 1.02);
+    bufz = malloc(bufzlen);
+    
+    printf("compressing %u bytes...", (u32) fsize);
+    res = compress2(bufz, &bufzlen, buf, fsize, 6);
+    
+    if (bufzlen < (u32) fsize) {
+        printf(" %.2f%%\n", 100.0f * (float) bufzlen / (float) fsize);
+        len = bufzlen;      // Compressed size
+        len_un = fsize;     // Original size
+        free(buf);
+        buf = bufz;
+    } else {
+        printf(" compressed size gained size, discarding\n");
+        free(bufz);
+    }
+}
+```
+
+<Note>
+PKG files (starting with PK\x03\x04) are not compressed as they're already compressed.
+</Note>
+
+## Build System Integration
+
+The PSL1GHT Makefile includes a `run` target:
+
+```makefile
+# From samples/graphics/rsxtest/Makefile:123
+run:
+    ps3load $(OUTPUT).self
+
+# Usage:
+# make run
+```
+
+### Complete Makefile Example
+
+```makefile
+include $(PSL1GHT)/ppu_rules
+
+TARGET := myapp
+SOURCES := source
+
+LIBS := -lrsx -lgcm_sys -lrt -llv2
+
+.PHONY: run clean
+
+# Build targets
+$(TARGET).self: $(TARGET).elf
+
+# Quick test
+run: $(TARGET).self
+    ps3load $(TARGET).self
+
+# Development cycle
+test: clean all run
+
+clean:
+    rm -rf $(BUILD) $(TARGET).elf $(TARGET).self
+```
+
+### Usage
+
+```bash
+# Build and run
+make run
+
+# Full rebuild and test
+make test
+
+# With arguments
+ps3load myapp.self --level 5 --fullscreen
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: resolving hostname">
+    Can't resolve the PS3 hostname/IP:
+    
+    ```bash
+    # Verify PS3LOAD is set
+    echo $PS3LOAD
+    
+    # Try direct IP
+    export PS3LOAD=tcp:192.168.1.100
+    
+    # Test network connectivity
+    ping 192.168.1.100
+    ```
+  </Accordion>
+  
+  <Accordion title="Error: connection refused">
+    PS3 is not running a ps3load listener:
+    
+    - Launch a homebrew app that includes network loading
+    - Check PS3 firewall settings
+    - Verify port 4299 is not blocked
+    
+    ```bash
+    # Test if port is open
+    nc -zv 192.168.1.100 4299
+    ```
+  </Accordion>
+  
+  <Accordion title="Transfer very slow">
+    Network issues or large file:
+    
+    ```bash
+    # Check file size
+    ls -lh myapp.self
+    
+    # Reduce file size by stripping
+    ppu-strip myapp.elf -o myapp.stripped.elf
+    fself myapp.stripped.elf myapp.self
+    
+    # Check compression ratio
+    ps3load myapp.self  # Shows compression %
+    ```
+  </Accordion>
+  
+  <Accordion title="Application doesn't start">
+    The SELF file may be invalid:
+    
+    - Ensure you ran `sprxlinker` before `fself`
+    - Check that SELF was created correctly
+    - Try creating a PKG and installing instead
+    
+    ```bash
+    # Verify SELF format
+    file myapp.self
+    hexdump -C myapp.self | head -n 1
+    # Should start with: SCE\0\0\0\0\x02
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Example Output
+
+Successful ps3load session:
+
+```bash
+$ ps3load myapp.self
+ps3load v0.5
+coded by dhewg, #wiidev efnet
+
+resolving ps3.local
+connecting to 192.168.1.100:4299
+sending upload request
+sending file size (524288 bytes)
+compressing 524288 bytes... 45.2%
+sending data................
+sending arguments (12 bytes)
+done.
+```
+
+## Advanced Usage
+
+### Loading with Multiple Arguments
+
+```bash
+# Pass multiple arguments to your app
+ps3load game.self --player "John" --level 5 --debug
+```
+
+Arguments are passed to your application's `main()`:
+
+```c
+int main(int argc, char **argv) {
+    // argc = 4
+    // argv[0] = "game.self"
+    // argv[1] = "--player"
+    // argv[2] = "John"
+    // argv[3] = "--level"
+    // argv[4] = "5"
+    // argv[5] = "--debug"
+}
+```
+
+### Script Integration
+
+```bash build_and_run.sh
+#!/bin/bash
+set -e
+
+echo "Building..."
+make clean
+make
+
+echo "Loading to PS3..."
+ps3load myapp.self --test-mode
+
+echo "Success!"
+```
+
+### Multiple PS3 Systems
+
+```bash
+# Switch between multiple PS3s
+export PS3LOAD=tcp:192.168.1.100  # Dev PS3
+ps3load test.self
+
+export PS3LOAD=tcp:192.168.1.101  # Test PS3
+ps3load test.self
+```
+
+## Performance Tips
+
+<CardGroup cols={2}>
+  <Card title="Strip Symbols" icon="scissors">
+    Use `ppu-strip` to reduce file size before creating SELF
+  </Card>
+  <Card title="Wired Connection" icon="ethernet">
+    Use ethernet instead of WiFi for faster transfers
+  </Card>
+  <Card title="Asset Streaming" icon="download">
+    Load large assets from USB/HDD instead of embedding in SELF
+  </Card>
+  <Card title="Build Directory" icon="folder">
+    Keep build artifacts to avoid rebuilding unchanged files
+  </Card>
+</CardGroup>
+
+## Source Code Reference
+
+The ps3load implementation:
+- **Main**: `tools/ps3load/source/main.c:1-417`
+- **Key Functions**:
+  - `send_tcp()`: `main.c:94` - Network transfer implementation
+  - `tcp_write()`: `main.c:73` - Reliable TCP send
+  - Protocol constants: `main.c:48-51`
+
+### Port and Version
+
+```c
+#define PS3LOAD_VERSION_MAYOR 0
+#define PS3LOAD_VERSION_MINOR 5
+#define LD_TCP_PORT 4299
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="FSELF Tool" icon="file-code" href="/tools/fself">
+    Create SELF files for loading
+  </Card>
+  <Card title="Build System" icon="gears" href="/concepts/build-system">
+    Integrate ps3load into build process
+  </Card>
+  <Card title="PKG Creation" icon="box" href="/tools/pkg-creation">
+    Create packages for distribution
+  </Card>
+  <Card title="Development Setup" icon="laptop-code" href="/installation">
+    Configure your development environment
+  </Card>
+</CardGroup>

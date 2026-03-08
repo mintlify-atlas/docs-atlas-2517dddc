@@ -1,0 +1,355 @@
+---
+title: RSX
+description: RSX graphics processor library for hardware-accelerated 3D rendering
+---
+
+The RSX library provides the core interface to the PlayStation 3's graphics accelerator. This library handles initialization, context management, command buffers, and memory management for hardware-accelerated rendering.
+
+## Initialization
+
+### rsxInit
+
+Initialize the RSX context and memory manager.
+
+```c
+s32 rsxInit(gcmContextData **context, u32 cmdSize, u32 ioSize, const void *ioAddress);
+```
+
+<ParamField path="context" type="gcmContextData**" required>
+  Pointer to receive the address of the default command buffer context
+</ParamField>
+
+<ParamField path="cmdSize" type="u32" required>
+  Command buffer size in bytes
+</ParamField>
+
+<ParamField path="ioSize" type="u32" required>
+  Size of the IO buffer allocated in main memory (must be multiple of 1 MB)
+</ParamField>
+
+<ParamField path="ioAddress" type="const void*" required>
+  Pointer to a 1 MB-aligned buffer in main memory of ioSize bytes
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+This function initializes a heap structure in RSX memory space, allowing dynamic memory allocation using `rsxMalloc()`, `rsxMemalign()`, and `rsxFree()`.
+
+```c Example
+// Allocate 1MB IO buffer
+void *host_addr = memalign(1024*1024, 1024*1024);
+gcmContextData *context;
+
+// Initialize RSX with 256KB command buffer
+rsxInit(&context, 256*1024, 1024*1024, host_addr);
+```
+
+## Context Management
+
+### rsxSetupContextData
+
+Manually setup a command buffer context.
+
+```c
+void rsxSetupContextData(gcmContextData *context, const u32 *addr, u32 size, gcmContextCallback cb);
+```
+
+<ParamField path="context" type="gcmContextData*" required>
+  Pointer to the context structure to initialize
+</ParamField>
+
+<ParamField path="addr" type="const u32*" required>
+  Start address of the command buffer
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size of the command buffer in bytes
+</ParamField>
+
+<ParamField path="cb" type="gcmContextCallback" required>
+  Callback function to be called when buffer is full
+</ParamField>
+
+### rsxSetCurrentBuffer
+
+Set the current command buffer.
+
+```c
+void rsxSetCurrentBuffer(gcmContextData **context, const u32 *addr, u32 size);
+```
+
+<ParamField path="context" type="gcmContextData**" required>
+  Pointer to pointer of context structure
+</ParamField>
+
+<ParamField path="addr" type="const u32*" required>
+  Start address of the command buffer
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size of the command buffer in bytes
+</ParamField>
+
+### rsxSetDefaultCommandBuffer
+
+Restore the default command buffer context.
+
+```c
+void rsxSetDefaultCommandBuffer(gcmContextData **context);
+```
+
+<ParamField path="context" type="gcmContextData**" required>
+  Pointer to pointer to receive the default context
+</ParamField>
+
+### rsxGetCurrentBuffer
+
+Get the current position in the command buffer.
+
+```c
+u32* rsxGetCurrentBuffer();
+```
+
+<ResponseField name="return" type="u32*">
+  Pointer to the current position in the command buffer
+</ResponseField>
+
+### rsxSetUserCallback
+
+Set a user-defined callback for the command buffer.
+
+```c
+void rsxSetUserCallback(gcmContextCallback cb);
+```
+
+<ParamField path="cb" type="gcmContextCallback" required>
+  Callback function to be invoked when buffer is full
+</ParamField>
+
+## Memory Management
+
+### rsxAddressToOffset
+
+Convert a pointer in RSX memory to an offset value.
+
+```c
+static inline s32 rsxAddressToOffset(const void *ptr, u32 *offset);
+```
+
+<ParamField path="ptr" type="const void*" required>
+  Pointer to convert
+</ParamField>
+
+<ParamField path="offset" type="u32*" required>
+  Pointer to receive the offset value
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+```c Example
+void *buffer = rsxMemalign(64, 1920*1080*4);
+u32 offset;
+rsxAddressToOffset(buffer, &offset);
+```
+
+### rsxHeapInit
+
+Initialize the RSX memory heap.
+
+```c
+s32 rsxHeapInit();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error
+</ResponseField>
+
+### rsxMalloc
+
+Dynamically allocate RSX video memory.
+
+```c
+void* rsxMalloc(u32 size);
+```
+
+<ParamField path="size" type="u32" required>
+  Size in bytes to allocate
+</ParamField>
+
+<ResponseField name="return" type="void*">
+  Pointer to allocated buffer, or NULL on error
+</ResponseField>
+
+```c Example
+// Allocate a color buffer
+void *color_buffer = rsxMalloc(1920 * 1080 * 4);
+if (!color_buffer) {
+    // Handle allocation error
+}
+```
+
+### rsxMemalign
+
+Dynamically allocate aligned RSX video memory.
+
+```c
+void* rsxMemalign(u32 alignment, u32 size);
+```
+
+<ParamField path="alignment" type="u32" required>
+  Required alignment in bytes (typically 64 or higher)
+</ParamField>
+
+<ParamField path="size" type="u32" required>
+  Size in bytes to allocate
+</ParamField>
+
+<ResponseField name="return" type="void*">
+  Pointer to allocated aligned buffer, or NULL on error
+</ResponseField>
+
+Most RSX operations require 64-byte alignment. Use this function instead of `rsxMalloc()` when alignment is critical.
+
+```c Example
+// Allocate 64-byte aligned display buffer
+void *display_buffer = rsxMemalign(64, 1920 * 1080 * 4);
+```
+
+### rsxFree
+
+Free previously allocated RSX memory.
+
+```c
+void rsxFree(void *ptr);
+```
+
+<ParamField path="ptr" type="void*" required>
+  Pointer to buffer allocated with rsxMalloc() or rsxMemalign()
+</ParamField>
+
+## Utility Functions
+
+### rsxGetFixedSint32
+
+Convert floating point coordinate to 32-bit signed fixed point.
+
+```c
+static inline s32 rsxGetFixedSint32(f32 f);
+```
+
+<ParamField path="f" type="f32" required>
+  Floating point value to convert
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  32-bit signed fixed point representation (multiplied by 1048576.0)
+</ResponseField>
+
+```c Example
+f32 scale_x = 1.5f;
+s32 fixed_scale = rsxGetFixedSint32(scale_x);
+```
+
+### rsxGetFixedUint16
+
+Convert floating point coordinate to 16-bit unsigned fixed point.
+
+```c
+static inline u16 rsxGetFixedUint16(f32 f);
+```
+
+<ParamField path="f" type="f32" required>
+  Floating point value to convert
+</ParamField>
+
+<ResponseField name="return" type="u16">
+  16-bit unsigned fixed point representation (multiplied by 16.0)
+</ResponseField>
+
+### rsxAlign
+
+Align a value to the specified alignment.
+
+```c
+static inline u32 rsxAlign(u32 alignment, u32 value);
+```
+
+<ParamField path="alignment" type="u32" required>
+  Alignment value (power of 2)
+</ParamField>
+
+<ParamField path="value" type="u32" required>
+  Value to align
+</ParamField>
+
+<ResponseField name="return" type="u32">
+  Aligned value
+</ResponseField>
+
+```c Example
+// Align pitch to 64 bytes
+u32 pitch = rsxAlign(64, width * 4);
+```
+
+## Global Context
+
+### gGcmContext
+
+Pointer to the default command buffer context.
+
+```c
+extern gcmContextData *gGcmContext;
+```
+
+This global variable provides access to the default RSX context initialized by `rsxInit()`. Most RSX command functions use this context automatically.
+
+## Typical Usage Pattern
+
+```c Complete Example
+#include <rsx/rsx.h>
+
+// 1. Allocate IO buffer
+void *host_addr = memalign(1024*1024, 1024*1024);
+gcmContextData *context;
+
+// 2. Initialize RSX
+if (rsxInit(&context, 256*1024, 1024*1024, host_addr) != 0) {
+    // Handle error
+}
+
+// 3. Configure video mode
+videoConfiguration vconfig;
+videGetState(0, 0, &vconfig);
+videoConfigure(0, &vconfig, NULL, 0);
+
+// 4. Set flip mode
+gcmSetFlipMode(GCM_FLIP_VSYNC);
+
+// 5. Allocate display buffers
+for (int i = 0; i < 2; i++) {
+    void *buffer = rsxMemalign(64, 1920 * 1080 * 4);
+    u32 offset;
+    rsxAddressToOffset(buffer, &offset);
+    gcmSetDisplayBuffer(i, offset, 1920 * 4, 1920, 1080);
+}
+
+// 6. Allocate depth buffer
+void *depth_buffer = rsxMemalign(64, 1920 * 1080 * 4);
+u32 depth_offset;
+rsxAddressToOffset(depth_buffer, &depth_offset);
+
+// 7. Reset flip status
+gcmResetFlipStatus();
+
+// Now ready for rendering
+```
+
+## See Also
+
+- [GCM System](/api/gcm) - Low-level command buffer and display management
+- [RESC](/api/resc) - Resolution scaling and conversion
+- Video Configuration - Display output configuration

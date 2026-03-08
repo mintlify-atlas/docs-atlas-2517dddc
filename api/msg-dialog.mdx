@@ -1,0 +1,354 @@
+---
+title: "Message Dialog"
+description: "Display message dialogs and progress bars to the user"
+---
+
+The Message Dialog API allows you to display various types of dialog boxes including simple messages, yes/no prompts, and progress bars.
+
+## Dialog Functions
+
+### msgDialogOpen
+
+Open a message dialog with a text message.
+
+```c
+s32 msgDialogOpen(msgType type, const char *msg, msgDialogCallback cb, void *usrData, void *unused);
+```
+
+<ParamField path="type" type="msgType">
+  Dialog type flags (can be combined with OR).
+  
+  <Expandable title="Dialog Type Flags">
+  **Dialog Style:**
+  - `MSG_DIALOG_NORMAL` (1) - Normal dialog
+  - `MSG_DIALOG_ERROR` (0) - Error dialog
+  - `MSG_DIALOG_MUTE_ON` (2) - Mute dialog sound
+  - `MSG_DIALOG_BKG_INVISIBLE` (4) - Invisible background
+  
+  **Button Types:**
+  - `MSG_DIALOG_BTN_TYPE_OK` (32) - OK button
+  - `MSG_DIALOG_BTN_TYPE_YESNO` (16) - Yes/No buttons
+  
+  **Button Options:**
+  - `MSG_DIALOG_DISABLE_CANCEL_ON` (128) - Disable cancel button
+  - `MSG_DIALOG_DEFAULT_CURSOR_NO` (256) - Default cursor on No button
+  
+  **Progress Bars:**
+  - `MSG_DIALOG_SINGLE_PROGRESSBAR` (4096) - Single progress bar
+  - `MSG_DIALOG_DOUBLE_PROGRESSBAR` (8192) - Two progress bars
+  </Expandable>
+</ParamField>
+
+<ParamField path="msg" type="const char*">
+  Message text to display in the dialog.
+</ParamField>
+
+<ParamField path="cb" type="msgDialogCallback">
+  Callback function called when the dialog is closed. Receives:
+  - `button` - Which button was pressed (msgButton)
+  - `usrData` - User data pointer
+</ParamField>
+
+<ParamField path="usrData" type="void*">
+  User data pointer passed to the callback.
+</ParamField>
+
+<ParamField path="unused" type="void*">
+  Unused parameter, should be NULL.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### msgDialogOpen2
+
+Open a message dialog (alternative version).
+
+```c
+s32 msgDialogOpen2(msgType type, const char *msg, msgDialogCallback cb, void *usrData, void *unused);
+```
+
+Parameters are identical to `msgDialogOpen`. This variant may provide slightly different behavior.
+
+### msgDialogOpenErrorCode
+
+Open an error dialog displaying a system error code.
+
+```c
+s32 msgDialogOpenErrorCode(u32 errorCode, msgDialogCallback cb, void *usrData, void *unused);
+```
+
+<ParamField path="errorCode" type="u32">
+  System error code to display.
+</ParamField>
+
+<ParamField path="cb" type="msgDialogCallback">
+  Callback function called when the dialog is closed.
+</ParamField>
+
+<ParamField path="usrData" type="void*">
+  User data pointer passed to the callback.
+</ParamField>
+
+<ParamField path="unused" type="void*">
+  Unused parameter, should be NULL.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### msgDialogClose
+
+Close the currently open dialog.
+
+```c
+s32 msgDialogClose(f32 waitMs);
+```
+
+<ParamField path="waitMs" type="f32">
+  Time to wait in milliseconds before closing the dialog.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### msgDialogAbort
+
+Abort and close the current dialog immediately.
+
+```c
+s32 msgDialogAbort();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+## Progress Bar Functions
+
+### msgDialogProgressBarSetMsg
+
+Set the message text for a progress bar.
+
+```c
+s32 msgDialogProgressBarSetMsg(u32 index, const char *msg);
+```
+
+<ParamField path="index" type="u32">
+  Progress bar index.
+  - `MSG_PROGRESSBAR_INDEX0` (0) - First progress bar
+  - `MSG_PROGRESSBAR_INDEX1` (1) - Second progress bar (for double progress bar)
+</ParamField>
+
+<ParamField path="msg" type="const char*">
+  Message text to display for the progress bar.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### msgDialogProgressBarInc
+
+Increment a progress bar by a percentage.
+
+```c
+s32 msgDialogProgressBarInc(u32 index, u32 percent);
+```
+
+<ParamField path="index" type="u32">
+  Progress bar index (0 or 1).
+</ParamField>
+
+<ParamField path="percent" type="u32">
+  Percentage to increment (0-100).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### msgDialogProgressBarReset
+
+Reset a progress bar to 0%.
+
+```c
+s32 msgDialogProgressBarReset(u32 index);
+```
+
+<ParamField path="index" type="u32">
+  Progress bar index to reset (0 or 1).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+## Types and Enumerations
+
+### msgButton
+
+Button values passed to the dialog callback.
+
+```c
+typedef enum {
+    MSG_DIALOG_BTN_NONE = -1,
+    MSG_DIALOG_BTN_INVALID,
+    MSG_DIALOG_BTN_OK,
+    MSG_DIALOG_BTN_YES = 1,
+    MSG_DIALOG_BTN_NO,
+    MSG_DIALOG_BTN_ESCAPE
+} msgButton;
+```
+
+<ResponseField name="MSG_DIALOG_BTN_NONE" type="-1">
+  No button pressed.
+</ResponseField>
+
+<ResponseField name="MSG_DIALOG_BTN_INVALID" type="0">
+  Invalid button.
+</ResponseField>
+
+<ResponseField name="MSG_DIALOG_BTN_OK" type="1">
+  OK button pressed.
+</ResponseField>
+
+<ResponseField name="MSG_DIALOG_BTN_YES" type="1">
+  Yes button pressed.
+</ResponseField>
+
+<ResponseField name="MSG_DIALOG_BTN_NO" type="2">
+  No button pressed.
+</ResponseField>
+
+<ResponseField name="MSG_DIALOG_BTN_ESCAPE" type="3">
+  Escape/Cancel button pressed.
+</ResponseField>
+
+### msgDialogCallback
+
+Callback function type for dialog events.
+
+```c
+typedef void (*msgDialogCallback)(msgButton button, void *usrData);
+```
+
+<ParamField path="button" type="msgButton">
+  Which button was pressed to close the dialog.
+</ParamField>
+
+<ParamField path="usrData" type="void*">
+  User data pointer provided when opening the dialog.
+</ParamField>
+
+## Example Usage
+
+### Simple Message Dialog
+
+```c
+#include <sysutil/msg.h>
+#include <stdio.h>
+
+void messageCallback(msgButton button, void *usrData) {
+    printf("Dialog closed with button: %d\n", button);
+}
+
+int main() {
+    // Display a simple OK dialog
+    msgDialogOpen(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_OK,
+                  "Hello, PlayStation 3!",
+                  messageCallback,
+                  NULL,
+                  NULL);
+    
+    return 0;
+}
+```
+
+### Yes/No Confirmation Dialog
+
+```c
+#include <sysutil/msg.h>
+#include <stdio.h>
+
+static int userChoice = -1;
+
+void confirmCallback(msgButton button, void *usrData) {
+    if (button == MSG_DIALOG_BTN_YES) {
+        printf("User selected YES\n");
+        userChoice = 1;
+    } else if (button == MSG_DIALOG_BTN_NO) {
+        printf("User selected NO\n");
+        userChoice = 0;
+    }
+}
+
+int main() {
+    // Ask user a yes/no question
+    msgDialogOpen(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO,
+                  "Do you want to continue?",
+                  confirmCallback,
+                  NULL,
+                  NULL);
+    
+    // Wait for user response...
+    while(userChoice == -1) {
+        // Process system events
+    }
+    
+    return 0;
+}
+```
+
+### Progress Bar Dialog
+
+```c
+#include <sysutil/msg.h>
+#include <stdio.h>
+
+void progressCallback(msgButton button, void *usrData) {
+    printf("Progress dialog closed\n");
+}
+
+int main() {
+    // Open dialog with single progress bar
+    msgDialogOpen(MSG_DIALOG_NORMAL | MSG_DIALOG_SINGLE_PROGRESSBAR,
+                  "Loading...",
+                  progressCallback,
+                  NULL,
+                  NULL);
+    
+    // Simulate a loading process
+    for(int i = 0; i <= 100; i += 10) {
+        msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, "Loading data...");
+        msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, 10);
+        // Delay...
+    }
+    
+    // Close dialog
+    msgDialogClose(0.0f);
+    
+    return 0;
+}
+```
+
+### Error Code Dialog
+
+```c
+#include <sysutil/msg.h>
+
+void errorCallback(msgButton button, void *usrData) {
+    // Handle error acknowledgment
+}
+
+int main() {
+    u32 errorCode = 0x80010001; // Example error code
+    
+    msgDialogOpenErrorCode(errorCode, errorCallback, NULL, NULL);
+    
+    return 0;
+}
+```

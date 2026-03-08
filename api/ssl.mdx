@@ -1,0 +1,662 @@
+---
+title: SSL/TLS API
+description: SSL/TLS encryption library for secure HTTPS communication
+---
+
+The SSL library provides SSL/TLS encryption capabilities for secure network communication on PlayStation 3, primarily used with the HTTP library for HTTPS support.
+
+## Overview
+
+The SSL library supports:
+- SSL 3.0 and TLS 1.0 protocols
+- Multiple cipher suites (RSA, 3DES, RC4, AES)
+- Certificate loading and validation
+- Certificate chain verification
+- Integration with HTTP library for HTTPS
+
+## Initialization
+
+### sslInit
+
+```c
+int sslInit(void *pool, uint32_t poolSize);
+```
+
+Initialize the SSL library.
+
+<ParamField path="pool" type="void*" required>
+  Pointer to memory pool for SSL operations. Typically allocate 256KB (0x40000 bytes) or more.
+</ParamField>
+
+<ParamField path="poolSize" type="uint32_t" required>
+  Size of memory pool in bytes.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslEnd
+
+```c
+int sslEnd(void);
+```
+
+Terminate the SSL library and free resources.
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Certificate Management
+
+### sslCertificateLoader
+
+```c
+int sslCertificateLoader(uint64_t flag, char *buffer, uint32_t size, uint32_t *required);
+```
+
+Load SSL certificates from the PS3 system.
+
+<ParamField path="flag" type="uint64_t" required>
+  Certificate flags specifying which certificates to load:
+  - `SSL_LOAD_CERT_ALL` - Load all available certificates
+  - `SSL_LOAD_CERT_SCE` - Load Sony certificates
+  - `SSL_LOAD_CERT_NORMAL` - Load standard CA certificates
+  - `SSL_LOAD_CERT_SHA256` - Load SHA256 certificates
+  - Individual certificate flags (see Certificate Flags section)
+</ParamField>
+
+<ParamField path="buffer" type="char*">
+  Pointer to buffer to receive certificate data. Pass NULL on first call to get required size.
+</ParamField>
+
+<ParamField path="size" type="uint32_t" required>
+  Size of buffer in bytes.
+</ParamField>
+
+<ParamField path="required" type="uint32_t*">
+  Pointer to receive required buffer size. Use on first call with NULL buffer.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Certificate Information
+
+### sslCertGetSerialNumber
+
+```c
+int sslCertGetSerialNumber(const sslCert cert, const uint8_t **sboData, uint32_t *sboLength);
+```
+
+Get certificate serial number.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="sboData" type="const uint8_t**" required>
+  Pointer to receive serial number data.
+</ParamField>
+
+<ParamField path="sboLength" type="uint32_t*" required>
+  Pointer to receive serial number length.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetPublicKey
+
+```c
+int sslCertGetPublicKey(const sslCert cert, const uint8_t **sboData, uint32_t *sboLength);
+```
+
+Get certificate public key.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="sboData" type="const uint8_t**" required>
+  Pointer to receive public key data.
+</ParamField>
+
+<ParamField path="sboLength" type="uint32_t*" required>
+  Pointer to receive public key length.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetRsaPublicKeyModulus
+
+```c
+int sslCertGetRsaPublicKeyModulus(const sslCert cert, const uint8_t **sboData, uint32_t *sboLength);
+```
+
+Get RSA public key modulus from certificate.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="sboData" type="const uint8_t**" required>
+  Pointer to receive modulus data.
+</ParamField>
+
+<ParamField path="sboLength" type="uint32_t*" required>
+  Pointer to receive modulus length.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetRsaPublicKeyExponent
+
+```c
+int sslCertGetRsaPublicKeyExponent(const sslCert cert, const uint8_t **sboData, uint32_t *sboLength);
+```
+
+Get RSA public key exponent from certificate.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="sboData" type="const uint8_t**" required>
+  Pointer to receive exponent data.
+</ParamField>
+
+<ParamField path="sboLength" type="uint32_t*" required>
+  Pointer to receive exponent length.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetSubjectName
+
+```c
+int sslCertGetSubjectName(const sslCert cert, const sslCertName *name);
+```
+
+Get certificate subject name.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="name" type="const sslCertName*" required>
+  Pointer to receive subject name.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetIssuerName
+
+```c
+int sslCertGetIssuerName(const sslCert cert, const sslCertName *name);
+```
+
+Get certificate issuer name.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="name" type="const sslCertName*" required>
+  Pointer to receive issuer name.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetMd5Fingerprint
+
+```c
+int sslCertGetMd5Fingerprint(const sslCert cert, const uint8_t *buf, uint32_t *plen);
+```
+
+Get certificate MD5 fingerprint.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="buf" type="const uint8_t*" required>
+  Buffer to receive fingerprint (minimum 20 bytes).
+</ParamField>
+
+<ParamField path="plen" type="uint32_t*" required>
+  Pointer to receive fingerprint length.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetNameEntryCount
+
+```c
+int sslCertGetNameEntryCount(const sslCert cert, uint32_t *entryCount);
+```
+
+Get number of name entries in certificate.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="entryCount" type="uint32_t*" required>
+  Pointer to receive entry count.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### sslCertGetNameEntryInfo
+
+```c
+int sslCertGetNameEntryInfo(const sslCert cert, uint32_t entryNum,
+                            const char **oidName, const uint8_t **value,
+                            uint32_t *valueLength, int32_t flag);
+```
+
+Get information about a specific name entry.
+
+<ParamField path="cert" type="const sslCert" required>
+  Certificate handle.
+</ParamField>
+
+<ParamField path="entryNum" type="uint32_t" required>
+  Entry index to query.
+</ParamField>
+
+<ParamField path="oidName" type="const char**" required>
+  Pointer to receive OID name string.
+</ParamField>
+
+<ParamField path="value" type="const uint8_t**" required>
+  Pointer to receive entry value.
+</ParamField>
+
+<ParamField path="valueLength" type="uint32_t*" required>
+  Pointer to receive value length.
+</ParamField>
+
+<ParamField path="flag" type="int32_t" required>
+  Query flags.
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## SSL Cipher Suites
+
+Supported cipher suites:
+
+- `SSL_CIPHER_RSA_WITH_3DES_EDE_CBC_SHA` (0)
+- `SSL_CIPHER_RSA_WITH_RC4_128_SHA` (1)
+- `SSL_CIPHER_RSA_WITH_RC4_128_MD5` (2)
+- `SSL_CIPHER_RSA_WITH_DES_CBC_SHA` (3)
+- `SSL_CIPHER_RSA_EXPORT1024_WITH_DES_CBC_SHA` (4)
+- `SSL_CIPHER_RSA_EXPORT1024_WITH_RC4_56_SHA` (5)
+- `SSL_CIPHER_RSA_EXPORT_WITH_DES40_CBC_SHA` (6)
+- `SSL_CIPHER_RSA_EXPORT_WITH_RC2_CBC_40_MD5` (7)
+- `SSL_CIPHER_RSA_EXPORT_WITH_RC4_40_MD5` (8)
+
+## SSL/TLS Versions
+
+- `SSL_VERSION_TLS1` (0) - TLS 1.0
+- `SSL_VERSION_SSL3` (1) - SSL 3.0
+
+## Certificate Flags
+
+### Individual Certificate Flags
+
+You can load specific certificates using these flags:
+
+<CodeGroup>
+```c Sony Certificates
+SSL_LOAD_CERT_SCE01
+SSL_LOAD_CERT_SCE02
+SSL_LOAD_CERT_SCE03
+SSL_LOAD_CERT_SCE04
+SSL_LOAD_CERT_SCE05
+```
+
+```c Common CA Certificates
+SSL_LOAD_CERT_BALTIMORE_CT
+SSL_LOAD_CERT_EQUIFAX_SEC_CA
+SSL_LOAD_CERT_GEOTRUST_GCA
+SSL_LOAD_CERT_GLOBALSIGN_RCA
+SSL_LOAD_CERT_VERISIGN_U_RCA
+SSL_LOAD_CERT_THAWTE_PREM_SCA
+```
+
+```c DigiCert Certificates
+SSL_LOAD_CERT_DIGICERT_HA_EV_RCA
+SSL_LOAD_CERT_DIGICERT_A_ID_RCA
+SSL_LOAD_CERT_DIGICERT_GLOBAL_RCA
+```
+</CodeGroup>
+
+### Certificate Groups
+
+- `SSL_LOAD_CERT_ALL` - All certificates (SCE + Normal)
+- `SSL_LOAD_CERT_SCE` - All Sony certificates
+- `SSL_LOAD_CERT_NORMAL` - All standard CA certificates
+- `SSL_LOAD_CERT_SHA256` - SHA256 certificates
+
+## Example: Initialize SSL for HTTPS
+
+```c
+#include <ssl/ssl.h>
+#include <http/https.h>
+#include <http/http.h>
+#include <sysmodule/sysmodule.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+typedef struct {
+    void *http_pool;
+    void *ssl_pool;
+    void *cert_buffer;
+    httpsData *caList;
+} ssl_context_t;
+
+int init_https(ssl_context_t *ctx) {
+    int ret;
+    u32 cert_size = 0;
+    
+    // Load required system modules
+    ret = sysModuleLoad(SYSMODULE_HTTP);
+    if (ret < 0) {
+        printf("Failed to load HTTP module: 0x%x\n", ret);
+        return -1;
+    }
+    
+    ret = sysModuleLoad(SYSMODULE_HTTPS);
+    if (ret < 0) {
+        printf("Failed to load HTTPS module: 0x%x\n", ret);
+        return -1;
+    }
+    
+    ret = sysModuleLoad(SYSMODULE_SSL);
+    if (ret < 0) {
+        printf("Failed to load SSL module: 0x%x\n", ret);
+        return -1;
+    }
+    
+    // Allocate HTTP pool
+    ctx->http_pool = malloc(0x10000);  // 64KB
+    if (!ctx->http_pool) {
+        printf("Failed to allocate HTTP pool\n");
+        return -1;
+    }
+    
+    ret = httpInit(ctx->http_pool, 0x10000);
+    if (ret < 0) {
+        printf("httpInit failed: 0x%x\n", ret);
+        return -1;
+    }
+    
+    // Allocate SSL pool
+    ctx->ssl_pool = malloc(0x40000);  // 256KB
+    if (!ctx->ssl_pool) {
+        printf("Failed to allocate SSL pool\n");
+        return -1;
+    }
+    
+    ret = sslInit(ctx->ssl_pool, 0x40000);
+    if (ret < 0) {
+        printf("sslInit failed: 0x%x\n", ret);
+        return -1;
+    }
+    
+    // Get required certificate buffer size
+    ret = sslCertificateLoader(SSL_LOAD_CERT_ALL, NULL, 0, &cert_size);
+    if (ret < 0) {
+        printf("sslCertificateLoader (size query) failed: 0x%x\n", ret);
+        return -1;
+    }
+    
+    printf("Certificate buffer size required: %u bytes\n", cert_size);
+    
+    // Allocate certificate buffer
+    ctx->cert_buffer = malloc(cert_size);
+    if (!ctx->cert_buffer) {
+        printf("Failed to allocate certificate buffer\n");
+        return -1;
+    }
+    
+    // Load certificates
+    ret = sslCertificateLoader(SSL_LOAD_CERT_ALL, ctx->cert_buffer, cert_size, NULL);
+    if (ret < 0) {
+        printf("sslCertificateLoader failed: 0x%x\n", ret);
+        return -1;
+    }
+    
+    printf("Loaded SSL certificates\n");
+    
+    // Setup HTTPS certificate list
+    ctx->caList = (httpsData *)malloc(sizeof(httpsData));
+    if (!ctx->caList) {
+        printf("Failed to allocate CA list\n");
+        return -1;
+    }
+    
+    ctx->caList[0].ptr = ctx->cert_buffer;
+    ctx->caList[0].size = cert_size;
+    
+    // Initialize HTTPS
+    ret = httpsInit(1, ctx->caList);
+    if (ret < 0) {
+        printf("httpsInit failed: 0x%x\n", ret);
+        return -1;
+    }
+    
+    printf("HTTPS initialized successfully\n");
+    return 0;
+}
+
+void cleanup_https(ssl_context_t *ctx) {
+    if (ctx->caList) {
+        httpsEnd();
+        free(ctx->caList);
+    }
+    
+    if (ctx->cert_buffer) {
+        free(ctx->cert_buffer);
+    }
+    
+    sslEnd();
+    
+    if (ctx->ssl_pool) {
+        free(ctx->ssl_pool);
+    }
+    
+    httpEnd();
+    
+    if (ctx->http_pool) {
+        free(ctx->http_pool);
+    }
+    
+    sysModuleUnload(SYSMODULE_SSL);
+    sysModuleUnload(SYSMODULE_HTTPS);
+    sysModuleUnload(SYSMODULE_HTTP);
+}
+
+int main() {
+    ssl_context_t ctx = {0};
+    
+    if (init_https(&ctx) == 0) {
+        printf("HTTPS ready for use\n");
+        
+        // Now you can use HTTP library with HTTPS URLs
+        // httpCreateClient, httpCreateTransaction, etc.
+        
+        cleanup_https(&ctx);
+    }
+    
+    return 0;
+}
+```
+
+## Example: HTTPS GET Request
+
+```c
+#include <ssl/ssl.h>
+#include <http/https.h>
+#include <http/http.h>
+#include <net/net.h>
+#include <sysmodule/sysmodule.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int https_get(const char *url) {
+    void *http_pool, *ssl_pool, *cert_buffer, *uri_pool;
+    httpsData *caList;
+    httpClientId cid;
+    httpTransId tid;
+    httpUri uri;
+    u32 cert_size;
+    int32_t status_code;
+    char response[4096];
+    u32 recvd;
+    int ret;
+    
+    // Load modules
+    sysModuleLoad(SYSMODULE_NET);
+    netInitialize();
+    sysModuleLoad(SYSMODULE_HTTP);
+    sysModuleLoad(SYSMODULE_HTTPS);
+    sysModuleLoad(SYSMODULE_SSL);
+    
+    // Initialize HTTP
+    http_pool = malloc(0x10000);
+    httpInit(http_pool, 0x10000);
+    
+    // Initialize SSL
+    ssl_pool = malloc(0x40000);
+    sslInit(ssl_pool, 0x40000);
+    
+    // Load certificates
+    sslCertificateLoader(SSL_LOAD_CERT_ALL, NULL, 0, &cert_size);
+    cert_buffer = malloc(cert_size);
+    sslCertificateLoader(SSL_LOAD_CERT_ALL, cert_buffer, cert_size, NULL);
+    
+    // Initialize HTTPS
+    caList = (httpsData *)malloc(sizeof(httpsData));
+    caList[0].ptr = cert_buffer;
+    caList[0].size = cert_size;
+    httpsInit(1, caList);
+    
+    // Create HTTP client
+    httpCreateClient(&cid);
+    httpClientSetUserAgent(cid, "PSL1GHT HTTPS Client");
+    
+    // Parse HTTPS URL
+    uri_pool = malloc(4096);
+    ret = httpUtilParseUri(&uri, url, uri_pool, 4096, NULL);
+    if (ret < 0) {
+        printf("Failed to parse URI\n");
+        return -1;
+    }
+    
+    // Verify it's HTTPS
+    if (strcmp(uri.scheme, "https") != 0) {
+        printf("Not an HTTPS URL\n");
+        return -1;
+    }
+    
+    // Create transaction
+    ret = httpCreateTransaction(&tid, cid, HTTP_METHOD_GET, &uri);
+    if (ret < 0) {
+        printf("Failed to create transaction\n");
+        return -1;
+    }
+    
+    // Send request
+    ret = httpSendRequest(tid, NULL, 0, NULL);
+    if (ret < 0) {
+        printf("Failed to send request: 0x%x\n", ret);
+        httpDestroyTransaction(tid);
+        return -1;
+    }
+    
+    // Get status
+    httpResponseGetStatusCode(tid, &status_code);
+    printf("HTTPS Status: %d\n", status_code);
+    
+    // Receive response
+    printf("Response:\n");
+    while (1) {
+        ret = httpRecvResponse(tid, response, sizeof(response) - 1, &recvd);
+        if (ret < 0 || recvd == 0) break;
+        
+        response[recvd] = '\0';
+        printf("%s", response);
+    }
+    
+    // Cleanup
+    httpDestroyTransaction(tid);
+    free(uri_pool);
+    httpDestroyClient(cid);
+    httpsEnd();
+    free(caList);
+    free(cert_buffer);
+    sslEnd();
+    free(ssl_pool);
+    httpEnd();
+    free(http_pool);
+    netDeinitialize();
+    
+    return 0;
+}
+
+int main() {
+    https_get("https://example.com/");
+    return 0;
+}
+```
+
+## Security Considerations
+
+### Certificate Validation
+
+The SSL library automatically validates server certificates against the loaded CA certificates. Always load appropriate certificates using `SSL_LOAD_CERT_ALL` or specific CA flags.
+
+### Cipher Suite Selection
+
+The library negotiates the strongest available cipher suite supported by both client and server. Modern servers typically support AES and 3DES ciphers.
+
+### Memory Requirements
+
+Allocate sufficient memory for SSL operations:
+- **SSL pool**: Minimum 256KB (0x40000), more for multiple connections
+- **Certificate buffer**: Size varies, query first with NULL buffer
+- **HTTP pool**: 64KB (0x10000) minimum
+
+## Integration with HTTP Library
+
+The SSL library works seamlessly with the HTTP library:
+
+1. Initialize both HTTP and SSL libraries
+2. Load certificates with `sslCertificateLoader`
+3. Initialize HTTPS with `httpsInit` (from `http/https.h`)
+4. Use standard HTTP functions with `https://` URLs
+5. The library automatically handles SSL/TLS encryption

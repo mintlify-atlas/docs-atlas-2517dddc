@@ -1,0 +1,184 @@
+---
+title: Installation
+description: Install PSL1GHT and set up your PlayStation 3 development environment
+---
+
+## Prerequisites
+
+PSL1GHT requires a complete PlayStation 3 toolchain to compile homebrew applications. You'll need:
+
+- **ps3toolchain** - A GCC toolchain supporting PowerPC 64-bit architecture with patched newlib
+- **Host GCC** - For building SDK tools (raw2h, ps3load, sprxlinker)
+- **Python 2.x** - For packaging tools (fself.py, sfo.py, pkg.py)
+- **libelf** - Required by sprxlinker
+- **zlib** - Required by ps3load
+- **libgmp** - Required by signing tools
+- **Nvidia Cg Toolkit** - For compiling vertex programs (optional)
+
+<Warning>
+  PSL1GHT only works with the **ps3toolchain** from [ps3dev/ps3toolchain](http://github.com/ps3dev/ps3toolchain). Other PowerPC toolchains will not work as they lack the required patched newlib environment.
+</Warning>
+
+## Installing ps3toolchain
+
+<Steps>
+  <Step title="Install system dependencies">
+    Install the required packages for your platform:
+
+    <CodeGroup>
+    ```bash Ubuntu/Debian
+    sudo apt-get install build-essential git autoconf bison flex \
+      libelf-dev libtool pkg-config texinfo libncurses5-dev \
+      libz-dev python-dev libgmp-dev
+    ```
+
+    ```bash macOS
+    brew install git autoconf automake bison flex gmp libelf \
+      libtool pkg-config texinfo wget
+    ```
+
+    ```bash Fedora/RHEL
+    sudo dnf install gcc gcc-c++ git autoconf bison flex elfutils-libelf-devel \
+      libtool pkgconfig texinfo ncurses-devel zlib-devel python-devel gmp-devel
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Clone and build ps3toolchain">
+    ```bash
+    git clone https://github.com/ps3dev/ps3toolchain.git
+    cd ps3toolchain
+    ./toolchain.sh
+    ```
+
+    This will build and install the complete toolchain to `/usr/local/ps3dev` by default.
+
+    <Note>
+      The toolchain build can take 30-60 minutes depending on your system. The script will download and compile binutils, gcc, newlib, and other essential components.
+    </Note>
+  </Step>
+
+  <Step title="Set up environment variables">
+    Add these variables to your `~/.bashrc`, `~/.zshrc`, or equivalent:
+
+    ```bash
+    export PS3DEV=/usr/local/ps3dev
+    export PSL1GHT=$PS3DEV/psl1ght
+    export PATH=$PATH:$PS3DEV/bin
+    export PATH=$PATH:$PS3DEV/ppu/bin
+    export PATH=$PATH:$PS3DEV/spu/bin
+    ```
+
+    Then reload your shell configuration:
+    ```bash
+    source ~/.bashrc
+    ```
+  </Step>
+</Steps>
+
+## Installing PSL1GHT
+
+<Steps>
+  <Step title="Clone the PSL1GHT repository">
+    ```bash
+    cd $PS3DEV
+    git clone https://github.com/ps3dev/PSL1GHT.git psl1ght
+    cd psl1ght
+    ```
+  </Step>
+
+  <Step title="Install build rules">
+    The SDK uses several makefile rule files that must be installed first:
+
+    ```bash
+    export PSL1GHT=$PS3DEV/psl1ght
+    make install-ctrl
+    ```
+
+    This copies the build system files to `$PSL1GHT`:
+    - `base_rules` - Common build rules for C/C++ compilation
+    - `ppu_rules` - PowerPC (PPU) specific rules and packaging tools
+    - `spu_rules` - SPU specific rules for Cell processor
+    - `data_rules` - Rules for embedding binary data (images, shaders, etc.)
+  </Step>
+
+  <Step title="Build and install the SDK">
+    ```bash
+    make
+    make install
+    ```
+
+    This builds and installs:
+    - **PPU libraries** - Runtime libraries for the PowerPC processor
+    - **SPU libraries** - Libraries for the Synergistic Processing Units
+    - **Common libraries** - Shared code (vectormath, SIMD math)
+    - **Tools** - Build utilities (sprxlinker, cgcomp, ps3load, etc.)
+
+    <Note>
+      The build system will compile:
+      - `ppu/` - PPU runtime and SPRX stub libraries
+      - `spu/` - SPU runtime libraries
+      - `common/` - Shared libraries (vectormath, libspumars, simdmath)
+      - `tools/` - SDK utilities and Python scripts
+    </Note>
+  </Step>
+</Steps>
+
+## Installing ps3libraries (Optional)
+
+Most PSL1GHT samples require additional libraries:
+
+```bash
+cd $PS3DEV
+git clone https://github.com/ps3dev/ps3libraries.git
+cd ps3libraries
+./libraries.sh
+```
+
+This installs common libraries like:
+- libpng, libjpeg, zlib
+- freetype, cairo
+- SDL and other multimedia libraries
+
+## Verify Installation
+
+Check that the toolchain is properly installed:
+
+```bash
+ppu-gcc --version
+spu-gcc --version
+echo $PSL1GHT
+ls $PSL1GHT/ppu/lib
+```
+
+You should see:
+- PPU and SPU gcc compilers responding
+- `$PSL1GHT` pointing to your installation directory
+- Library files in `$PSL1GHT/ppu/lib` including `liblv2.a`, `librsx.a`, etc.
+
+## Local Development Build
+
+For development, you can build PSL1GHT locally instead of system-wide:
+
+```bash
+cd /path/to/psl1ght.git/
+export PSL1GHT=/path/to/psl1ght.git/build
+make install-ctrl
+make
+make install
+```
+
+<Warning>
+  Remember to set `$PSL1GHT` in your environment whenever you build PSL1GHT applications. The build system checks for this variable and will fail if it's not set.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Build your first PS3 application
+  </Card>
+  <Card title="Project Structure" icon="folder-tree" href="/project-structure">
+    Understand the SDK layout and build system
+  </Card>
+</CardGroup>

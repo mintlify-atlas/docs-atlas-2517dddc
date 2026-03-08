@@ -1,0 +1,706 @@
+---
+title: Font Rendering
+description: Rendering text and fonts using the PSL1GHT font library
+---
+
+The PSL1GHT font library provides functions for loading and rendering TrueType fonts using the system's font rendering engine. It supports both system fonts and custom font files.
+
+## Font System Overview
+
+The font library consists of several components:
+
+- **Font Library**: Manages font resources and rendering
+- **Font Renderer**: Performs glyph rasterization
+- **Font Sets**: Collections of fonts for different character sets
+- **Glyphs**: Individual character bitmaps
+
+```
+┌────────────────┐
+│  Font Library   │
+└────────┬───────┘
+         │
+    ┌────┼────┐
+    │         │
+┌───┴───┐ ┌─┴──────────┐
+│  Font  │ │  Renderer  │
+│ Object │ │   Engine   │
+└───┬────┘ └─────┬─────┘
+    │              │
+    │              │
+    ▼              ▼
+┌────────┐  ┌────────┐
+│ Glyphs │  │ Surface │
+└────────┘  └────────┘
+```
+
+## Initialization
+
+<Steps>
+  <Step title="Initialize Font System">
+    Set up the font library:
+    
+    ```c
+    #include <font/font.h>
+    #include <font/fontFT.h>
+    
+    fontConfig config;
+    fontConfig_initialize(&config);
+    
+    s32 ret = fontInit(&config);
+    if (ret != 0) {
+        printf("Failed to initialize font library: %d\n", ret);
+        return ret;
+    }
+    ```
+    
+    The `fontConfig` structure from `font/font.h:36-46` contains:
+    ```c
+    typedef struct _font_config {
+        struct {
+            u32 *buffer;  // File cache buffer
+            u32 size;     // Cache size
+        } fileCache;
+        
+        u32 userFontEntryMax;      // Max user fonts
+        fontEntry *userFontEntries; // User font array
+        u32 flags;                  // Configuration flags
+    } fontConfig;
+    ```
+  </Step>
+  
+  <Step title="Create Font Library">
+    Initialize a font library instance:
+    
+    ```c
+    fontLibrary *lib;
+    
+    ret = fontCreateLibrary(NULL, &lib);
+    if (ret != 0) {
+        printf("Failed to create font library: %d\n", ret);
+        return ret;
+    }
+    ```
+  </Step>
+  
+  <Step title="Create Font Renderer">
+    Set up the rendering engine:
+    
+    ```c
+    fontRenderer *renderer;
+    fontRendererConfig rconfig;
+    
+    // Configure renderer buffer
+    rconfig.bufferingPolicy.buffer = NULL;
+    rconfig.bufferingPolicy.initSize = 1024 * 1024;   // 1MB
+    rconfig.bufferingPolicy.maxSize = 4 * 1024 * 1024; // 4MB
+    rconfig.bufferingPolicy.expandSize = 512 * 1024;  // 512KB
+    rconfig.bufferingPolicy.resetSize = 2 * 1024 * 1024; // 2MB
+    
+    ret = fontCreateRenderer(lib, &rconfig, &renderer);
+    if (ret != 0) {
+        printf("Failed to create renderer: %d\n", ret);
+        return ret;
+    }
+    ```
+  </Step>
+</Steps>
+
+## Opening Fonts
+
+You can open fonts from system font sets or from files.
+
+### System Fonts
+
+```c
+#include <font/fontset.h>
+
+font f;
+fontType type;
+
+// Set font type (Japanese, Latin, etc.)
+type.type = FONT_TYPE_DEFAULT;
+type.map = FONT_MAP_UNICODE;
+
+// Open from system font set
+ret = fontOpenFontset(lib, &type, &f);
+if (ret != 0) {
+    printf("Failed to open font set: %d\n", ret);
+    return ret;
+}
+
+// Bind renderer to font
+fontBindRenderer(&f, renderer);
+```
+
+### Font Types
+
+Common font types from `font/fontset.h`:
+
+```c
+FONT_TYPE_DEFAULT      // Default system font
+FONT_TYPE_LATIN        // Latin character set
+FONT_TYPE_JAPANESE     // Japanese characters
+FONT_TYPE_KOREAN       // Korean characters
+FONT_TYPE_CHINESE_S    // Simplified Chinese
+FONT_TYPE_CHINESE_T    // Traditional Chinese
+```
+
+### Custom Font Files
+
+Load fonts from TTF files:
+
+```c
+font f;
+const char *fontPath = "/dev_hdd0/game/fonts/myfont.ttf";
+u32 subNum = 0;      // Font index in collection (0 for single fonts)
+s32 uniqueID = -1;   // Unique ID (-1 for automatic)
+
+ret = fontOpenFontFile(lib, fontPath, subNum, uniqueID, &f);
+if (ret != 0) {
+    printf("Failed to open font file: %d\n", ret);
+    return ret;
+}
+
+fontBindRenderer(&f, renderer);
+```
+
+### Font from Memory
+
+Load a font from memory:
+
+```c
+void *fontData = /* ... loaded font data ... */;
+u32 fontSize = /* ... size in bytes ... */;
+
+ret = fontOpenFontMemory(lib, fontData, fontSize, subNum, uniqueID, &f);
+if (ret != 0) {
+    printf("Failed to open font from memory: %d\n", ret);
+    return ret;
+}
+
+fontBindRenderer(&f, renderer);
+```
+
+## Configuring Font Size
+
+Set the font size before rendering:
+
+### Point Size
+
+```c
+f32 width = 24.0f;   // Point size
+f32 height = 24.0f;
+
+// Set size in points
+fontSetScalePoint(&f, width, height);
+
+// Or for rendering (temporary override)
+fontSetupRenderScalePoint(&f, width, height);
+```
+
+### Pixel Size
+
+```c
+f32 width = 32.0f;   // Pixel size
+f32 height = 32.0f;
+
+// Set size in pixels
+fontSetScalePixel(&f, width, height);
+
+// Or for rendering
+fontSetupRenderScalePixel(&f, width, height);
+```
+
+### DPI Resolution
+
+Set resolution for point-to-pixel conversion:
+
+```c
+u32 hDpi = 72;  // Horizontal DPI
+u32 vDpi = 72;  // Vertical DPI
+
+fontSetResolutionDpi(&f, hDpi, vDpi);
+```
+
+## Rendering Text
+
+### Creating a Render Surface
+
+Define where glyphs will be rendered:
+
+```c
+fontRenderSurface surface;
+
+// Surface buffer (ARGB or grayscale)
+u32 width = 1920;
+u32 height = 1080;
+u32 pitch = width * 4;  // 4 bytes per pixel for ARGB
+void *buffer = malloc(pitch * height);
+
+// Initialize surface
+fontRenderSurfaceInit(&surface,
+                     buffer,           // Buffer pointer
+                     pitch,            // Pitch in bytes
+                     4,                // Bytes per pixel
+                     width, height);   // Dimensions
+
+// Set scissor rectangle (optional)
+fontRenderSurfaceSetScissor(&surface, 0, 0, width, height);
+```
+
+### Rendering a Character
+
+Render a single character glyph:
+
+```c
+u32 code = 'A';  // Character code (Unicode)
+f32 x = 100.0f;  // X position
+f32 y = 100.0f;  // Y position
+fontGlyphMetrics metrics;
+
+ret = fontRenderCharGlyphImage(&f, code, &surface, x, y,
+                               &metrics, NULL);
+if (ret != 0) {
+    printf("Failed to render character: %d\n", ret);
+}
+```
+
+### Rendering a String
+
+Render multiple characters:
+
+```c
+void renderString(font *f, fontRenderSurface *surface,
+                 const char *text, f32 x, f32 y) {
+    f32 pen_x = x;
+    f32 pen_y = y;
+    
+    while (*text) {
+        u32 code = (u32)*text++;
+        fontGlyphMetrics metrics;
+        
+        // Render character
+        s32 ret = fontRenderCharGlyphImage(f, code, surface,
+                                           pen_x, pen_y,
+                                           &metrics, NULL);
+        if (ret == 0) {
+            // Advance pen position
+            pen_x += metrics.horizontal.advance;
+        }
+    }
+}
+```
+
+## Glyph Metrics
+
+The `fontGlyphMetrics` structure provides glyph dimensions:
+
+```c
+// From font/font.h:95-110
+typedef struct _font_glyph_metrics {
+    f32 width;   // Glyph width
+    f32 height;  // Glyph height
+    
+    struct {
+        f32 bearingX;  // Horizontal bearing X
+        f32 bearingY;  // Horizontal bearing Y
+        f32 advance;   // Horizontal advance
+    } horizontal;
+    
+    struct {
+        f32 bearingX;  // Vertical bearing X
+        f32 bearingY;  // Vertical bearing Y
+        f32 advance;   // Vertical advance
+    } vertical;
+} fontGlyphMetrics;
+```
+
+### Getting Metrics Without Rendering
+
+```c
+u32 code = 'A';
+fontGlyphMetrics metrics;
+
+// Get horizontal metrics
+ret = fontGetCharGlyphMetrics(&f, code, &metrics);
+
+// Get vertical metrics (for vertical text)
+ret = fontGetCharGlyphMetricsVertical(&f, code, &metrics);
+
+printf("Width: %.2f, Height: %.2f\n", metrics.width, metrics.height);
+printf("Advance: %.2f\n", metrics.horizontal.advance);
+```
+
+### Measuring Text Width
+
+```c
+f32 measureText(font *f, const char *text) {
+    f32 width = 0.0f;
+    
+    while (*text) {
+        u32 code = (u32)*text++;
+        fontGlyphMetrics metrics;
+        
+        if (fontGetRenderCharGlyphMetrics(f, code, &metrics) == 0) {
+            width += metrics.horizontal.advance;
+        }
+    }
+    
+    return width;
+}
+```
+
+## Layout Information
+
+Get font layout properties:
+
+### Horizontal Layout
+
+```c
+fontHorizontalLayout layout;
+
+ret = fontGetHorizontalLayout(&f, &layout);
+if (ret == 0) {
+    printf("Baseline Y: %.2f\n", layout.baseLineY);
+    printf("Line height: %.2f\n", layout.lineHeight);
+    printf("Effect height: %.2f\n", layout.effectHeight);
+}
+```
+
+### Vertical Layout
+
+```c
+fontVerticalLayout layout;
+
+ret = fontGetVerticalLayout(&f, &layout);
+if (ret == 0) {
+    printf("Baseline X: %.2f\n", layout.baseLineX);
+    printf("Line width: %.2f\n", layout.lineWidth);
+    printf("Effect width: %.2f\n", layout.effectWidth);
+}
+```
+
+## Kerning
+
+Kerning adjusts spacing between specific character pairs:
+
+```c
+u32 prevCode = 'A';
+u32 currCode = 'V';
+fontKerning kerning;
+
+ret = fontGetKerning(&f, prevCode, currCode, &kerning);
+if (ret == 0) {
+    printf("Kerning offset X: %.2f\n", kerning.offsetX);
+    printf("Kerning offset Y: %.2f\n", kerning.offsetY);
+}
+```
+
+### Rendering with Kerning
+
+```c
+void renderStringWithKerning(font *f, fontRenderSurface *surface,
+                             const char *text, f32 x, f32 y) {
+    f32 pen_x = x;
+    f32 pen_y = y;
+    u32 prevCode = 0;
+    
+    while (*text) {
+        u32 code = (u32)*text++;
+        
+        // Apply kerning
+        if (prevCode != 0) {
+            fontKerning kerning;
+            if (fontGetRenderScaledKerning(f, prevCode, code,
+                                          &kerning) == 0) {
+                pen_x += kerning.offsetX;
+                pen_y += kerning.offsetY;
+            }
+        }
+        
+        // Render character
+        fontGlyphMetrics metrics;
+        fontRenderCharGlyphImage(f, code, surface, pen_x, pen_y,
+                                &metrics, NULL);
+        
+        // Advance
+        pen_x += metrics.horizontal.advance;
+        prevCode = code;
+    }
+}
+```
+
+## Font Effects
+
+Apply weight and slant effects:
+
+### Weight (Bold)
+
+```c
+f32 weight = 0.5f;  // Additional weight (0.0 = normal)
+
+// Set permanently
+fontSetEffectWeight(&f, weight);
+
+// Or for rendering only
+fontSetupRenderEffectWeight(&f, weight);
+```
+
+### Slant (Italic)
+
+```c
+f32 slant = 0.3f;  // Slant factor (0.0 = no slant)
+
+// Set permanently
+fontSetEffectSlant(&f, slant);
+
+// Or for rendering only
+fontSetupRenderEffectSlant(&f, slant);
+```
+
+## Advanced Rendering
+
+### Generating Glyph Outlines
+
+Get vector outline data:
+
+```c
+u32 code = 'A';
+fontGlyph *glyph;
+
+// Generate glyph with outline
+ret = fontGenerateCharGlyph(&f, code, &glyph);
+if (ret == 0) {
+    fontGlyphOutline *outline = &glyph->outline;
+    
+    printf("Contours: %d\n", outline->contoursCount);
+    printf("Points: %d\n", outline->pointsCount);
+    
+    // Access outline points
+    for (int i = 0; i < outline->pointsCount; i++) {
+        printf("Point %d: (%.2f, %.2f) tag=%d\n",
+               i, outline->Points[i].x, outline->Points[i].y,
+               outline->pointTags[i]);
+    }
+    
+    // Free glyph when done
+    fontDeleteGlyph(&f, glyph);
+}
+```
+
+### Custom Glyph Rendering
+
+Render with custom style:
+
+```c
+fontGlyph *glyph;
+fontGlyphStyle style;
+
+// Configure style
+style.Scale.widthPixel = 32.0f;
+style.Scale.heightPixel = 32.0f;
+style.Effect.weight = 0.0f;
+style.Effect.slant = 0.0f;
+
+// Generate glyph
+fontGenerateCharGlyph(&f, 'A', &glyph);
+
+// Render with custom style
+fontGlyphMetrics metrics;
+fontGlyphRenderImage(glyph, &style, renderer, &surface,
+                    x, y, &metrics, NULL);
+
+// Cleanup
+fontDeleteGlyph(&f, glyph);
+```
+
+## Complete Example
+
+```c
+#include <font/font.h>
+#include <font/fontFT.h>
+#include <font/fontset.h>
+
+font f;
+fontRenderer *renderer;
+fontLibrary *lib;
+
+int initFonts() {
+    // Initialize font system
+    fontConfig config;
+    fontConfig_initialize(&config);
+    
+    if (fontInit(&config) != 0) return -1;
+    
+    // Create library
+    if (fontCreateLibrary(NULL, &lib) != 0) return -1;
+    
+    // Create renderer
+    fontRendererConfig rconfig;
+    rconfig.bufferingPolicy.buffer = NULL;
+    rconfig.bufferingPolicy.initSize = 1024 * 1024;
+    rconfig.bufferingPolicy.maxSize = 4 * 1024 * 1024;
+    rconfig.bufferingPolicy.expandSize = 512 * 1024;
+    rconfig.bufferingPolicy.resetSize = 2 * 1024 * 1024;
+    
+    if (fontCreateRenderer(lib, &rconfig, &renderer) != 0) return -1;
+    
+    // Open system font
+    fontType type;
+    type.type = FONT_TYPE_DEFAULT;
+    type.map = FONT_MAP_UNICODE;
+    
+    if (fontOpenFontset(lib, &type, &f) != 0) return -1;
+    
+    // Bind renderer
+    fontBindRenderer(&f, renderer);
+    
+    // Set font size
+    fontSetScalePixel(&f, 24.0f, 24.0f);
+    
+    return 0;
+}
+
+void renderText(void *framebuffer, u32 width, u32 height,
+               const char *text, f32 x, f32 y) {
+    // Create surface
+    fontRenderSurface surface;
+    fontRenderSurfaceInit(&surface, framebuffer, width * 4, 4,
+                         width, height);
+    
+    // Render string
+    f32 pen_x = x;
+    f32 pen_y = y;
+    u32 prevCode = 0;
+    
+    while (*text) {
+        u32 code = (u32)*text++;
+        
+        // Apply kerning
+        if (prevCode) {
+            fontKerning kerning;
+            fontGetRenderScaledKerning(&f, prevCode, code, &kerning);
+            pen_x += kerning.offsetX;
+        }
+        
+        // Render
+        fontGlyphMetrics metrics;
+        fontRenderCharGlyphImage(&f, code, &surface,
+                                pen_x, pen_y, &metrics, NULL);
+        
+        pen_x += metrics.horizontal.advance;
+        prevCode = code;
+    }
+}
+
+void shutdownFonts() {
+    fontUnbindRenderer(&f);
+    fontCloseFont(&f);
+    fontDestroyRenderer(renderer);
+    fontEndLibrary(lib);
+    fontEnd();
+}
+```
+
+## Integrating with RSX
+
+To display font-rendered text on screen:
+
+```c
+// 1. Create texture from font surface
+u32 *text_texture = (u32*)rsxMemalign(128, width * height * 4);
+
+// 2. Render text to CPU buffer
+void *cpu_buffer = malloc(width * height * 4);
+fontRenderSurface surface;
+fontRenderSurfaceInit(&surface, cpu_buffer, width * 4, 4,
+                     width, height);
+renderText(&surface, "Hello World", 0, 0);
+
+// 3. Copy to RSX texture
+memcpy(text_texture, cpu_buffer, width * height * 4);
+free(cpu_buffer);
+
+// 4. Use as texture in rendering
+u32 tex_offset;
+rsxAddressToOffset(text_texture, &tex_offset);
+
+gcmTexture texture;
+texture.format = GCM_TEXTURE_FORMAT_A8R8G8B8 | GCM_TEXTURE_FORMAT_LIN;
+texture.width = width;
+texture.height = height;
+texture.offset = tex_offset;
+// ... configure texture and render
+```
+
+## Memory Management
+
+Cleanup when done:
+
+```c
+// Unbind renderer
+fontUnbindRenderer(&f);
+
+// Close font
+fontCloseFont(&f);
+
+// Destroy renderer
+fontDestroyRenderer(renderer);
+
+// End library
+fontEndLibrary(lib);
+
+// Shutdown font system
+fontEnd();
+```
+
+## API Reference
+
+<AccordionGroup>
+  <Accordion title="fontInit()">
+    Initialize the font system.
+    
+    ```c
+    s32 fontInit(fontConfig *config);
+    ```
+  </Accordion>
+  
+  <Accordion title="fontOpenFontFile()">
+    Open a font from file.
+    
+    ```c
+    s32 fontOpenFontFile(const fontLibrary *lib,
+                        const char *fontPath,
+                        u32 subNum, s32 uniqueID, font *f);
+    ```
+  </Accordion>
+  
+  <Accordion title="fontRenderCharGlyphImage()">
+    Render a character glyph.
+    
+    ```c
+    s32 fontRenderCharGlyphImage(font *f, u32 code,
+                                fontRenderSurface *surface,
+                                f32 x, f32 y,
+                                fontGlyphMetrics *metrics,
+                                fontImageTransInfo *transInfo);
+    ```
+  </Accordion>
+  
+  <Accordion title="fontGetCharGlyphMetrics()">
+    Get glyph metrics without rendering.
+    
+    ```c
+    s32 fontGetCharGlyphMetrics(font *f, u32 code,
+                               fontGlyphMetrics *metrics);
+    ```
+  </Accordion>
+  
+  <Accordion title="fontSetScalePixel()">
+    Set font size in pixels.
+    
+    ```c
+    s32 fontSetScalePixel(font *f, f32 w, f32 h);
+    ```
+  </Accordion>
+</AccordionGroup>

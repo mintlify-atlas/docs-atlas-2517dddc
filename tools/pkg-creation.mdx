@@ -1,0 +1,409 @@
+---
+title: PKG Creation
+description: Create installable PKG packages for PlayStation 3 homebrew applications
+---
+
+## Overview
+
+The PKG creation tools allow you to package your PS3 homebrew applications into installable PKG files. These packages include your application executable, metadata, icons, and additional resources.
+
+<Note>
+PKG files created with these tools are for homebrew use on custom firmware only.
+</Note>
+
+## Package Components
+
+<CardGroup cols={2}>
+  <Card title="PARAM.SFO" icon="file-lines">
+    System File Object containing application metadata, title, ID, and version information.
+  </Card>
+  <Card title="EBOOT.BIN" icon="file-code">
+    The main application executable in NPDRM SELF format.
+  </Card>
+  <Card title="ICON0.PNG" icon="image">
+    Application icon displayed in the XMB (320x176 pixels recommended).
+  </Card>
+  <Card title="Resources" icon="folder">
+    Additional files like sounds, textures, and data files in USRDIR/.
+  </Card>
+</CardGroup>
+
+## Required Tools
+
+The PKG creation process uses two Python scripts from `tools/ps3py/`:
+
+- **pkg.py**: Creates PKG archives from directory structures
+- **sfo.py**: Generates PARAM.SFO metadata files
+
+## PARAM.SFO Creation
+
+### Using sfo.py
+
+PARAM.SFO files contain essential metadata for your application.
+
+```bash
+sfo.py -f [options] input.xml output.sfo
+```
+
+### SFO XML Format
+
+Create an XML template with your application metadata:
+
+```xml sfo.xml
+<?xml version="1.0"?>
+<sfo>
+  <value name="APP_VER" type="string">01.00</value>
+  <value name="ATTRIBUTE" type="integer">0</value>
+  <value name="BOOTABLE" type="integer">1</value>
+  <value name="CATEGORY" type="string">HG</value>
+  <value name="LICENSE" type="string">Creative Commons</value>
+  <value name="PS3_SYSTEM_VER" type="string">03.4100</value>
+  <value name="RESOLUTION" type="integer">63</value>
+  <value name="SOUND_FORMAT" type="integer">1</value>
+  <value name="TITLE" type="string">My PSL1GHT App</value>
+  <value name="TITLE_ID" type="string">MYAP00001</value>
+  <value name="VERSION" type="string">01.00</value>
+</sfo>
+```
+
+<Tip>
+PSL1GHT includes a default sfo.xml at `$PS3DEV/bin/sfo.xml` that you can customize.
+</Tip>
+
+### Generate PARAM.SFO
+
+```bash
+# From XML template
+sfo.py -f sfo.xml PARAM.SFO
+
+# Override title and app ID
+sfo.py -f sfo.xml --title "My Game" --appid "GAME00001" PARAM.SFO
+```
+
+### SFO Options
+
+<ParamField path="-f, --fromxml" type="string">
+  Convert from XML to SFO format
+</ParamField>
+
+<ParamField path="-t, --toxml" type="string">
+  Convert existing SFO to XML format
+</ParamField>
+
+<ParamField path="--title" type="string">
+  Override the TITLE field from XML
+</ParamField>
+
+<ParamField path="--appid" type="string">
+  Override the TITLE_ID field from XML
+</ParamField>
+
+<ParamField path="-l, --list" type="string">
+  List contents of an existing SFO file
+</ParamField>
+
+## PKG Creation Workflow
+
+<Steps>
+  <Step title="Prepare Directory Structure">
+    Create a package directory with the required structure:
+    ```bash
+    mkdir -p pkg/USRDIR
+    ```
+  </Step>
+  
+  <Step title="Create NPDRM EBOOT.BIN">
+    Convert your ELF to NPDRM SELF format:
+    ```bash
+    fself -n myapp.elf pkg/USRDIR/EBOOT.BIN
+    ```
+  </Step>
+  
+  <Step title="Generate PARAM.SFO">
+    Create the metadata file:
+    ```bash
+    sfo.py -f sfo.xml --title "My App" --appid "MYAP00001" pkg/PARAM.SFO
+    ```
+  </Step>
+  
+  <Step title="Add Icon and Resources">
+    Copy your icon and additional files:
+    ```bash
+    cp ICON0.PNG pkg/
+    cp -r data/* pkg/USRDIR/
+    ```
+  </Step>
+  
+  <Step title="Create PKG">
+    Build the package with a Content ID:
+    ```bash
+    pkg.py --contentid UP0001-MYAP00001_00-0000000000000000 pkg/ myapp.pkg
+    ```
+  </Step>
+</Steps>
+
+## Using pkg.py
+
+### Basic Usage
+
+```bash
+pkg.py [options] source-directory [output-file]
+```
+
+### Creating a Package
+
+```bash
+# Create PKG from directory
+pkg.py --contentid UP0001-GAME00001_00-0000000000000000 pkg/ mygame.pkg
+
+# If output file is omitted, uses Content ID as filename
+pkg.py --contentid UP0001-GAME00001_00-0000000000000000 pkg/
+# Creates: UP0001-GAME00001_00-0000000000000000.pkg
+```
+
+### PKG Options
+
+<ParamField path="-c, --contentid" type="string" required>
+  Content ID in format: UP0001-TITLEID_00-0000000000000000
+</ParamField>
+
+<ParamField path="-l, --list" type="string">
+  List contents of an existing PKG file
+</ParamField>
+
+<ParamField path="-x, --extract" type="string">
+  Extract contents from an existing PKG
+</ParamField>
+
+### Content ID Format
+
+The Content ID must follow Sony's format:
+
+```
+UP0001-TITLEID_00-0000000000000000
+│     │        │  │
+│     │        │  └─ Unique identifier (16 chars)
+│     │        └──── Version separator
+│     └───────────── Title ID (9 chars)
+└─────────────────── Publisher ID
+```
+
+<Tip>
+For homebrew, use `UP0001` as the publisher ID and create a unique Title ID.
+</Tip>
+
+## Package Directory Structure
+
+Your package directory should follow this structure:
+
+```
+pkg/
+├── PARAM.SFO          # Application metadata (required)
+├── ICON0.PNG          # Application icon (required)
+├── PIC1.PNG           # Background image (optional)
+└── USRDIR/            # Application directory (required)
+    ├── EBOOT.BIN      # Main executable (required)
+    ├── data/          # Your data files
+    ├── shaders/       # Shader files
+    └── textures/      # Texture files
+```
+
+<Note>
+The EBOOT.BIN must be in NPDRM SELF format. Use `fself -n` to create it.
+</Note>
+
+## Automated Build Integration
+
+The PSL1GHT build system automates PKG creation in `ppu_rules`:
+
+```makefile
+%.pkg: %.self
+    $(VERB) echo building pkg ... $(notdir $@)
+    $(VERB) mkdir -p $(BUILDDIR)/pkg/USRDIR
+    $(VERB) cp $(ICON0) $(BUILDDIR)/pkg/ICON0.PNG
+    $(VERB) $(SELF_NPDRM) $(BUILDDIR)/$(basename $(notdir $<)).elf \
+            $(BUILDDIR)/pkg/USRDIR/EBOOT.BIN $(CONTENTID)
+    $(VERB) $(SFO) --title "$(TITLE)" --appid "$(APPID)" \
+            -f $(SFOXML) $(BUILDDIR)/pkg/PARAM.SFO
+    $(VERB) if [ -n "$(PKGFILES)" -a -d "$(PKGFILES)" ]; then \
+            cp -rf $(PKGFILES)/* $(BUILDDIR)/pkg/; fi
+    $(VERB) $(PKG) --contentid $(CONTENTID) $(BUILDDIR)/pkg/ $@
+```
+
+### Makefile Configuration
+
+Configure your Makefile with package metadata:
+
+```makefile
+# Package settings
+TITLE      := My PSL1GHT Application
+APPID      := MYAP00001
+CONTENTID  := UP0001-$(APPID)_00-0000000000000000
+ICON0      := $(CURDIR)/resources/ICON0.PNG
+SFOXML     := $(CURDIR)/resources/sfo.xml
+PKGFILES   := $(CURDIR)/pkgfiles
+```
+
+### Build PKG
+
+```bash
+# Build everything and create PKG
+make pkg
+
+# Or explicitly
+make myapp.pkg
+```
+
+## Complete Example
+
+<CodeGroup>
+```bash Manual Process
+#!/bin/bash
+
+# Set up variables
+APP_NAME="mygame"
+APP_TITLE="My Awesome Game"
+APP_ID="GAME00001"
+CONTENT_ID="UP0001-${APP_ID}_00-0000000000000000"
+
+# Create directory structure
+mkdir -p pkg/USRDIR
+
+# Create NPDRM SELF
+fself -n build/${APP_NAME}.elf pkg/USRDIR/EBOOT.BIN
+
+# Generate PARAM.SFO
+sfo.py -f sfo.xml --title "${APP_TITLE}" --appid "${APP_ID}" pkg/PARAM.SFO
+
+# Copy resources
+cp resources/ICON0.PNG pkg/
+cp -r data/* pkg/USRDIR/
+
+# Create PKG
+pkg.py --contentid ${CONTENT_ID} pkg/ ${APP_NAME}.pkg
+
+echo "Package created: ${APP_NAME}.pkg"
+```
+
+```makefile Makefile Integration
+# In your Makefile
+include $(PSL1GHT)/ppu_rules
+
+TARGET     := mygame
+TITLE      := My Awesome Game
+APPID      := GAME00001
+CONTENTID  := UP0001-$(APPID)_00-0000000000000000
+ICON0      := resources/ICON0.PNG
+SFOXML     := resources/sfo.xml
+PKGFILES   := pkgfiles
+
+# Build PKG
+pkg: $(TARGET).pkg
+
+$(TARGET).pkg: $(TARGET).self
+	# Automatic via ppu_rules
+```
+</CodeGroup>
+
+## Package Testing
+
+### List Package Contents
+
+```bash
+# View files in PKG
+pkg.py -l myapp.pkg
+```
+
+Output:
+```
+Listing: "myapp.pkg"
++) overwrite, -) no overwrite
+
+  directory:+          0: 
+   raw data:+        320: PARAM.SFO
+   raw data:+      51200: ICON0.PNG
+  directory:+          0: USRDIR
+ NPDRM SELF:+     524288: USRDIR/EBOOT.BIN
+   raw data:+      16384: USRDIR/data/textures.dat
+```
+
+### Extract Package
+
+```bash
+# Extract PKG to directory
+pkg.py -x myapp.pkg
+
+# Creates directory: UP0001-MYAP00001_00-0000000000000000/
+```
+
+## Source Code Reference
+
+Packaging tools are implemented in:
+- **PKG Tool**: `tools/ps3py/pkg.py:1-608`
+- **SFO Tool**: `tools/ps3py/sfo.py:1-323`
+- **PKG Encryption**: `tools/ps3py/crypt.c`
+- **FSELF Integration**: `tools/ps3py/fself.py`
+
+### Key Functions
+
+```python
+# From tools/ps3py/pkg.py:378
+def pack(folder, contentid, outname=None):
+    # Creates encrypted PKG from folder structure
+    # Handles NPDRM SELF metadata
+    # Generates QA digest for verification
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Invalid Content ID">
+    Ensure your Content ID follows the correct format:
+    ```
+    UP0001-TITLEID_00-0000000000000000
+    ```
+    - Publisher: UP0001 (4-6 chars)
+    - Title ID: 9 characters
+    - Version: 00
+    - Unique ID: 16 characters
+  </Accordion>
+  
+  <Accordion title="PKG Won't Install on PS3">
+    Common causes:
+    - EBOOT.BIN is not in NPDRM format (use `fself -n`)
+    - PARAM.SFO is missing or invalid
+    - Custom firmware doesn't support homebrew PKG installation
+  </Accordion>
+  
+  <Accordion title="Application Doesn't Appear in XMB">
+    Check that:
+    - ICON0.PNG exists and is valid
+    - PARAM.SFO has correct CATEGORY (use "HG" for homebrew games)
+    - TITLE field in PARAM.SFO is not empty
+  </Accordion>
+  
+  <Accordion title="Python Import Errors">
+    The ps3py tools require Python 2 and compiled extensions:
+    ```bash
+    cd tools/ps3py
+    python setup.py build
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="FSELF Tool" icon="file-code" href="/tools/fself">
+    Create SELF executables for packaging
+  </Card>
+  <Card title="PS3 Loading" icon="network-wired" href="/tools/ps3load">
+    Test without creating PKG files
+  </Card>
+  <Card title="Build System" icon="gears" href="/concepts/build-system">
+    Automate PKG creation
+  </Card>
+  <Card title="Sample Projects" icon="folder-open" href="/examples/overview">
+    See complete packaging examples
+  </Card>
+</CardGroup>

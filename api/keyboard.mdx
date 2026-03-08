@@ -1,0 +1,605 @@
+---
+title: 'Keyboard'
+description: 'USB keyboard input and management'
+---
+
+The Keyboard API provides functions for managing USB keyboards connected to the PlayStation 3, including reading key input, configuring keyboard mappings, and controlling LED indicators.
+
+## Initialization
+
+### ioKbInit
+
+Initialize the keyboard library.
+
+```c
+s32 ioKbInit(const u32 max);
+```
+
+<ParamField path="max" type="u32" required>
+  Maximum number of keyboards allowed to connect (max limit is 7)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+**Example:**
+```c
+#include <io/kb.h>
+
+// Initialize keyboard system for up to 7 keyboards
+if (ioKbInit(MAX_KB_PORT_NUM) != 0) {
+    printf("Failed to initialize keyboard\n");
+    return -1;
+}
+```
+
+### ioKbEnd
+
+Close/end the keyboard library and release resources.
+
+```c
+s32 ioKbEnd(void);
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+## Reading Keyboard Information
+
+### ioKbGetInfo
+
+Get information about connected keyboards.
+
+```c
+s32 ioKbGetInfo(KbInfo* kb_info);
+```
+
+<ParamField path="kb_info" type="KbInfo*" required>
+  Pointer to KbInfo structure to receive keyboard connection information
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+**KbInfo Structure:**
+```c
+typedef struct KbInfo {
+    u32 max;                    // max keyboards allowed to connect
+    u32 connected;              // how many keyboards connected
+    u32 info;                   // Bit 0: system intercept flag
+    u8 status[MAX_KEYBOARDS];   // connection status (0: not connected, 1: connected)
+} KbInfo;
+```
+
+<Expandable title="KbInfo Fields">
+  <ParamField path="max" type="u32">
+    Maximum number of keyboards that can be connected
+  </ParamField>
+  <ParamField path="connected" type="u32">
+    Number of currently connected keyboards
+  </ParamField>
+  <ParamField path="info" type="u32">
+    Bit 0: lets the system intercept keyboard input; other bits reserved
+  </ParamField>
+  <ParamField path="status" type="u8[127]">
+    Array of connection statuses for each keyboard slot (0: not connected, 1: connected)
+  </ParamField>
+</Expandable>
+
+### ioKbGetConfiguration
+
+Get the configuration for a specific keyboard.
+
+```c
+s32 ioKbGetConfiguration(const u32 kb_no, KbConfig* kb_config);
+```
+
+<ParamField path="kb_no" type="u32" required>
+  Keyboard port number
+</ParamField>
+
+<ParamField path="kb_config" type="KbConfig*" required>
+  Pointer to KbConfig structure to receive configuration
+</ParamField>
+
+**KbConfig Structure:**
+```c
+typedef struct KbConfig {
+    u32 mapping;    // Keyboard layout mapping (see KbMapping enum)
+    u32 rmode;      // Read mode (see KbRmode enum)
+    u32 codetype;   // Code type (see KbCodeType enum)
+} KbConfig;
+```
+
+## Reading Keyboard Input
+
+### ioKbRead
+
+Read keyboard input data from the keyboard buffer.
+
+```c
+s32 ioKbRead(const u32 kb_no, KbData* data);
+```
+
+<ParamField path="kb_no" type="u32" required>
+  Keyboard port number (0-6)
+</ParamField>
+
+<ParamField path="data" type="KbData*" required>
+  Pointer to KbData structure to receive keyboard input
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+**KbData Structure:**
+```c
+typedef struct KbData {
+    KbLed led;                  // Keyboard LED state
+    KbMkey mkey;                // Modifier key state
+    s32 nb_keycode;             // Number of key codes (0 = no data)
+    u16 keycode[MAX_KEYCODES];  // Array of key codes
+} KbData;
+```
+
+<Expandable title="KbData Fields">
+  <ParamField path="led" type="KbLed">
+    Current state of keyboard LED indicators
+  </ParamField>
+  <ParamField path="mkey" type="KbMkey">
+    Current state of modifier keys (Ctrl, Shift, Alt, Win)
+  </ParamField>
+  <ParamField path="nb_keycode" type="s32">
+    Number of key codes in the keycode array. If 0, no keys are pressed.
+  </ParamField>
+  <ParamField path="keycode" type="u16[62]">
+    Array of key codes for currently pressed keys
+  </ParamField>
+</Expandable>
+
+**Example:**
+```c
+KbInfo kbinfo;
+KbData kbdata;
+
+ioKbGetInfo(&kbinfo);
+
+for (int i = 0; i < MAX_KEYBOARDS; i++) {
+    if (kbinfo.status[i]) {
+        ioKbRead(i, &kbdata);
+        
+        if (kbdata.nb_keycode > 0) {
+            for (int j = 0; j < kbdata.nb_keycode; j++) {
+                printf("Key pressed: 0x%04X\n", kbdata.keycode[j]);
+                
+                // Check for specific keys
+                if (kbdata.keycode[j] == KB_RAWKEY_ESCAPE) {
+                    printf("Escape key pressed\n");
+                }
+            }
+            
+            // Check modifier keys
+            if (kbdata.mkey.l_ctrl || kbdata.mkey.r_ctrl) {
+                printf("Ctrl is held\n");
+            }
+        }
+    }
+}
+```
+
+## Keyboard Configuration
+
+### ioKbSetReadMode
+
+Set the keyboard read mode.
+
+```c
+s32 ioKbSetReadMode(const u32 kb_no, const KbRmode kb_rmode);
+```
+
+<ParamField path="kb_no" type="u32" required>
+  Keyboard port number
+</ParamField>
+
+<ParamField path="kb_rmode" type="KbRmode" required>
+  Read mode:
+  - `KB_RMODE_INPUTCHAR` (0): Character input mode
+  - `KB_RMODE_PACKET` (1): Packet mode
+</ParamField>
+
+### ioKbSetCodeType
+
+Set the keyboard code type (RAW or ASCII).
+
+```c
+s32 ioKbSetCodeType(const u32 kb_no, const KbCodeType kb_codetype);
+```
+
+<ParamField path="kb_no" type="u32" required>
+  Keyboard port number
+</ParamField>
+
+<ParamField path="kb_codetype" type="KbCodeType" required>
+  Code type:
+  - `KB_CODETYPE_RAW` (0): Return RAW key codes
+  - `KB_CODETYPE_ASCII` (1): Return ASCII codes
+</ParamField>
+
+**Example:**
+```c
+// Set to ASCII mode for text input
+ioKbSetReadMode(0, KB_RMODE_INPUTCHAR);
+ioKbSetCodeType(0, KB_CODETYPE_ASCII);
+
+KbData kbdata;
+ioKbRead(0, &kbdata);
+
+for (int i = 0; i < kbdata.nb_keycode; i++) {
+    char c = kbdata.keycode[i] & 0xFF;
+    printf("Character: %c\n", c);
+}
+```
+
+### ioKbCnvRawCode
+
+Convert a raw keyboard key code to a character based on keyboard mapping and modifier state.
+
+```c
+u16 ioKbCnvRawCode(const KbMapping mapping, const KbMkey mkey, 
+                   const KbLed led, const u16 rawcode);
+```
+
+<ParamField path="mapping" type="KbMapping" required>
+  Keyboard layout mapping (e.g., KB_MAPPING_101, KB_MAPPING_106)
+</ParamField>
+
+<ParamField path="mkey" type="KbMkey" required>
+  Current modifier key state
+</ParamField>
+
+<ParamField path="led" type="KbLed" required>
+  Current LED state (affects Caps Lock, etc.)
+</ParamField>
+
+<ParamField path="rawcode" type="u16" required>
+  Raw key code to convert
+</ParamField>
+
+<ResponseField name="return" type="u16">
+  Converted key code (typically ASCII)
+</ResponseField>
+
+**Example:**
+```c
+KbConfig config;
+ioKbGetConfiguration(0, &config);
+
+KbData kbdata;
+ioKbRead(0, &kbdata);
+
+for (int i = 0; i < kbdata.nb_keycode; i++) {
+    u16 converted = ioKbCnvRawCode(config.mapping, kbdata.mkey, 
+                                   kbdata.led, kbdata.keycode[i]);
+    printf("Key: 0x%04X -> ASCII: %c\n", kbdata.keycode[i], converted & 0xFF);
+}
+```
+
+## LED Control
+
+### ioKbSetLEDStatus
+
+Control keyboard LED indicators.
+
+```c
+s32 ioKbSetLEDStatus(const u32 kb_no, const KbLed led_state);
+```
+
+<ParamField path="kb_no" type="u32" required>
+  Keyboard port number
+</ParamField>
+
+<ParamField path="led_state" type="KbLed" required>
+  LED state to set
+</ParamField>
+
+**KbLed Structure:**
+```c
+typedef struct KbLed {
+    union {
+        u32 leds;
+        struct {
+            u32 reserved    : 27;  // Reserved
+            u32 kana        : 1;   // Kana LED (0: OFF, 1: ON)
+            u32 compose     : 1;   // Compose LED (0: OFF, 1: ON)
+            u32 scroll_lock : 1;   // Scroll Lock LED (0: OFF, 1: ON)
+            u32 caps_lock   : 1;   // Caps Lock LED (0: OFF, 1: ON)
+            u32 num_lock    : 1;   // Num Lock LED (0: OFF, 1: ON)
+        }_KbLedS;
+    }_KbLedU;
+} KbLed;
+```
+
+**Example - LED Control:**
+```c
+KbLed led_state;
+
+// Turn on Num Lock
+led_state.leds = 0;
+led_state.num_lock = 1;
+ioKbSetLEDStatus(0, led_state);
+
+// Turn on Caps Lock
+led_state.leds = 0;
+led_state.caps_lock = 1;
+ioKbSetLEDStatus(0, led_state);
+
+// Turn off all LEDs
+led_state.leds = 0;
+ioKbSetLEDStatus(0, led_state);
+
+// Turn on all LEDs
+led_state.leds = 0xFFFFFFFF;
+led_state.reserved = 0;  // Keep reserved bits clear
+ioKbSetLEDStatus(0, led_state);
+```
+
+## Modifier Keys
+
+**KbMkey Structure:**
+```c
+typedef struct KbMkey {
+    union {
+        u32 mkeys;
+        struct {
+            u32 reserved : 24;  // Reserved
+            u32 r_win    : 1;   // Right Win key (0: UP, 1: DOWN)
+            u32 r_alt    : 1;   // Right Alt key
+            u32 r_shift  : 1;   // Right Shift key
+            u32 r_ctrl   : 1;   // Right Ctrl key
+            u32 l_win    : 1;   // Left Win key
+            u32 l_alt    : 1;   // Left Alt key (Mac: Option)
+            u32 l_shift  : 1;   // Left Shift key
+            u32 l_ctrl   : 1;   // Left Ctrl key
+        }_KbMkeyS;
+    }_KbMkeyU;
+} KbMkey;
+```
+
+<Note>
+  For Macintosh keyboards, Alt and Win keys correspond to Option and Apple keys respectively.
+</Note>
+
+## Utility Functions
+
+### ioKbClearBuf
+
+Clear the keyboard input buffer.
+
+```c
+s32 ioKbClearBuf(const u32 kb_no);
+```
+
+<ParamField path="kb_no" type="u32" required>
+  Keyboard port number
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+## Key Code Constants
+
+### Special Keys
+
+```c
+#define KB_RAWDAT                   0x8000U  // Raw data flag
+#define KB_KEYPAD                   0x4000U  // Keypad flag
+
+// Special keys that cannot be converted to ASCII
+#define KB_RAWKEY_NO_EVENT          0x00
+#define KB_RAWKEY_E_ROLLOVER        0x01
+#define KB_RAWKEY_E_POSTFAIL        0x02
+#define KB_RAWKEY_E_UNDEF           0x03
+#define KB_RAWKEY_ESCAPE            0x29
+#define KB_RAWKEY_CAPS_LOCK         0x39
+```
+
+### Function Keys
+
+```c
+#define KB_RAWKEY_F1                0x3a
+#define KB_RAWKEY_F2                0x3b
+#define KB_RAWKEY_F3                0x3c
+#define KB_RAWKEY_F4                0x3d
+#define KB_RAWKEY_F5                0x3e
+#define KB_RAWKEY_F6                0x3f
+#define KB_RAWKEY_F7                0x40
+#define KB_RAWKEY_F8                0x41
+#define KB_RAWKEY_F9                0x42
+#define KB_RAWKEY_F10               0x43
+#define KB_RAWKEY_F11               0x44
+#define KB_RAWKEY_F12               0x45
+```
+
+### Navigation Keys
+
+```c
+#define KB_RAWKEY_PRINTSCREEN       0x46
+#define KB_RAWKEY_SCROLL_LOCK       0x47
+#define KB_RAWKEY_PAUSE             0x48
+#define KB_RAWKEY_INSERT            0x49
+#define KB_RAWKEY_HOME              0x4a
+#define KB_RAWKEY_PAGE_UP           0x4b
+#define KB_RAWKEY_DELETE            0x4c
+#define KB_RAWKEY_END               0x4d
+#define KB_RAWKEY_PAGE_DOWN         0x4e
+#define KB_RAWKEY_RIGHT_ARROW       0x4f
+#define KB_RAWKEY_LEFT_ARROW        0x50
+#define KB_RAWKEY_DOWN_ARROW        0x51
+#define KB_RAWKEY_UP_ARROW          0x52
+```
+
+### Alphanumeric Keys
+
+```c
+#define KB_RAWKEY_A                 0x04
+#define KB_RAWKEY_B                 0x05
+#define KB_RAWKEY_C                 0x06
+// ... (all letters A-Z: 0x04-0x1D)
+#define KB_RAWKEY_Z                 0x1D
+
+#define KB_RAWKEY_0                 0x27
+#define KB_RAWKEY_1                 0x1E
+// ... (all numbers 1-9: 0x1E-0x26)
+#define KB_RAWKEY_9                 0x26
+```
+
+### Control Keys
+
+```c
+#define KB_RAWKEY_ENTER             0x28
+#define KB_RAWKEY_ESC               0x29
+#define KB_RAWKEY_BS                0x2A  // Backspace
+#define KB_RAWKEY_TAB               0x2B
+#define KB_RAWKEY_SPACE             0x2C
+```
+
+### Keypad Keys
+
+```c
+#define KB_RAWKEY_KPAD_NUMLOCK      0x53
+#define KB_RAWKEY_KPAD_SLASH        0x54
+#define KB_RAWKEY_KPAD_ASTERISK     0x55
+#define KB_RAWKEY_KPAD_MINUS        0x56
+#define KB_RAWKEY_KPAD_PLUS         0x57
+#define KB_RAWKEY_KPAD_ENTER        0x58
+#define KB_RAWKEY_KPAD_0            0x62
+#define KB_RAWKEY_KPAD_1            0x59
+// ... (keypad 1-9: 0x59-0x61)
+#define KB_RAWKEY_KPAD_9            0x61
+#define KB_RAWKEY_KPAD_PERIOD       0x63
+```
+
+### Japanese Keyboard Keys
+
+```c
+#define KB_RAWKEY_106_KANJI         0x35  // Half-width/full-width Kanji
+#define KB_RAWKEY_KANA              0x88  // Katakana/Hiragana/Romaji
+#define KB_RAWKEY_HENKAN            0x8a  // Conversion
+#define KB_RAWKEY_MUHENKAN          0x8b  // No conversion
+#define KB_RAWKEY_YEN_106           0x89  // Yen symbol
+```
+
+## Keyboard Mappings
+
+```c
+typedef enum KbMapping {
+    KB_MAPPING_101,                         // US 101-key
+    KB_MAPPING_106,                         // Japanese 106-key
+    KB_MAPPING_106_KANA,                    // Japanese 106-key with Kana
+    KB_MAPPING_GERMAN_GERMANY,              // German
+    KB_MAPPING_SPANISH_SPAIN,               // Spanish
+    KB_MAPPING_FRENCH_FRANCE,               // French
+    KB_MAPPING_ITALIAN_ITALY,               // Italian
+    KB_MAPPING_DUTCH_NETHERLANDS,           // Dutch
+    KB_MAPPING_PORTUGUESE_PORTUGAL,         // Portuguese
+    KB_MAPPING_RUSSIAN_RUSSIA,              // Russian
+    KB_MAPPING_ENGLISH_UK,                  // English (UK)
+    KB_MAPPING_KOREAN_KOREA,                // Korean
+    KB_MAPPING_NORWEGIAN_NORWAY,            // Norwegian
+    KB_MAPPING_FINNISH_FINLAND,             // Finnish
+    KB_MAPPING_DANISH_DENMARK,              // Danish
+    KB_MAPPING_SWEDISH_SWEDEN,              // Swedish
+    KB_MAPPING_CHINESE_TRADITIONAL,         // Chinese (Traditional)
+    KB_MAPPING_CHINESE_SIMPLIFIED,          // Chinese (Simplified)
+    KB_MAPPING_SWISS_FRENCH_SWITZERLAND,    // Swiss French
+    KB_MAPPING_SWISS_GERMAN_SWITZERLAND,    // Swiss German
+    KB_MAPPING_CANADIAN_FRENCH_CANADA       // Canadian French
+} KbMapping;
+```
+
+## Constants
+
+```c
+#define MAX_KEYBOARDS           127   // Maximum number of keyboards
+#define MAX_KB_PORT_NUM         7     // Maximum port number
+#define MAX_KEYCODES            62    // Maximum simultaneous key codes
+```
+
+## Complete Example
+
+```c
+#include <io/kb.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+    KbInfo kbinfo;
+    KbData kbdata;
+    
+    // Initialize keyboard system
+    if (ioKbInit(MAX_KB_PORT_NUM) != 0) {
+        printf("Failed to initialize keyboard\n");
+        return -1;
+    }
+    
+    // Get keyboard info
+    ioKbGetInfo(&kbinfo);
+    printf("Max keyboards: %d, Connected: %d\n", 
+           kbinfo.max, kbinfo.connected);
+    
+    // Main input loop
+    while (1) {
+        ioKbGetInfo(&kbinfo);
+        
+        for (int i = 0; i < MAX_KEYBOARDS; i++) {
+            if (kbinfo.status[i]) {
+                ioKbRead(i, &kbdata);
+                
+                if (kbdata.nb_keycode > 0) {
+                    // Process each key
+                    for (int j = 0; j < kbdata.nb_keycode; j++) {
+                        u16 key = kbdata.keycode[j];
+                        
+                        // Check for ESC key to exit
+                        if (key == KB_RAWKEY_ESCAPE) {
+                            printf("ESC pressed, exiting\n");
+                            goto cleanup;
+                        }
+                        
+                        // Check for Ctrl+C
+                        if ((kbdata.mkey.l_ctrl || kbdata.mkey.r_ctrl) &&
+                            key == KB_RAWKEY_C) {
+                            printf("Ctrl+C pressed\n");
+                            goto cleanup;
+                        }
+                        
+                        printf("Key: 0x%04X\n", key);
+                    }
+                    
+                    // Display modifier state
+                    if (kbdata.mkey.l_shift || kbdata.mkey.r_shift) {
+                        printf("SHIFT held\n");
+                    }
+                    if (kbdata.mkey.l_ctrl || kbdata.mkey.r_ctrl) {
+                        printf("CTRL held\n");
+                    }
+                    if (kbdata.mkey.l_alt || kbdata.mkey.r_alt) {
+                        printf("ALT held\n");
+                    }
+                }
+            }
+        }
+        
+        usleep(10000);  // 10ms delay
+    }
+    
+cleanup:
+    ioKbEnd();
+    return 0;
+}
+```

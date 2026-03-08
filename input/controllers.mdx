@@ -1,0 +1,454 @@
+---
+title: Controllers
+description: PS3 controller (DualShock 3) support for reading buttons, analog sticks, and sensors
+---
+
+## Overview
+
+The PSL1GHT SDK provides comprehensive support for PlayStation 3 controllers through the `io/pad.h` API. You can read button states, analog stick positions, pressure-sensitive inputs, motion sensors, and control rumble feedback.
+
+<Note>
+Up to 7 controllers can be connected simultaneously (ports 0-6). The PS button is handled by the XMB system.
+</Note>
+
+## Initialization
+
+Initialize the pad system before reading controller input:
+
+```c
+#include <io/pad.h>
+
+// Initialize with maximum number of controllers
+s32 ret = ioPadInit(7);
+if (ret != 0) {
+    printf("Failed to initialize pad: %d\n", ret);
+}
+```
+
+<ParamField path="max" type="u32">
+  Maximum number of pads to support (max: 7)
+</ParamField>
+
+## Getting Controller Information
+
+Query connected controllers and their status:
+
+```c
+padInfo padinfo;
+ioPadGetInfo(&padinfo);
+
+printf("Max pads: %u\n", padinfo.max);
+printf("Connected: %u\n", padinfo.connected);
+
+for (int i = 0; i < MAX_PADS; i++) {
+    if (padinfo.status[i]) {
+        printf("Controller %d connected\n", i);
+        printf("  Vendor ID: %04x\n", padinfo.vendor_id[i]);
+        printf("  Product ID: %04x\n", padinfo.product_id[i]);
+    }
+}
+```
+
+### padInfo Structure
+
+<ParamField path="max" type="u32">
+  Maximum pads allowed to connect
+</ParamField>
+
+<ParamField path="connected" type="u32">
+  Number of currently connected pads
+</ParamField>
+
+<ParamField path="info" type="u32">
+  Bit 0: System intercept flag
+</ParamField>
+
+<ParamField path="vendor_id" type="u16[127]">
+  Array of vendor IDs for each pad
+</ParamField>
+
+<ParamField path="product_id" type="u16[127]">
+  Array of product IDs for each pad
+</ParamField>
+
+<ParamField path="status" type="u8[127]">
+  Connection status (0: disconnected, 1: connected)
+</ParamField>
+
+## Reading Button Input
+
+Read controller data in your game loop:
+
+```c
+padData paddata;
+s32 ret = ioPadGetData(0, &paddata);  // Port 0
+
+if (ret == 0 && paddata.len > 0) {
+    // Digital buttons
+    if (paddata.BTN_CROSS) printf("X pressed\n");
+    if (paddata.BTN_CIRCLE) printf("O pressed\n");
+    if (paddata.BTN_TRIANGLE) printf("Triangle pressed\n");
+    if (paddata.BTN_SQUARE) printf("Square pressed\n");
+    
+    // D-pad
+    if (paddata.BTN_UP) printf("Up pressed\n");
+    if (paddata.BTN_DOWN) printf("Down pressed\n");
+    if (paddata.BTN_LEFT) printf("Left pressed\n");
+    if (paddata.BTN_RIGHT) printf("Right pressed\n");
+    
+    // Shoulder buttons
+    if (paddata.BTN_L1) printf("L1 pressed\n");
+    if (paddata.BTN_R1) printf("R1 pressed\n");
+    if (paddata.BTN_L2) printf("L2 pressed\n");
+    if (paddata.BTN_R2) printf("R2 pressed\n");
+    
+    // Control buttons
+    if (paddata.BTN_START) printf("Start pressed\n");
+    if (paddata.BTN_SELECT) printf("Select pressed\n");
+    if (paddata.BTN_L3) printf("L3 pressed\n");
+    if (paddata.BTN_R3) printf("R3 pressed\n");
+}
+```
+
+<Note>
+The `padData` structure is only updated when input changes. If `len` is 0, there was no new input since the last call.
+</Note>
+
+## Button Mappings
+
+### Digital Button Masks
+
+| Constant | Button | Offset |
+|----------|--------|--------|
+| `PAD_CTRL_SELECT` | Select | DIGITAL1[0] |
+| `PAD_CTRL_L3` | Left stick click | DIGITAL1[1] |
+| `PAD_CTRL_R3` | Right stick click | DIGITAL1[2] |
+| `PAD_CTRL_START` | Start | DIGITAL1[3] |
+| `PAD_CTRL_UP` | D-pad Up | DIGITAL1[4] |
+| `PAD_CTRL_RIGHT` | D-pad Right | DIGITAL1[5] |
+| `PAD_CTRL_DOWN` | D-pad Down | DIGITAL1[6] |
+| `PAD_CTRL_LEFT` | D-pad Left | DIGITAL1[7] |
+| `PAD_CTRL_L2` | L2 trigger | DIGITAL2[0] |
+| `PAD_CTRL_R2` | R2 trigger | DIGITAL2[1] |
+| `PAD_CTRL_L1` | L1 shoulder | DIGITAL2[2] |
+| `PAD_CTRL_R1` | R1 shoulder | DIGITAL2[3] |
+| `PAD_CTRL_TRIANGLE` | Triangle | DIGITAL2[4] |
+| `PAD_CTRL_CIRCLE` | Circle | DIGITAL2[5] |
+| `PAD_CTRL_CROSS` | Cross (X) | DIGITAL2[6] |
+| `PAD_CTRL_SQUARE` | Square | DIGITAL2[7] |
+
+## Analog Sticks
+
+Read analog stick positions (0x0000 - 0x00FF):
+
+```c
+if (paddata.len > 0) {
+    // Left analog stick
+    u16 left_x = paddata.ANA_L_H;   // Horizontal (0-255)
+    u16 left_y = paddata.ANA_L_V;   // Vertical (0-255)
+    
+    // Right analog stick
+    u16 right_x = paddata.ANA_R_H;  // Horizontal (0-255)
+    u16 right_y = paddata.ANA_R_V;  // Vertical (0-255)
+    
+    printf("Left stick: (%d, %d)\n", left_x, left_y);
+    printf("Right stick: (%d, %d)\n", right_x, right_y);
+}
+```
+
+<Card title="Analog Stick Values" icon="gamepad">
+  - **Center**: ~128
+  - **Minimum**: 0
+  - **Maximum**: 255
+  - Horizontal: 0 = left, 255 = right
+  - Vertical: 0 = up, 255 = down
+</Card>
+
+## Pressure-Sensitive Buttons
+
+Enable and read pressure sensitivity:
+
+```c
+// Enable pressure mode
+ioPadSetPressMode(0, PAD_PRESS_MODE_ON);
+
+// Read pressure values (0x0000 - 0x00FF)
+if (paddata.len > 0) {
+    u16 cross_pressure = paddata.PRE_CROSS;
+    u16 circle_pressure = paddata.PRE_CIRCLE;
+    u16 triangle_pressure = paddata.PRE_TRIANGLE;
+    u16 square_pressure = paddata.PRE_SQUARE;
+    
+    u16 l1_pressure = paddata.PRE_L1;
+    u16 r1_pressure = paddata.PRE_R1;
+    u16 l2_pressure = paddata.PRE_L2;
+    u16 r2_pressure = paddata.PRE_R2;
+    
+    // D-pad pressure
+    u16 up_pressure = paddata.PRE_UP;
+    u16 down_pressure = paddata.PRE_DOWN;
+    u16 left_pressure = paddata.PRE_LEFT;
+    u16 right_pressure = paddata.PRE_RIGHT;
+}
+```
+
+## Motion Sensors (SIXAXIS)
+
+Enable and read accelerometer and gyroscope data:
+
+```c
+// Enable sensor mode
+ioPadSetSensorMode(0, PAD_SENSOR_MODE_ON);
+
+// Read sensor values (0x0000 - 0x03FF)
+if (paddata.len > 0) {
+    u16 sensor_x = paddata.SENSOR_X;  // X-axis acceleration
+    u16 sensor_y = paddata.SENSOR_Y;  // Y-axis acceleration
+    u16 sensor_z = paddata.SENSOR_Z;  // Z-axis acceleration
+    u16 sensor_g = paddata.SENSOR_G;  // Gyroscope
+    
+    printf("Motion: X=%d Y=%d Z=%d G=%d\n", 
+           sensor_x, sensor_y, sensor_z, sensor_g);
+}
+```
+
+<Card title="Sensor Axes" icon="compass">
+  - **X**: Left/Right tilt
+  - **Y**: Forward/Backward tilt
+  - **Z**: Up/Down movement
+  - **G**: Rotation/gyroscope
+</Card>
+
+## Rumble (Vibration)
+
+Control the small and large rumble motors:
+
+```c
+padActParam actparam;
+
+// Small motor (on/off only)
+actparam.small_motor = 1;   // 0: OFF, 1: ON
+actparam.large_motor = 0;   // 0-255: speed (0 = OFF)
+ioPadSetActDirect(0, &actparam);
+
+usleep(500000);  // Vibrate for 0.5 seconds
+
+// Large motor (variable speed)
+actparam.small_motor = 0;
+actparam.large_motor = 255;  // Maximum speed
+ioPadSetActDirect(0, &actparam);
+
+usleep(500000);
+
+// Stop rumble
+actparam.small_motor = 0;
+actparam.large_motor = 0;
+ioPadSetActDirect(0, &actparam);
+```
+
+<ParamField path="small_motor" type="u8">
+  Small motor: 0 = OFF, 1 = ON
+</ParamField>
+
+<ParamField path="large_motor" type="u8">
+  Large motor: 0 = OFF, 1-255 = speed (higher = faster)
+</ParamField>
+
+## Controller Capabilities
+
+Check what features a controller supports:
+
+```c
+padCapabilityInfo capabilities;
+ioPadGetCapabilityInfo(0, &capabilities);
+
+if (capabilities.ps3spec) {
+    printf("PS3-compliant controller\n");
+}
+if (capabilities.has_pressure) {
+    printf("Supports pressure-sensitive buttons\n");
+}
+if (capabilities.has_sensors) {
+    printf("Supports motion sensors (SIXAXIS)\n");
+}
+if (capabilities.has_vibrate) {
+    printf("Supports vibration\n");
+}
+if (capabilities.has_hps) {
+    printf("Supports high-precision sticks\n");
+}
+```
+
+## XMB Integration
+
+The PS button is intercepted by the XMB system and cannot be read directly by applications. When pressed, it opens the XMB menu overlay.
+
+<Warning>
+You cannot read or block the PS button. The system always intercepts it for XMB access.
+</Warning>
+
+## BD Remote Support
+
+The SDK also supports Blu-ray remote controllers:
+
+```c
+if (padinfo.status[i]) {
+    u32 device_type = padinfo2.device_type[i];
+    
+    if (device_type == PAD_TYPE_REMOTE) {
+        // BD Remote detected
+        if (paddata.len > 0) {
+            u16 bd_code = paddata.BTN_BDCODE;
+            
+            switch (bd_code) {
+                case BTN_BD_PLAY:
+                    printf("Play pressed\n");
+                    break;
+                case BTN_BD_STOP:
+                    printf("Stop pressed\n");
+                    break;
+                // ... more BD remote buttons
+            }
+        }
+    }
+}
+```
+
+## Cleanup
+
+Shut down the pad system when done:
+
+```c
+ioPadEnd();
+```
+
+## Complete Example
+
+Here's a complete controller reading example from `samples/input/padtest/`:
+
+```c
+#include <io/pad.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+    padInfo padinfo;
+    padData paddata;
+    
+    // Initialize
+    if (ioPadInit(7) != 0) {
+        printf("Failed to initialize pad\n");
+        return 1;
+    }
+    
+    // Get info
+    ioPadGetInfo(&padinfo);
+    printf("Max pads: %u, Connected: %u\n", 
+           padinfo.max, padinfo.connected);
+    
+    // Check each controller
+    for (int i = 0; i < MAX_PADS; i++) {
+        if (padinfo.status[i]) {
+            printf("Controller %d:\n", i);
+            printf("  Vendor: %04x, Product: %04x\n",
+                   padinfo.vendor_id[i], 
+                   padinfo.product_id[i]);
+            
+            // Read initial state
+            ioPadGetData(i, &paddata);
+            printf("  Data length: %d\n", paddata.len);
+            
+            // Test rumble
+            padActParam actparam;
+            actparam.small_motor = 1;
+            actparam.large_motor = 0;
+            ioPadSetActDirect(i, &actparam);
+            usleep(500000);
+            
+            actparam.small_motor = 0;
+            actparam.large_motor = 255;
+            ioPadSetActDirect(i, &actparam);
+            usleep(500000);
+            
+            // Stop rumble
+            actparam.small_motor = 0;
+            actparam.large_motor = 0;
+            ioPadSetActDirect(i, &actparam);
+        }
+    }
+    
+    // Cleanup
+    ioPadEnd();
+    return 0;
+}
+```
+
+## API Reference
+
+### Initialization Functions
+
+<ParamField path="ioPadInit" type="s32 ioPadInit(u32 max)">
+  Initialize pad I/O management with max controllers
+</ParamField>
+
+<ParamField path="ioPadEnd" type="s32 ioPadEnd()">
+  End pad I/O management
+</ParamField>
+
+### Information Functions
+
+<ParamField path="ioPadGetInfo" type="s32 ioPadGetInfo(padInfo* info)">
+  Get pad information (old format)
+</ParamField>
+
+<ParamField path="ioPadGetInfo2" type="s32 ioPadGetInfo2(padInfo2* info)">
+  Get pad information (new format, firmware 3.41+)
+</ParamField>
+
+<ParamField path="ioPadGetCapabilityInfo" type="s32 ioPadGetCapabilityInfo(u32 port, padCapabilityInfo* capabilities)">
+  Get controller capability information
+</ParamField>
+
+### Data Reading Functions
+
+<ParamField path="ioPadGetData" type="s32 ioPadGetData(u32 port, padData* data)">
+  Get pad data from specified port
+</ParamField>
+
+<ParamField path="ioPadGetDataExtra" type="s32 ioPadGetDataExtra(u32 port, u32* type, padData* data)">
+  Get pad data with device type
+</ParamField>
+
+<ParamField path="ioPadClearBuf" type="s32 ioPadClearBuf(u32 port)">
+  Clear the pad input buffer
+</ParamField>
+
+### Configuration Functions
+
+<ParamField path="ioPadSetPressMode" type="s32 ioPadSetPressMode(u32 port, u32 mode)">
+  Enable/disable pressure-sensitive mode
+</ParamField>
+
+<ParamField path="ioPadSetSensorMode" type="s32 ioPadSetSensorMode(u32 port, u32 mode)">
+  Enable/disable motion sensor mode
+</ParamField>
+
+<ParamField path="ioPadSetActDirect" type="u32 ioPadSetActDirect(u32 port, padActParam* actParam)">
+  Set rumble/vibration parameters
+</ParamField>
+
+## Error Codes
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `PAD_OK` | 0 | Success |
+| `PAD_ERROR_FATAL` | 0x80121101 | Fatal error |
+| `PAD_ERROR_INVALID_PARAMETER` | 0x80121102 | Invalid parameter |
+| `PAD_ERROR_ALREADY_INITIALIZED` | 0x80121103 | Already initialized |
+| `PAD_ERROR_NOT_INITIALIZED` | 0x80121104 | Not initialized |
+
+## See Also
+
+- [Keyboard & Mouse](/input/keyboard-mouse) - USB keyboard and mouse input
+- [Camera](/input/camera) - PlayStation Eye camera
+- [PlayStation Move](/input/playstation-move) - Motion controller support

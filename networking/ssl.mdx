@@ -1,0 +1,410 @@
+---
+title: SSL/TLS Support
+description: Secure HTTPS connections with SSL/TLS on PlayStation 3
+---
+
+PSL1GHT provides SSL/TLS support for secure HTTP connections (HTTPS). The SSL library handles certificate validation and encrypted communication.
+
+## Initialization
+
+SSL requires loading system modules and initializing with a memory pool and certificate store:
+
+<Steps>
+  <Step title="Load system modules">
+    ```c samples/network/httptest/source/http.c
+    #include <ssl/ssl.h>
+    #include <http/https.h>
+    #include <sysmodule/sysmodule.h>
+
+    // Load HTTPS and SSL modules
+    s32 ret = sysModuleLoad(SYSMODULE_HTTPS);
+    if (ret < 0) {
+        printf("Failed to load HTTPS module: %x\n", ret);
+        return -1;
+    }
+
+    ret = sysModuleLoad(SYSMODULE_SSL);
+    if (ret < 0) {
+        printf("Failed to load SSL module: %x\n", ret);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Initialize SSL subsystem">
+    ```c samples/network/httptest/source/http.c
+    // Allocate memory pool for SSL (256KB recommended)
+    void *ssl_pool = malloc(0x40000);
+    if (!ssl_pool) {
+        printf("Failed to allocate SSL pool\n");
+        return -1;
+    }
+
+    ret = sslInit(ssl_pool, 0x40000);
+    if (ret < 0) {
+        printf("SSL init failed: %x\n", ret);
+        free(ssl_pool);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Load SSL certificates">
+    ```c samples/network/httptest/source/http.c
+    // Get required certificate buffer size
+    u32 cert_size = 0;
+    ret = sslCertificateLoader(SSL_LOAD_CERT_ALL, NULL, 0, &cert_size);
+    if (ret < 0) {
+        printf("Failed to get cert size: %x\n", ret);
+        return -1;
+    }
+
+    // Allocate and load certificates
+    void *cert_buffer = malloc(cert_size);
+    ret = sslCertificateLoader(SSL_LOAD_CERT_ALL, cert_buffer, cert_size, NULL);
+    if (ret < 0) {
+        printf("Failed to load certificates: %x\n", ret);
+        free(cert_buffer);
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Initialize HTTPS with certificates">
+    ```c samples/network/httptest/source/http.c
+    httpsData ca_list[1];
+    ca_list[0].ptr = cert_buffer;
+    ca_list[0].size = cert_size;
+
+    ret = httpsInit(1, ca_list);
+    if (ret < 0) {
+        printf("HTTPS init failed: %x\n", ret);
+        return -1;
+    }
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  You must initialize regular HTTP (via `httpInit()`) before initializing HTTPS.
+</Note>
+
+## Complete HTTPS Setup
+
+Here's the full initialization sequence for HTTPS support:
+
+```c samples/network/httptest/source/http.c
+#include <http/http.h>
+#include <http/https.h>
+#include <ssl/ssl.h>
+#include <net/net.h>
+#include <sysmodule/sysmodule.h>
+
+typedef struct {
+    void *http_pool;
+    void *ssl_pool;
+    void *cert_buffer;
+    httpsData *ca_list;
+} http_context;
+
+int http_init(http_context *ctx) {
+    s32 ret;
+    u32 cert_size = 0;
+    
+    // Load modules
+    sysModuleLoad(SYSMODULE_NET);
+    sysModuleLoad(SYSMODULE_HTTP);
+    sysModuleLoad(SYSMODULE_HTTPS);
+    sysModuleLoad(SYSMODULE_SSL);
+    
+    // Initialize network
+    ret = netInitialize();
+    if (ret < 0) goto error;
+    
+    // Initialize HTTP
+    ctx->http_pool = malloc(0x10000);  // 64KB
+    ret = httpInit(ctx->http_pool, 0x10000);
+    if (ret < 0) goto error;
+    
+    // Initialize SSL
+    ctx->ssl_pool = malloc(0x40000);  // 256KB
+    ret = sslInit(ctx->ssl_pool, 0x40000);
+    if (ret < 0) goto error;
+    
+    // Load certificates
+    ret = sslCertificateLoader(SSL_LOAD_CERT_ALL, NULL, 0, &cert_size);
+    if (ret < 0) goto error;
+    
+    ctx->cert_buffer = malloc(cert_size);
+    ret = sslCertificateLoader(SSL_LOAD_CERT_ALL, ctx->cert_buffer, 
+                               cert_size, NULL);
+    if (ret < 0) goto error;
+    
+    // Initialize HTTPS
+    ctx->ca_list = malloc(sizeof(httpsData));
+    ctx->ca_list[0].ptr = ctx->cert_buffer;
+    ctx->ca_list[0].size = cert_size;
+    
+    ret = httpsInit(1, ctx->ca_list);
+    if (ret < 0) goto error;
+    
+    return 0;
+    
+error:
+    // Cleanup on error
+    if (ctx->ca_list) free(ctx->ca_list);
+    if (ctx->cert_buffer) free(ctx->cert_buffer);
+    if (ctx->ssl_pool) free(ctx->ssl_pool);
+    if (ctx->http_pool) free(ctx->http_pool);
+    return -1;
+}
+```
+
+## Certificate Loading Options
+
+You can selectively load certificate types:
+
+```c ssl/ssl.h
+// Load all certificates (recommended)
+sslCertificateLoader(SSL_LOAD_CERT_ALL, buffer, size, NULL);
+
+// Load only standard certificates (no Sony-specific)
+sslCertificateLoader(SSL_LOAD_CERT_NORMAL, buffer, size, NULL);
+
+// Load Sony-specific certificates only
+sslCertificateLoader(SSL_LOAD_CERT_SCE, buffer, size, NULL);
+
+// Load SHA-256 certificates
+sslCertificateLoader(SSL_LOAD_CERT_SHA256, buffer, size, NULL);
+
+// Combine flags
+sslCertificateLoader(SSL_LOAD_CERT_NORMAL | SSL_LOAD_CERT_SHA256, 
+                     buffer, size, NULL);
+```
+
+<Warning>
+  Using `SSL_LOAD_CERT_ALL` is recommended for maximum compatibility. Selective loading may cause connection failures with some servers.
+</Warning>
+
+## Making HTTPS Requests
+
+Once SSL is initialized, HTTPS requests work identically to HTTP:
+
+```c samples/network/httptest/source/http.c
+// Parse HTTPS URL
+const char *url = "https://example.com/api/data";
+httpUri uri;
+void *uri_pool;
+u32 required;
+
+httpUtilParseUri(&uri, url, NULL, 0, &required);
+uri_pool = malloc(required);
+httpUtilParseUri(&uri, url, uri_pool, required, NULL);
+
+// Create client and transaction
+httpClientId client;
+httpTransId trans;
+
+httpCreateClient(&client);
+httpCreateTransaction(&trans, client, HTTP_METHOD_GET, &uri);
+
+// Send request - SSL is handled automatically
+httpSendRequest(trans, NULL, 0, NULL);
+
+// Check status
+s32 status;
+httpResponseGetStatusCode(trans, &status);
+
+// Receive response
+char buffer[4096];
+u32 received;
+while (httpRecvResponse(trans, buffer, sizeof(buffer), &received) >= 0 
+       && received > 0) {
+    // Process data
+    fwrite(buffer, 1, received, output);
+}
+```
+
+The library automatically detects HTTPS URLs and uses SSL/TLS for the connection.
+
+## SSL Information
+
+Inspect SSL connection details:
+
+```c http/http.h
+// Get SSL cipher information
+char cipher_name[128];
+httpTransactionGetSslCipherName(trans, cipher_name, sizeof(cipher_name), NULL);
+printf("Cipher: %s\n", cipher_name);
+
+// Get cipher ID
+s32 cipher_id;
+httpTransactionGetSslCipherId(trans, &cipher_id);
+
+// Get SSL/TLS version
+s32 ssl_version;
+httpTransactionGetSslVersion(trans, &ssl_version);
+if (ssl_version == SSL_VERSION_TLS1) {
+    printf("Using TLS 1.0\n");
+} else if (ssl_version == SSL_VERSION_SSL3) {
+    printf("Using SSL 3.0\n");
+}
+
+// Get cipher strength
+s32 effective_bits, algorithm_bits;
+httpTransactionGetSslCipherBits(trans, &effective_bits, &algorithm_bits);
+printf("Cipher strength: %d bits\n", effective_bits);
+```
+
+## Supported Ciphers
+
+The PS3 supports various SSL/TLS cipher suites:
+
+```c ssl/ssl.h
+SSL_CIPHER_RSA_WITH_3DES_EDE_CBC_SHA
+SSL_CIPHER_RSA_WITH_RC4_128_SHA
+SSL_CIPHER_RSA_WITH_RC4_128_MD5
+SSL_CIPHER_RSA_WITH_DES_CBC_SHA
+SSL_CIPHER_RSA_EXPORT1024_WITH_DES_CBC_SHA
+SSL_CIPHER_RSA_EXPORT1024_WITH_RC4_56_SHA
+SSL_CIPHER_RSA_EXPORT_WITH_DES40_CBC_SHA
+SSL_CIPHER_RSA_EXPORT_WITH_RC2_CBC_40_MD5
+SSL_CIPHER_RSA_EXPORT_WITH_RC4_40_MD5
+```
+
+<Note>
+  Modern servers may require stronger cipher suites. Some servers may reject connections from PS3 due to outdated cipher support.
+</Note>
+
+## Certificate Information
+
+Extract details from SSL certificates:
+
+```c ssl/ssl.h
+// Get certificate serial number
+sslCert cert;  // Obtained from connection
+const uint8_t *serial_data;
+u32 serial_length;
+sslCertGetSerialNumber(cert, &serial_data, &serial_length);
+
+// Get public key
+const uint8_t *pubkey_data;
+u32 pubkey_length;
+sslCertGetPublicKey(cert, &pubkey_data, &pubkey_length);
+
+// Get MD5 fingerprint
+uint8_t fingerprint[SSL_MD5_FINGERPRINT_MAX_SIZE];
+u32 fp_length;
+sslCertGetMd5Fingerprint(cert, fingerprint, &fp_length);
+```
+
+## Cleanup
+
+Shut down SSL and HTTPS in reverse order:
+
+```c samples/network/httptest/source/http.c
+void http_cleanup(http_context *ctx) {
+    // Shutdown libraries
+    httpsEnd();
+    sslEnd();
+    httpEnd();
+    netDeinitialize();
+    
+    // Unload modules
+    sysModuleUnload(SYSMODULE_HTTPS);
+    sysModuleUnload(SYSMODULE_SSL);
+    sysModuleUnload(SYSMODULE_HTTP);
+    sysModuleUnload(SYSMODULE_NET);
+    
+    // Free memory
+    if (ctx->ca_list) free(ctx->ca_list);
+    if (ctx->cert_buffer) free(ctx->cert_buffer);
+    if (ctx->ssl_pool) free(ctx->ssl_pool);
+    if (ctx->http_pool) free(ctx->http_pool);
+}
+```
+
+## Troubleshooting
+
+### Certificate Verification Failures
+
+If HTTPS requests fail with certificate errors:
+
+1. Ensure you loaded certificates with `SSL_LOAD_CERT_ALL`
+2. Check that the certificate buffer is valid
+3. Verify the server's certificate is trusted by the loaded CA list
+4. Some modern servers may use certificates incompatible with PS3's old SSL stack
+
+### Connection Failures
+
+<CodeGroup>
+```c Check SSL initialization
+if (sslInit(pool, size) < 0) {
+    printf("SSL init failed\n");
+    // Check pool size (0x40000 recommended)
+    // Verify module loaded successfully
+}
+```
+
+```c Verify HTTPS init
+if (httpsInit(1, ca_list) < 0) {
+    printf("HTTPS init failed\n");
+    // Ensure httpInit() was called first
+    // Verify certificate buffer is valid
+}
+```
+
+```c Test with HTTP first
+// Try HTTP version of URL first
+const char *test_url = "http://example.com/test";
+// If HTTP works but HTTPS doesn't, it's an SSL issue
+```
+</CodeGroup>
+
+## Memory Requirements
+
+SSL operations require significant memory:
+
+- **SSL pool**: 256KB (`0x40000`) recommended
+- **Certificate buffer**: ~200KB for all certificates
+- **Per-connection overhead**: ~100KB during handshake
+
+Ensure your application has sufficient free memory before initializing SSL.
+
+## Security Considerations
+
+<Warning>
+  The PS3's SSL implementation is outdated by modern standards. It may not support:
+  - TLS 1.2 or later
+  - Modern cipher suites (AES-GCM, ChaCha20, etc.)
+  - SNI (Server Name Indication)
+  - Certificate transparency
+  
+  Many modern HTTPS servers will reject PS3 connections. Consider using a proxy server with updated TLS support if needed.
+</Warning>
+
+## API Reference
+
+Key functions from `ssl/ssl.h` and `http/https.h`:
+
+**Initialization:**
+- `sslInit()` - Initialize SSL subsystem
+- `sslEnd()` - Shut down SSL subsystem
+- `httpsInit()` - Initialize HTTPS support
+- `httpsEnd()` - Shut down HTTPS
+
+**Certificates:**
+- `sslCertificateLoader()` - Load CA certificates
+- `sslCertGetSerialNumber()` - Get certificate serial
+- `sslCertGetPublicKey()` - Get public key
+- `sslCertGetMd5Fingerprint()` - Get MD5 fingerprint
+
+**Connection info:**
+- `httpTransactionGetSslCipherName()` - Get cipher name
+- `httpTransactionGetSslCipherId()` - Get cipher ID
+- `httpTransactionGetSslVersion()` - Get SSL/TLS version
+- `httpTransactionGetSslCipherBits()` - Get cipher strength
+
+## Example
+
+See `samples/network/httptest/` for a complete HTTPS example with SSL initialization and certificate loading.

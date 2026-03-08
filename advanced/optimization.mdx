@@ -1,0 +1,574 @@
+---
+title: 'Optimization'
+description: 'Performance optimization techniques for PPU and SPU code in PSL1GHT'
+---
+
+## Overview
+
+The PlayStation 3's Cell Broadband Engine architecture offers unique optimization opportunities through its PowerPC Processing Unit (PPU) and six Synergistic Processing Units (SPUs). This guide covers compiler optimization, memory alignment, SIMD operations, and parallel processing techniques.
+
+## PPU Compiler Optimizations
+
+PSL1GHT's build system includes PowerPC-specific optimizations in the compilation flags (source:~/workspace/source/ppu_rules:21).
+
+### Default PPU Flags
+
+```makefile
+MACHDEP = -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
+```
+
+<Accordion title="Compiler Flag Explanations">
+- **`-mhard-float`**: Use hardware floating-point unit (FPU) instead of software emulation
+- **`-fmodulo-sched`**: Enable modulo scheduling for loops (improves instruction-level parallelism)
+- **`-ffunction-sections`**: Place each function in its own section (enables dead code elimination)
+- **`-fdata-sections`**: Place each data item in its own section (reduces binary size)
+</Accordion>
+
+### Optimization Levels
+
+```makefile
+# Your Makefile
+# Development build
+CFLAGS += -O0 -g
+
+# Release build with optimizations
+CFLAGS += -O2
+
+# Aggressive optimization (use with caution)
+CFLAGS += -O3 -funroll-loops
+```
+
+<Warning>
+**`-O3` can increase code size significantly** and may not always improve performance. Profile before and after optimization changes.
+</Warning>
+
+### Cell-Specific Optimizations
+
+```makefile
+# Enable Cell-specific instructions
+CFLAGS += -mcpu=cell -mtune=cell
+
+# Use Altivec/VMX instructions  
+CFLAGS += -maltivec
+
+# Optimize for register usage
+CFLAGS += -mregnames
+```
+
+## SPU Compiler Optimizations
+
+SPUs have different optimization characteristics than the PPU (source:~/workspace/source/spu_rules:16-38).
+
+### SPU Optimization Flags
+
+PSL1GHT provides three SPU build modes:
+
+<Accordion title="Work Manager Mode (WM)">
+```makefile
+WM_CFLAGS = -Os -mfixed-range=80-127 -funroll-loops -fschedule-insns
+WM_STACK  = 0x39e0
+```
+
+- **`-Os`**: Optimize for size (SPU local store is only 256KB!)
+- **`-mfixed-range=80-127`**: Reserve registers for work manager
+- **`-funroll-loops`**: Unroll loops for better pipelining
+- **`-fschedule-insns`**: Reorder instructions to avoid stalls
+</Accordion>
+
+<Accordion title="Task Mode">
+```makefile
+TASK_CFLAGS = -Os -ffast-math -ftree-vectorize -funroll-loops -fschedule-insns
+```
+
+- **`-ffast-math`**: Enable aggressive floating-point optimizations
+- **`-ftree-vectorize`**: Auto-vectorize loops using SIMD instructions
+</Accordion>
+
+<Accordion title="Job Queue Mode (SPURS)">
+```makefile
+JOB_CFLAGS = -Os -fpic -ffast-math -ftree-vectorize -funroll-loops -fschedule-insns
+```
+
+- **`-fpic`**: Generate position-independent code for dynamic loading
+- **`-ffast-math`**: Fast math optimizations
+</Accordion>
+
+### SPU-Specific Optimizations
+
+```makefile
+# Enable dual-issue pipeline
+MACHDEP += -mdual-nops
+
+# Enable modulo scheduling
+MACHDEP += -fmodulo-sched
+```
+
+<Note>
+The SPU dual-issue pipeline can execute two instructions simultaneously. Structure code to maximize dual-issue opportunities.
+</Note>
+
+## Memory Alignment
+
+The PS3 is **extremely sensitive** to memory alignment. Unaligned access can cause crashes or severe performance penalties.
+
+### Alignment Requirements
+
+| Type | Alignment | Notes |
+|------|-----------|-------|
+| `char`, `u8` | 1 byte | No alignment required |
+| `short`, `u16` | 2 bytes | Must be 2-byte aligned |
+| `int`, `u32`, `float` | 4 bytes | Must be 4-byte aligned |
+| `long long`, `u64`, `double` | 8 bytes | Must be 8-byte aligned |
+| `vector`, `vec_float4` | 16 bytes | **Must be 16-byte aligned** |
+| DMA transfers (SPU) | 16 bytes | **Critical for SPU** |
+
+### Stack Alignment Macro
+
+PSL1GHT provides a macro for stack-allocated aligned data (source:~/workspace/source/ppu/include/ppu-types.h):
+
+```c
+#include <ppu-types.h>
+
+void example() {
+    // Allocate 16-byte aligned array on stack
+    STACK_ALIGN(float, aligned_data, 64, 16);
+    
+    // aligned_data is now a pointer to 64 floats, 16-byte aligned
+    for (int i = 0; i < 64; i++) {
+        aligned_data[i] = i * 1.0f;
+    }
+}
+```
+
+<Tip>
+Always use `STACK_ALIGN` for data that will be:
+- Used in SIMD operations
+- Transferred to/from SPUs via DMA
+- Accessed by hardware (GCM, RSX)
+</Tip>
+
+### Heap Alignment
+
+```c
+#include <malloc.h>
+
+// Allocate 16-byte aligned memory
+void *aligned_ptr = memalign(16, size);
+
+// Or 128-byte aligned (cache line)
+void *cache_aligned = memalign(128, size);
+
+// Always check for NULL
+if (aligned_ptr == NULL) {
+    printf("Allocation failed!\n");
+    return -1;
+}
+
+// Use aligned memory...
+
+// Free aligned memory
+free(aligned_ptr);
+```
+
+### Alignment Attributes
+
+```c
+// Align struct to 16 bytes
+typedef struct {
+    float x, y, z, w;
+} __attribute__((aligned(16))) Vector4;
+
+// Align global variable
+float matrix[16] __attribute__((aligned(16)));
+```
+
+<Warning>
+**Never** cast unaligned pointers to aligned types:
+```c
+// WRONG - may crash!
+u8 buffer[100];
+u64 *ptr = (u64*)&buffer[1];  // Unaligned!
+
+// CORRECT - use memcpy for unaligned access
+u64 value;
+memcpy(&value, &buffer[1], sizeof(u64));
+```
+</Warning>
+
+## SIMD Optimization
+
+The PS3's PowerPC core supports AltiVec (VMX) SIMD instructions for processing 128-bit vectors.
+
+### Vector Math Libraries
+
+PSL1GHT includes optimized SIMD libraries (source:~/workspace/source/common/vectormath and source:~/workspace/source/common/libsimdmath):
+
+```c
+#include <vectormath/c/vectormath_aos.h>
+
+void optimize_with_vectormath() {
+    Vector3 a = {1.0f, 2.0f, 3.0f};
+    Vector3 b = {4.0f, 5.0f, 6.0f};
+    Vector3 result;
+    
+    // Hardware-accelerated vector operations
+    vmathV3Add(&result, &a, &b);
+    vmathV3Cross(&result, &a, &b);
+    float dot = vmathV3Dot(&a, &b);
+}
+```
+
+### SIMD Math Functions
+
+```c
+#include <simdmath.h>
+
+void simd_math_example() {
+    // Process 4 floats simultaneously
+    vec_float4 angles = {0.0f, 0.5f, 1.0f, 1.5f};
+    vec_float4 sines = sinf4(angles);
+    vec_float4 cosines = cosf4(angles);
+    
+    // Other SIMD functions available:
+    vec_float4 roots = sqrtf4(angles);
+    vec_float4 powers = powf4(angles, sines);
+}
+```
+
+<Note>
+SIMD math functions process **4 values in parallel** using vector instructions. This can be 4x faster than scalar code for suitable workloads.
+</Note>
+
+### Available SIMD Functions
+
+From the libsimdmath library (source:~/workspace/source/common/libsimdmath/ppu/simdmath/):
+
+<AccordionGroup>
+  <Accordion title="Trigonometric Functions">
+    - `sinf4`, `cosf4`, `tanf4`
+    - `asinf4`, `acosf4`, `atanf4`, `atan2f4`
+  </Accordion>
+
+  <Accordion title="Exponential & Logarithmic">
+    - `expf4`, `exp2f4`
+    - `logf4`, `log2f4`, `log10f4`
+    - `powf4`
+  </Accordion>
+
+  <Accordion title="Common Math">
+    - `sqrtf4`, `cbrtf4`
+    - `fabsf4`, `copysignf4`
+    - `floorf4`, `ceilf4`
+    - `fminf4`, `fmaxf4`
+  </Accordion>
+
+  <Accordion title="Special Functions">
+    - `divf4` - Fast division
+    - `recipf4` - Reciprocal approximation
+    - `rsqrtf4` - Reciprocal square root
+  </Accordion>
+</AccordionGroup>
+
+### Writing SIMD Code
+
+```c
+#include <altivec.h>
+
+void process_arrays_simd(float *a, float *b, float *result, int count) {
+    // Process 4 floats at a time
+    vector float *va = (vector float*)a;
+    vector float *vb = (vector float*)b;
+    vector float *vr = (vector float*)result;
+    
+    int vec_count = count / 4;
+    
+    for (int i = 0; i < vec_count; i++) {
+        vr[i] = vec_add(va[i], vb[i]);  // Add 4 floats in one instruction
+    }
+    
+    // Handle remaining elements
+    int remainder = count % 4;
+    for (int i = count - remainder; i < count; i++) {
+        result[i] = a[i] + b[i];
+    }
+}
+```
+
+<Tip>
+For best SIMD performance:
+- Ensure 16-byte alignment
+- Process data in multiples of 4 (or 16 for bytes)
+- Keep data contiguous in memory
+- Avoid branches inside SIMD loops
+</Tip>
+
+## SPU Optimization Strategies
+
+The six SPUs are the PS3's real performance powerhouse. Proper SPU utilization can provide massive speedups.
+
+### When to Use SPUs
+
+<AccordionGroup>
+  <Accordion title="Perfect for SPUs ✅">
+    - Vector/matrix mathematics
+    - Image processing (blur, filters, scaling)
+    - Physics calculations (collision, particle systems)
+    - Audio processing (mixing, effects)
+    - Data compression/decompression
+    - Pathfinding algorithms
+  </Accordion>
+
+  <Accordion title="Avoid SPUs ❌">
+    - Heavy branching logic
+    - Random memory access patterns
+    - Code with many dependencies
+    - Operations requiring large datasets (>256KB)
+  </Accordion>
+</AccordionGroup>
+
+### SPU Programming Example
+
+```c spu_program.c
+// SPU code - runs on SPU
+#include <spu_intrinsics.h>
+#include <spu_mfcio.h>
+
+typedef struct {
+    u32 ea_src;      // PPU address of source data
+    u32 ea_dst;      // PPU address of destination  
+    u32 count;       // Number of elements
+} WorkParams __attribute__((aligned(16)));
+
+int main(u64 params_ea, u64 env) {
+    WorkParams params __attribute__((aligned(16)));
+    
+    // DMA parameters from PPU to SPU local store
+    mfc_get(&params, params_ea, sizeof(WorkParams), 0, 0, 0);
+    mfc_write_tag_mask(1 << 0);
+    mfc_read_tag_status_all();
+    
+    // Allocate local store buffers (aligned!)
+    float src[256] __attribute__((aligned(16)));
+    float dst[256] __attribute__((aligned(16)));
+    
+    // DMA source data from main memory
+    mfc_get(src, params.ea_src, params.count * sizeof(float), 1, 0, 0);
+    mfc_write_tag_mask(1 << 1);
+    mfc_read_tag_status_all();
+    
+    // Process data using SIMD
+    vector float *vsrc = (vector float*)src;
+    vector float *vdst = (vector float*)dst;
+    vector float scale = {2.0f, 2.0f, 2.0f, 2.0f};
+    
+    for (u32 i = 0; i < params.count / 4; i++) {
+        vdst[i] = spu_mul(vsrc[i], scale);
+    }
+    
+    // DMA result back to main memory
+    mfc_put(dst, params.ea_dst, params.count * sizeof(float), 2, 0, 0);
+    mfc_write_tag_mask(1 << 2);
+    mfc_read_tag_status_all();
+    
+    return 0;
+}
+```
+
+<Warning>
+SPU local store is only **256KB**. Carefully manage memory and use DMA to stream data in/out as needed.
+</Warning>
+
+### SPU DMA Best Practices
+
+```c
+// BAD - Sequential DMA (slow)
+mfc_get(buffer1, ea1, size, 0, 0, 0);
+mfc_wait_tag_status_all(1 << 0);
+process(buffer1);
+
+mfc_get(buffer2, ea2, size, 0, 0, 0);
+mfc_wait_tag_status_all(1 << 0);
+process(buffer2);
+
+// GOOD - Overlapped DMA and processing (fast)
+mfc_get(buffer1, ea1, size, 0, 0, 0);  // Start DMA 1
+mfc_get(buffer2, ea2, size, 1, 0, 0);  // Start DMA 2
+
+mfc_wait_tag_status_all(1 << 0);       // Wait for DMA 1
+process(buffer1);                       // Process while DMA 2 completes
+
+mfc_wait_tag_status_all(1 << 1);       // Wait for DMA 2
+process(buffer2);
+```
+
+<Tip>
+Use **double buffering**: While processing one buffer, DMA the next buffer in the background. This hides DMA latency.
+</Tip>
+
+### SPU Mailboxes for Communication
+
+```c
+// PPU side
+#include <sys/spu.h>
+
+u32 spu_id;
+sysSpuImage image;
+
+// Load and start SPU
+sysSpuRawCreate(&spu_id, NULL);
+sysSpuImageImport(&image, spu_bin, SPU_IMAGE_PROTECT);
+sysSpuRawImageLoad(spu_id, &image);
+sysSpuRawWriteProblemStorage(spu_id, SPU_RunCtrl, 1);
+
+// Wait for SPU completion signal
+while (!(sysSpuRawReadProblemStorage(spu_id, SPU_MBox_Status) & 1));
+u32 result = sysSpuRawReadProblemStorage(spu_id, SPU_Out_MBox);
+
+printf("SPU returned: 0x%08x\n", result);
+```
+
+```c
+// SPU side
+#include <spu_mfcio.h>
+
+// Send completion signal to PPU
+spu_write_out_mbox(0xDEADBEEF);
+```
+
+## Profiling and Benchmarking
+
+### Timing Code Sections
+
+```c
+#include <sys/systime.h>
+
+u64 start = sysGetSystemTime();
+
+// Code to profile
+expensive_function();
+
+u64 end = sysGetSystemTime();
+u64 elapsed_us = end - start;
+
+printf("Function took %llu microseconds\n", elapsed_us);
+printf("Function took %.3f milliseconds\n", elapsed_us / 1000.0);
+```
+
+### Frame Time Analysis
+
+```c
+void measure_frame_performance() {
+    static u64 last_time = 0;
+    static u64 frame_times[60];
+    static int frame_idx = 0;
+    
+    u64 now = sysGetSystemTime();
+    
+    if (last_time != 0) {
+        frame_times[frame_idx] = now - last_time;
+        frame_idx = (frame_idx + 1) % 60;
+        
+        // Every 60 frames, report stats
+        if (frame_idx == 0) {
+            u64 total = 0, min = ~0ULL, max = 0;
+            
+            for (int i = 0; i < 60; i++) {
+                total += frame_times[i];
+                if (frame_times[i] < min) min = frame_times[i];
+                if (frame_times[i] > max) max = frame_times[i];
+            }
+            
+            u64 avg = total / 60;
+            float fps = 1000000.0f / avg;
+            
+            printf("FPS: %.2f (avg: %llu us, min: %llu us, max: %llu us)\n",
+                   fps, avg, min, max);
+        }
+    }
+    
+    last_time = now;
+}
+```
+
+### Cache Performance
+
+```c
+// Cache line size on PS3 is 128 bytes
+#define CACHE_LINE_SIZE 128
+
+// Align structures to cache lines to avoid false sharing
+typedef struct {
+    u32 data[32];  // 128 bytes
+} __attribute__((aligned(CACHE_LINE_SIZE))) CacheLineData;
+```
+
+<Note>
+The PS3's L2 cache is only 512KB shared across all threads. Design data structures to maximize cache locality.
+</Note>
+
+## Optimization Checklist
+
+- [ ] Use appropriate `-O` level (O2 for most cases)
+- [ ] Enable Cell-specific flags (`-mcpu=cell`)
+- [ ] Verify 16-byte alignment for all SIMD data
+- [ ] Use SIMD math functions for vector operations
+- [ ] Offload parallel work to SPUs
+- [ ] Use double buffering for SPU DMA
+- [ ] Profile before and after optimization
+- [ ] Optimize data layout for cache locality
+- [ ] Minimize branches in hot loops
+- [ ] Use const and restrict where applicable
+
+## Advanced: Link-Time Optimization
+
+```makefile
+# Enable LTO for whole-program optimization
+CFLAGS += -flto
+LDFLAGS += -flto -fuse-linker-plugin
+
+# Or use separate LTO optimization level
+LDFLAGS += -flto -O3
+```
+
+<Warning>
+Link-Time Optimization (LTO) significantly increases build time but can provide better inlining and dead code elimination across translation units.
+</Warning>
+
+## Common Performance Pitfalls
+
+<AccordionGroup>
+  <Accordion title="Unaligned Memory Access">
+    **Problem**: Crashes or slow performance
+    
+    **Solution**: Use `memalign()`, `STACK_ALIGN()`, or alignment attributes
+  </Accordion>
+
+  <Accordion title="Scalar Math Instead of SIMD">
+    **Problem**: Not utilizing vector units
+    
+    **Solution**: Use libsimdmath functions and vectormath library
+  </Accordion>
+
+  <Accordion title="Not Using SPUs">
+    **Problem**: Only 1/7th of CPU power used (PPU only)
+    
+    **Solution**: Identify parallelizable work and move to SPUs
+  </Accordion>
+
+  <Accordion title="Excessive DMA Waits">
+    **Problem**: SPU stalled waiting for DMA
+    
+    **Solution**: Use double buffering and overlap DMA with computation
+  </Accordion>
+
+  <Accordion title="Cache Thrashing">
+    **Problem**: Poor memory access patterns
+    
+    **Solution**: Process data sequentially, align to cache lines
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [SPRX Libraries](/advanced/sprx-libraries) - Optimize library calls
+- [Debugging](/advanced/debugging) - Profile and identify bottlenecks

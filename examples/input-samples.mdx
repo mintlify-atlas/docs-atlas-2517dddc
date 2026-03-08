@@ -1,0 +1,401 @@
+---
+title: 'Input Samples'
+description: 'Controller, keyboard, camera, and PlayStation Move input examples'
+---
+
+The input samples demonstrate handling various PS3 input devices including game controllers, keyboards, the PlayStation Eye camera, and PlayStation Move motion controllers.
+
+## Available Input Samples
+
+<CardGroup cols={2}>
+  <Card title="padtest" icon="gamepad">
+    Controller input and vibration feedback
+  </Card>
+  
+  <Card title="kbtest" icon="keyboard">
+    USB keyboard input handling
+  </Card>
+  
+  <Card title="camera" icon="camera">
+    PlayStation Eye camera capture
+  </Card>
+  
+  <Card title="gemtest" icon="wand-magic">
+    PlayStation Move motion tracking
+  </Card>
+  
+  <Card title="gemsample" icon="star">
+    Advanced Move features
+  </Card>
+</CardGroup>
+
+## padtest - Controller Input
+
+**Location:** `samples/input/padtest/`
+
+Demonstrates reading controller button states and triggering vibration motors.
+
+### What It Demonstrates
+
+- Pad library initialization
+- Detecting connected controllers
+- Reading button states
+- Analog stick input
+- Vibration motor control
+- Controller information (vendor/product ID)
+
+### Implementation
+
+This sample runs as a network server that outputs controller information over TCP.
+
+```c samples/input/padtest/source/padtest.c
+int main(int argc, char *argv[]) {
+    int list_s, conn_s;
+    short int port;
+    struct sockaddr_in servaddr;
+    char buffer[MAX_LINE];
+    PadInfo padinfo;
+    PadData paddata;
+    
+    fprintf(stdout, "Starting Pad Test.\n");
+    
+    // Create listening socket
+    if ((list_s = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        fprintf(stderr, "Error creating listening socket.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Bind and listen
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_port = htons(port);
+
+    bind(list_s, (struct sockaddr *)&servaddr, sizeof(servaddr));
+    listen(list_s, LISTENQ);
+    
+    // Accept connection
+    if ((conn_s = accept(list_s, NULL, NULL)) < 0) {
+        fprintf(stderr, "Error calling accept()\n");
+        exit(EXIT_FAILURE);
+    }
+
+    char* message = "Welcome to PadTest\r\n";
+    Writeline(conn_s, message, strlen(message));
+    
+    // Initialize pad library (max 7 controllers)
+    sprintf(buffer, "Calling ioPadInit(%d) returned %d\r\n", 7, ioPadInit(7));
+    Writeline(conn_s, buffer, strlen(buffer));
+    
+    // Get pad info
+    sprintf(buffer, "Calling ioPadGetInfo() returned %d\r\n", ioPadGetInfo(&padinfo));
+    Writeline(conn_s, buffer, strlen(buffer));
+    
+    sprintf(buffer, "PadInfo:\r\nMax Pads: %u\r\nConnected Pads: %u\r\nInfo Field: %08x\r\n",
+            padinfo.max, padinfo.connected, padinfo.info);
+    Writeline(conn_s, buffer, strlen(buffer));
+    
+    // Iterate through all possible pad slots
+    for(int i = 0; i < MAX_PADS; i++) {
+        if(padinfo.status[i]) {
+            sprintf(buffer, "Controller %u:\r\nVendor ID: %hx\r\nProduct ID: %hx\r\nStatus: %hhu\r\n",
+                    i, padinfo.vendor_id[i], padinfo.product_id[i], padinfo.status[i]);
+            Writeline(conn_s, buffer, strlen(buffer));
+            
+            // Get pad data
+            sprintf(buffer, "Calling ioPadGetData(%d) returned %d\r\n",
+                    i, ioPadGetData(i, &paddata));
+            Writeline(conn_s, buffer, strlen(buffer));
+            
+            // Read button states
+            sprintf(buffer, "X..... %d\r\n", paddata.BTN_CROSS);
+            Writeline(conn_s, buffer, strlen(buffer));
+            sprintf(buffer, "O..... %d\r\n", paddata.BTN_CIRCLE);
+            Writeline(conn_s, buffer, strlen(buffer));
+            sprintf(buffer, "/\\.... %d\r\n", paddata.BTN_TRIANGLE);
+            Writeline(conn_s, buffer, strlen(buffer));
+            sprintf(buffer, "[].... %d\r\n", paddata.BTN_SQUARE);
+            Writeline(conn_s, buffer, strlen(buffer));
+            
+            sprintf(buffer, "LEFT.. %d\r\n", paddata.BTN_LEFT);
+            Writeline(conn_s, buffer, strlen(buffer));
+            sprintf(buffer, "RIGHT. %d\r\n", paddata.BTN_RIGHT);
+            Writeline(conn_s, buffer, strlen(buffer));
+            sprintf(buffer, "DOWN.. %d\r\n", paddata.BTN_DOWN);
+            Writeline(conn_s, buffer, strlen(buffer));
+            sprintf(buffer, "UP.... %d\r\n", paddata.BTN_UP);
+            Writeline(conn_s, buffer, strlen(buffer));
+            
+            // Test vibration - small motor
+            PadActParam actparam;
+            actparam.small_motor = 1;
+            actparam.large_motor = 0;
+            
+            sprintf(buffer, "Vibrating small motor... ");
+            Writeline(conn_s, buffer, strlen(buffer));
+            
+            ioPadSetActDirect(i, &actparam);
+            usleep(2000000);  // 2 seconds
+            
+            sprintf(buffer, "Finished.\r\n");
+            Writeline(conn_s, buffer, strlen(buffer));
+
+            // Test vibration - large motor
+            actparam.small_motor = 0;
+            actparam.large_motor = 255;
+            
+            sprintf(buffer, "Vibrating large motor... ");
+            Writeline(conn_s, buffer, strlen(buffer));
+            
+            ioPadSetActDirect(i, &actparam);
+            usleep(2000000);
+            
+            sprintf(buffer, "Finished.\r\n");
+            Writeline(conn_s, buffer, strlen(buffer));
+        }
+    }
+    
+    sprintf(buffer, "Finished.\r\n");
+    Writeline(conn_s, buffer, strlen(buffer));
+    
+    // Cleanup
+    sprintf(buffer, "Calling ioPadEnd() returned %d\r\n", ioPadEnd());
+    Writeline(conn_s, buffer, strlen(buffer));
+
+    close(conn_s);
+    return 0;
+}
+```
+
+### Pad Data Structure
+
+The `PadData` structure contains:
+
+- **Button states**: `BTN_CROSS`, `BTN_CIRCLE`, `BTN_TRIANGLE`, `BTN_SQUARE`
+- **D-Pad**: `BTN_UP`, `BTN_DOWN`, `BTN_LEFT`, `BTN_RIGHT`
+- **Shoulder buttons**: `BTN_L1`, `BTN_L2`, `BTN_R1`, `BTN_R2`
+- **Analog sticks**: Left stick (X/Y), Right stick (X/Y)
+- **Pressure sensitivity**: Available for analog buttons
+
+## Controller Input Patterns
+
+### Basic Setup
+
+<Steps>
+  <Step title="Initialize pad library">
+    ```c
+    ioPadInit(7);  // Support up to 7 controllers
+    ```
+  </Step>
+  
+  <Step title="Check connected pads">
+    ```c
+    PadInfo padinfo;
+    ioPadGetInfo(&padinfo);
+    printf("Connected pads: %u\n", padinfo.connected);
+    ```
+  </Step>
+  
+  <Step title="Read pad data in loop">
+    ```c
+    PadData paddata;
+    for(int i = 0; i < MAX_PADS; i++) {
+        if(padinfo.status[i]) {
+            ioPadGetData(i, &paddata);
+            if(paddata.BTN_CROSS) {
+                // Handle cross button
+            }
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="Cleanup">
+    ```c
+    ioPadEnd();
+    ```
+  </Step>
+</Steps>
+
+### Vibration Control
+
+```c
+PadActParam actparam;
+
+// Small motor (high frequency)
+actparam.small_motor = 1;  // 0 or 1
+actparam.large_motor = 0;  // 0-255
+ioPadSetActDirect(pad_number, &actparam);
+
+// Large motor (low frequency)
+actparam.small_motor = 0;
+actparam.large_motor = 128;  // Half intensity
+ioPadSetActDirect(pad_number, &actparam);
+
+// Stop vibration
+actparam.small_motor = 0;
+actparam.large_motor = 0;
+ioPadSetActDirect(pad_number, &actparam);
+```
+
+## kbtest - Keyboard Input
+
+**Location:** `samples/input/kbtest/`
+
+Demonstrates USB keyboard input handling.
+
+### What It Demonstrates
+
+- Keyboard initialization
+- Key press detection
+- Modifier keys (Shift, Ctrl, Alt)
+- Key repeat handling
+
+## camera - PlayStation Eye
+
+**Location:** `samples/input/camera/`
+
+Shows how to capture video from the PlayStation Eye camera.
+
+### What It Demonstrates
+
+- Camera initialization
+- Frame capture
+- Video format selection
+- Frame buffer management
+
+## gemtest - PlayStation Move
+
+**Location:** `samples/input/gemtest/`
+
+Demonstrates PlayStation Move motion controller tracking.
+
+### What It Demonstrates
+
+- Move controller initialization
+- Motion tracking
+- Button input
+- LED color control
+- Vibration feedback
+
+## Building Input Samples
+
+### Build All Input Samples
+
+```bash
+cd samples/input
+make
+```
+
+### Build Individual Sample
+
+```bash
+cd samples/input/padtest
+make
+```
+
+### Run Padtest
+
+<Steps>
+  <Step title="Build and load">
+    ```bash
+    make
+    ps3load padtest.self
+    ```
+  </Step>
+  
+  <Step title="Connect from PC">
+    ```bash
+    telnet <PS3_IP> 2002
+    ```
+  </Step>
+  
+  <Step title="View output">
+    Controller information and button states will be sent to your terminal
+  </Step>
+</Steps>
+
+## Common Input Patterns
+
+<AccordionGroup>
+  <Accordion title="Poll vs Event-Based">
+    Most PS3 input is poll-based. Call `ioPadGetData()` every frame in your main loop to get the latest controller state.
+  </Accordion>
+  
+  <Accordion title="Button Press Detection">
+    ```c
+    static int last_cross = 0;
+    if(paddata.BTN_CROSS && !last_cross) {
+        // Button was just pressed
+    }
+    last_cross = paddata.BTN_CROSS;
+    ```
+  </Accordion>
+  
+  <Accordion title="Analog Deadzone">
+    ```c
+    #define DEADZONE 20
+    
+    int stick_x = paddata.ANA_L_H - 128;
+    int stick_y = paddata.ANA_L_V - 128;
+    
+    if(abs(stick_x) < DEADZONE) stick_x = 0;
+    if(abs(stick_y) < DEADZONE) stick_y = 0;
+    ```
+  </Accordion>
+  
+  <Accordion title="Multiple Controllers">
+    ```c
+    PadInfo padinfo;
+    PadData paddata[MAX_PADS];
+    
+    ioPadGetInfo(&padinfo);
+    for(int i = 0; i < MAX_PADS; i++) {
+        if(padinfo.status[i]) {
+            ioPadGetData(i, &paddata[i]);
+            // Process controller i
+        }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Initialize Early" icon="rocket">
+    Call `ioPadInit()` during application startup before entering your main loop
+  </Card>
+  
+  <Card title="Check Connection Status" icon="link">
+    Always verify `padinfo.status[i]` before calling `ioPadGetData()`
+  </Card>
+  
+  <Card title="Limit Vibration" icon="gauge">
+    Don't vibrate continuously - it drains battery and is uncomfortable
+  </Card>
+  
+  <Card title="Handle Disconnection" icon="plug">
+    Controllers can disconnect during gameplay - handle gracefully
+  </Card>
+</CardGroup>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Pad API Reference" icon="book" href="/api/pad">
+    Complete controller API documentation
+  </Card>
+  
+  <Card title="Keyboard API" icon="keyboard" href="/api/keyboard">
+    Keyboard input functions
+  </Card>
+  
+  <Card title="Camera API" icon="camera" href="/api/camera">
+    PlayStation Eye camera reference
+  </Card>
+  
+  <Card title="Move API" icon="wand-magic" href="/api/gem">
+    PlayStation Move controller API
+  </Card>
+</CardGroup>

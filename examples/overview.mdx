@@ -1,0 +1,189 @@
+---
+title: 'Examples Overview'
+description: 'Comprehensive collection of PSL1GHT sample applications'
+---
+
+The PSL1GHT SDK includes a rich collection of sample applications demonstrating various aspects of PS3 development. These examples cover graphics rendering, audio playback, input handling, networking, SPU programming, and system utilities.
+
+## Sample Categories
+
+<CardGroup cols={2}>
+  <Card title="Graphics Samples" icon="palette" href="/examples/graphics-samples">
+    RSX graphics, texture rendering, Cairo 2D graphics, image loading (PNG/JPG)
+  </Card>
+  
+  <Card title="Input Samples" icon="gamepad" href="/examples/input-samples">
+    Controller input, keyboard, camera, and PlayStation Move support
+  </Card>
+  
+  <Card title="Audio Samples" icon="volume" href="/examples/audio-samples">
+    Audio playback, synchronization, and multi-channel audio
+  </Card>
+  
+  <Card title="Network Samples" icon="wifi" href="/examples/network-samples">
+    TCP/UDP sockets, HTTP requests, network debugging
+  </Card>
+  
+  <Card title="SPU Samples" icon="microchip" href="/examples/spu-samples">
+    SPU thread programming, DMA transfers, parallel processing
+  </Card>
+  
+  <Card title="System Samples" icon="gear" href="/examples/system-samples">
+    Message dialogs, on-screen keyboard, save data, threading
+  </Card>
+</CardGroup>
+
+## Directory Structure
+
+The samples are organized in the following structure:
+
+```
+samples/
+├── audio/           # Audio playback and synchronization
+│   ├── audiotest/   # Basic audio playback
+│   └── audiosync/   # Event-based audio synchronization
+├── graphics/        # Graphics and rendering
+│   ├── rsxtest/     # Basic RSX graphics with shaders
+│   ├── rsxtest_spu/ # RSX with SPU assistance
+│   ├── cairo/       # 2D vector graphics
+│   ├── pngtest/     # PNG image loading
+│   └── jpgtest/     # JPEG image loading
+├── input/           # Input device handling
+│   ├── padtest/     # Controller input
+│   ├── kbtest/      # Keyboard input
+│   ├── camera/      # PS Eye camera
+│   └── gemtest/     # PlayStation Move
+├── network/         # Network communication
+│   ├── networktest/ # TCP/UDP basics
+│   ├── httptest/    # HTTP client
+│   └── echoserv/    # Echo server
+├── spu/             # SPU programming
+│   ├── sputest/     # Basic SPU execution
+│   ├── spudma/      # DMA transfers
+│   ├── spuchain/    # SPU thread chains
+│   └── spurs/       # SPURS task scheduling
+└── sys/             # System utilities
+    ├── msgdialog/   # Message dialogs
+    ├── osk/         # On-screen keyboard
+    ├── save/        # Save data management
+    └── threadtest/  # PPU threading
+```
+
+## Building Samples
+
+### Build All Samples
+
+From the `samples/` directory:
+
+```bash
+make
+```
+
+This builds all sample categories (audio, graphics, input, network, spu, sys).
+
+### Build by Category
+
+Build samples in a specific category:
+
+```bash
+cd samples/graphics
+make
+```
+
+### Build Individual Sample
+
+Build a single sample application:
+
+```bash
+cd samples/graphics/rsxtest
+make
+```
+
+### Clean Build Files
+
+Remove all build artifacts:
+
+```bash
+make clean
+```
+
+## Running Samples
+
+<Steps>
+  <Step title="Build the sample">
+    Navigate to the sample directory and run `make`
+  </Step>
+  
+  <Step title="Transfer to PS3">
+    Use `ps3load` or copy the `.self` file to your PS3
+    
+    ```bash
+    ps3load sample.self
+    ```
+  </Step>
+  
+  <Step title="Run on PS3">
+    Execute the application from the XMB or through network loading
+  </Step>
+</Steps>
+
+## Common Build Requirements
+
+All samples require:
+
+- **PSL1GHT SDK** properly installed
+- **PS3DEV environment variable** set to your toolchain location
+- **PSL1GHT environment variable** pointing to PSL1GHT installation
+- **PATH** including `$PS3DEV/bin` and `$PS3DEV/ppu/bin`
+
+## Sample Complexity Levels
+
+### Beginner
+Start with these simple examples:
+- `audio/audiotest` - Basic audio playback
+- `input/padtest` - Controller input basics
+- `network/networktest` - Simple TCP/UDP
+- `sys/msgdialog` - System dialogs
+
+### Intermediate
+Once comfortable with basics:
+- `graphics/rsxtest` - 3D graphics with shaders
+- `graphics/cairo` - 2D vector graphics
+- `audio/audiosync` - Event-based audio
+- `spu/sputest` - Basic SPU programming
+
+### Advanced
+Complex multi-component samples:
+- `graphics/rsxtest_spu` - RSX + SPU collaboration
+- `spu/spuchain` - SPU thread synchronization
+- `spu/spurs` - Advanced task scheduling
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="/api/rsx">
+    Complete API documentation for all PSL1GHT modules
+  </Card>
+  
+  <Card title="Graphics Guide" icon="cube" href="/graphics/rsx-overview">
+    In-depth graphics programming guide
+  </Card>
+  
+  <Card title="Audio Guide" icon="music" href="/audio/audio-playback">
+    Audio system architecture and best practices
+  </Card>
+  
+  <Card title="SPU Guide" icon="processor" href="/concepts/spu-programming">
+    Cell SPU programming patterns and optimization
+  </Card>
+</CardGroup>
+
+## Getting Help
+
+If you encounter issues:
+
+1. Check that your SDK is properly installed
+2. Verify environment variables are set correctly
+3. Review the sample's Makefile for dependencies
+4. Check console output for error messages
+5. Refer to the specific sample documentation pages

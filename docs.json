@@ -1,122 +1,219 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "PSL1GHT",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#1E40AF",
+    "light": "#3B82F6",
+    "dark": "#1E3A8A"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/ps3dev/PSL1GHT"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/ps3dev/PSL1GHT"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
-              "index",
+              "introduction",
+              "installation",
               "quickstart",
-              "development"
+              "project-structure"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/ppu-architecture",
+              "concepts/spu-programming",
+              "concepts/memory-management",
+              "concepts/build-system"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Graphics",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "graphics/rsx-overview",
+              "graphics/gcm-system",
+              "graphics/vertex-shaders",
+              "graphics/rendering",
+              "graphics/font-rendering"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Input",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "input/controllers",
+              "input/keyboard-mouse",
+              "input/camera",
+              "input/playstation-move"
+            ]
+          },
+          {
+            "group": "Audio",
+            "pages": [
+              "audio/audio-playback",
+              "audio/synchronization"
+            ]
+          },
+          {
+            "group": "Networking",
+            "pages": [
+              "networking/sockets",
+              "networking/http-client",
+              "networking/ssl"
+            ]
+          },
+          {
+            "group": "System",
+            "pages": [
+              "system/filesystem",
+              "system/threads",
+              "system/memory",
+              "system/processes"
+            ]
+          },
+          {
+            "group": "System Utilities",
+            "pages": [
+              "sysutil/dialogs",
+              "sysutil/on-screen-keyboard",
+              "sysutil/save-data",
+              "sysutil/video-output"
+            ]
+          },
+          {
+            "group": "SPU Development",
+            "pages": [
+              "spu/overview",
+              "spu/thread-management",
+              "spu/dma-transfers",
+              "spu/spurs"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "tools/fself",
+              "tools/pkg-creation",
+              "tools/sprxlinker",
+              "tools/cgcomp",
+              "tools/ps3load"
+            ]
+          },
+          {
+            "group": "Advanced Topics",
+            "pages": [
+              "advanced/sprx-libraries",
+              "advanced/debugging",
+              "advanced/optimization"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Graphics APIs",
             "pages": [
-              "api-reference/introduction"
+              "api/rsx",
+              "api/gcm",
+              "api/resc",
+              "api/font"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Input APIs",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/pad",
+              "api/keyboard",
+              "api/mouse",
+              "api/camera",
+              "api/gem"
+            ]
+          },
+          {
+            "group": "Audio APIs",
+            "pages": [
+              "api/audio"
+            ]
+          },
+          {
+            "group": "Network APIs",
+            "pages": [
+              "api/net",
+              "api/netctl",
+              "api/http",
+              "api/ssl"
+            ]
+          },
+          {
+            "group": "System APIs",
+            "pages": [
+              "api/lv2",
+              "api/thread",
+              "api/memory",
+              "api/filesystem",
+              "api/process"
+            ]
+          },
+          {
+            "group": "System Utility APIs",
+            "pages": [
+              "api/sysutil",
+              "api/msg-dialog",
+              "api/osk",
+              "api/save",
+              "api/video"
+            ]
+          },
+          {
+            "group": "SPU APIs",
+            "pages": [
+              "api/spu-thread",
+              "api/spu-dma",
+              "api/spu-atomic",
+              "api/spurs"
+            ]
+          },
+          {
+            "group": "Math Libraries",
+            "pages": [
+              "api/vectormath",
+              "api/simdmath"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Sample Projects",
+            "pages": [
+              "examples/overview",
+              "examples/graphics-samples",
+              "examples/input-samples",
+              "examples/audio-samples",
+              "examples/network-samples",
+              "examples/spu-samples",
+              "examples/system-samples"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

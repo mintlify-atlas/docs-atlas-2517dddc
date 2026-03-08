@@ -1,80 +1,361 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Create and build your first PlayStation 3 homebrew application with PSL1GHT
 ---
 
-## Get started in three steps
+## Create Your First Application
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through creating a simple "Hello World" application for PS3.
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Create project directory">
+    ```bash
+    mkdir ~/ps3-hello-world
+    cd ~/ps3-hello-world
+    mkdir source
+    ```
+  </Step>
+
+  <Step title="Create the source file">
+    Create `source/main.c` with the following content:
+
+    ```c source/main.c
+    #include <stdio.h>
+
+    int main()
+    {
+        printf("hello, ps3\n");
+        return 0;
+    }
+    ```
+
+    <Note>
+      By default, PSL1GHT redirects stdout and stderr to the lv2 TTY interface. You can use Kammy's ethdebug module to view this output over the network.
+    </Note>
+  </Step>
+
+  <Step title="Create the Makefile">
+    Create a `Makefile` in the project root:
+
+    ```makefile Makefile
+    # Name of your project, binary and package
+    # Default - guessed from current directory name
+    TARGET = hello-world
+
+    # Object files to link into your binary
+    OFILES = source/main.o
+
+    # Compiler flags
+    CFLAGS = -I$(PS3DEV)/ppu/include -std=gnu99
+
+    # Linker flags
+    LDFLAGS =
+
+    # Build directory for .pkg output
+    BUILDDIR = build
+
+    # Package metadata
+    TITLE = Hello World - PSL1GHT
+    APPID = HELLO0001
+
+    # Include PSL1GHT build rules
+    include $(PSL1GHT)/ppu_rules
+
+    # Build targets
+    pkg: $(TARGET).pkg
+
+    run:
+        ps3load $(TARGET).self
+
+    clean:
+        rm -rf $(TARGET)*.pkg $(TARGET)*.self $(BUILDDIR) source/*.o
+    ```
+
+    <Warning>
+      Make sure `$PSL1GHT` is set in your environment. The build will fail with an error if this variable is not defined.
+    </Warning>
+  </Step>
+
+  <Step title="Build the application">
+    Build the SELF executable:
+
+    ```bash
+    make
+    ```
+
+    This will:
+    1. Compile `source/main.c` to `source/main.o`
+    2. Link object files into `hello-world.elf`
+    3. Strip and process the ELF to create `hello-world.self`
+
+    The `.self` file can be loaded directly on a jailbroken PS3.
+  </Step>
+
+  <Step title="Package for installation">
+    Create a `.pkg` installer package:
+
+    ```bash
+    make pkg
+    ```
+
+    This creates:
+    - `hello-world.pkg` - Standard package
+    - `hello-world.gnpdrm.pkg` - Signed package for CFW
+
+    The package can be installed via the PS3's Package Manager.
+  </Step>
+</Steps>
+
+## Understanding the Build Process
+
+The PSL1GHT build system follows this workflow:
+
+```mermaid
+graph LR
+    A[Source .c/.cpp] --> B[Object .o]
+    B --> C[Linked .elf]
+    C --> D[Stripped ELF]
+    D --> E[SPRX Linked]
+    E --> F[Signed .self]
+    F --> G[Packaged .pkg]
+```
+
+### Build Stages
+
+<Accordion title="1. Compilation (.c → .o)">
+  Source files are compiled to object files using `ppu-gcc`:
+
+  ```bash
+  ppu-gcc -I$(PSL1GHT)/ppu/include -c source/main.c -o source/main.o
+  ```
+
+  The PPU rules automatically include:
+  - `-mhard-float` - Hardware floating point
+  - `-fmodulo-sched` - Optimized scheduling
+  - `-ffunction-sections -fdata-sections` - For dead code elimination
+</Accordion>
+
+<Accordion title="2. Linking (.o → .elf)">
+  Object files are linked into an ELF executable:
+
+  ```bash
+  ppu-gcc source/main.o -L$(PSL1GHT)/ppu/lib -llv2 -o hello-world.elf
+  ```
+
+  Common libraries:
+  - `-llv2` - LV2 system calls
+  - `-lrt` - Runtime support
+  - `-lio` - I/O (pad, keyboard, mouse)
+  - `-lrsx` - RSX graphics
+  - `-lgcm_sys` - Graphics memory management
+  - `-lsysutil` - System utilities
+</Accordion>
+
+<Accordion title="3. SELF Creation (.elf → .self)">
+  The ELF is processed into a SELF (signed executable):
+
+  ```bash
+  ppu-strip hello-world.elf -o build/hello-world.elf
+  sprxlinker build/hello-world.elf
+  make_self build/hello-world.elf hello-world.self
+  ```
+
+  - **Strip** - Removes debug symbols
+  - **SPRX Linker** - Resolves dynamic library references
+  - **make_self** - Creates signed executable for CFW
+</Accordion>
+
+<Accordion title="4. PKG Creation (.self → .pkg)">
+  The SELF is packaged for installation:
+
+  ```bash
+  mkdir -p build/pkg/USRDIR
+  make_self_npdrm hello-world.elf build/pkg/USRDIR/EBOOT.BIN <CONTENTID>
+  sfo.py --title "Hello World" --appid "HELLO0001" build/pkg/PARAM.SFO
+  pkg.py --contentid <CONTENTID> build/pkg/ hello-world.pkg
+  package_finalize hello-world.gnpdrm.pkg
+  ```
+
+  Package structure:
+  ```
+  pkg/
+  ├── PARAM.SFO    # Package metadata
+  ├── ICON0.PNG    # XMB icon
+  └── USRDIR/
+      └── EBOOT.BIN # Your application
+  ```
+</Accordion>
+
+## A More Complex Example
+
+Here's a graphics example that displays colored rectangles using RSX:
+
+<CodeGroup>
+```c source/main.c
+#include <stdio.h>
+#include <rsx/rsx.h>
+#include <sysutil/video.h>
+#include <io/pad.h>
+
+int main()
+{
+    // Initialize video
+    videoState state;
+    videoConfiguration vconfig;
+    
+    videoGetState(0, 0, &state);
+    videoGetResolution(state.displayMode.resolution, &vconfig);
+    
+    // Initialize RSX
+    gcmContextData *context;
+    void *host_addr = memalign(1024*1024, HOST_SIZE);
+    rsxInit(&context, CB_SIZE, HOST_SIZE, host_addr);
+    
+    // Initialize controller
+    ioPadInit(7);
+    
+    printf("PS3 Graphics Demo\n");
+    printf("Resolution: %dx%d\n", vconfig.width, vconfig.height);
+    printf("Press START to exit\n");
+    
+    // Main loop
+    padData paddata;
+    int running = 1;
+    
+    while(running) {
+        ioPadGetData(0, &paddata);
+        
+        if(paddata.BTN_START) {
+            running = 0;
+        }
+        
+        // Draw frame
+        rsxSetClearColor(context, 0x00406080);
+        rsxClearSurface(context, GCM_CLEAR_R | GCM_CLEAR_G | 
+                        GCM_CLEAR_B | GCM_CLEAR_A);
+        
+        flip(context);
+    }
+    
+    ioPadEnd();
+    return 0;
+}
+```
+
+```makefile Makefile
+TARGET    = graphics-demo
+SOURCES   = source
+INCLUDES  = include
+
+CFLAGS    = -Wall -mcpu=cell -std=gnu99
+LIBS      = -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm
+
+OFILES    = $(foreach dir,$(SOURCES),$(patsubst %.c,%.o,$(wildcard $(dir)/*.c)))
+
+TITLE     = Graphics Demo - PSL1GHT
+APPID     = GRPH00001
+BUILDDIR  = build
+
+include $(PSL1GHT)/ppu_rules
+
+pkg: $(TARGET).pkg
+
+run:
+	ps3load $(TARGET).self
+
+clean:
+	rm -rf $(TARGET)*.pkg $(TARGET)*.self $(BUILDDIR) $(OFILES)
+```
+</CodeGroup>
+
+## Package Metadata
+
+Customize your application's appearance in the XMB:
+
+<CodeGroup>
+```makefile Custom Title and ID
+TITLE     = My Awesome Game
+APPID     = GAME00042
+CONTENTID = UP0001-$(APPID)_00-0000000000000000
+```
+
+```makefile Custom Icon
+ICON0 = $(CURDIR)/assets/icon0.png
+```
+
+```makefile Additional Files
+PKGFILES = $(CURDIR)/data
+```
+</CodeGroup>
+
+The `PKGFILES` directory contents are copied to `/dev_hdd0/game/$APPID/` on the PS3.
+
+## Running Your Application
+
+### Option 1: ps3load (Network Loading)
+
+For rapid testing without creating packages:
+
+```bash
+make run
+```
+
+Requires ps3load homebrew running on your PS3.
+
+### Option 2: Install Package
+
+1. Copy the `.gnpdrm.pkg` file to a USB drive
+2. Insert the USB drive into your PS3
+3. Navigate to **Package Manager** → **Install Package Files**
+4. Select your package and install
+5. Find your app under **Game** in the XMB
+
+## Common Build Issues
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="Error: 'Please set PSL1GHT in your environment'">
+    The `$PSL1GHT` environment variable is not set. Add to your shell profile:
+
+    ```bash
+    export PSL1GHT=/usr/local/ps3dev/psl1ght
+    ```
+
+    Then reload: `source ~/.bashrc`
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+
+  <Accordion title="undefined reference to library functions">
+    You're missing required libraries in the `LIBS` variable. Common libraries:
+
+    ```makefile
+    LIBS = -lrt -llv2 -lm                    # Basic runtime
+    LIBS = -lio -lsysutil -lrt -llv2         # I/O and system
+    LIBS = -lrsx -lgcm_sys -lsysutil -lrt -llv2  # Graphics
+    LIBS = -laudio -lrt -llv2                # Audio
+    ```
+  </Accordion>
+
+  <Accordion title="Application crashes on PS3">
+    Common causes:
+    - Not calling `ioPadInit()` before using controller functions
+    - Not initializing video/RSX before graphics calls
+    - Stack overflow (try increasing stack size in linker flags)
+    - Not registering exit callback for XMB quit events
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Project Structure" icon="folder-tree" href="/project-structure">
+    Learn about the SDK layout and build system
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/rsx">
+    Explore available libraries and functions
+  </Card>
+  <Card title="Graphics Programming" icon="palette" href="/graphics/rsx-overview">
+    Learn RSX graphics programming
+  </Card>
+  <Card title="Sample Code" icon="code" href="/examples/overview">
+    Browse complete example applications
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

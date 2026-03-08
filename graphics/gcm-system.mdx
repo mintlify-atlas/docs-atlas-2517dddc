@@ -1,0 +1,734 @@
+---
+title: GCM System
+description: Graphics Command Manager and command buffer management in PSL1GHT
+---
+
+The GCM (Graphics Command Manager) system is the low-level interface for managing the RSX command buffer. It provides functions for controlling how commands are queued and executed by the graphics processor.
+
+## Command Buffer Architecture
+
+The RSX uses a circular command buffer stored in main memory that the CPU writes to and the RSX reads from:
+
+```
+┌─────────────────────────────────────────┐
+│         Command Buffer (Main RAM)      │
+│  ┌──────────────────────────────────┐  │
+│  │                                  │  │
+│  │  begin                    end    │  │
+│  │    ▼                        ▲    │  │
+│  │  ┌───┬───┬───┬───┬───┬───┬─┴─┐  │  │
+│  │  │CMD│CMD│CMD│   │   │   │   │  │  │
+│  │  └───┴───┴───┴───┴───┴───┴───┘  │  │
+│  │    ▲           ▲                 │  │
+│  │    │           │                 │  │
+│  │  current      get                │  │
+│  │  (CPU write) (RSX read)          │  │
+│  └──────────────────────────────────┘  │
+└─────────────────────────────────────────┘
+```
+
+### Context Structure
+
+The `gcmContextData` structure tracks the command buffer state:
+
+```c
+// From rsx/gcm_sys.h:722
+typedef struct _gcmCtxData {
+    u32 *begin;      // Start address of command buffer
+    u32 *end;        // End address of command buffer  
+    u32 *current;    // Current write position (CPU)
+    gcmContextCallback callback; // Called when buffer is full
+} gcmContextData;
+```
+
+### Control Registers
+
+The `gcmControlRegister` structure provides access to hardware registers:
+
+```c
+// From rsx/gcm_sys.h:734
+typedef struct _gcmCtrlRegister {
+    vu32 put; // PUT register: CPU write position
+    vu32 get; // GET register: RSX read position  
+    vu32 ref; // REF register: reference value
+} gcmControlRegister;
+```
+
+## Command Buffer Modes
+
+The GCM system supports three FIFO modes for managing the command buffer:
+
+<Tabs>
+  <Tab title="Traditional Mode">
+    **`GCM_DEFAULT_FIFO_MODE_TRADITIONAL` (0)**
+    
+    From `rsx/gcm_sys.h:19`
+    
+    Checks the GET pointer in the traditional way for openings in the next segment. May sleep-wait if the GET pointer is at the next segment.
+    
+    ```c
+    // Initialize with traditional FIFO mode
+    gcmInitDefaultFifoMode(GCM_DEFAULT_FIFO_MODE_TRADITIONAL);
+    ```
+    
+    **Use when**: You need simple, predictable behavior and don't require optimal performance.
+  </Tab>
+  
+  <Tab title="Optimized Mode">
+    **`GCM_DEFAULT_FIFO_MODE_OPTIMIZE` (1)**
+    
+    From `rsx/gcm_sys.h:26`
+    
+    Uses `rsxSetWriteTextureLabel()` to manage the command buffer. Handles each segment as an index and monitors states by reading label values.
+    
+    ```c
+    // Initialize with optimized FIFO mode  
+    gcmInitDefaultFifoMode(GCM_DEFAULT_FIFO_MODE_OPTIMIZE);
+    ```
+    
+    **Use when**: You need better performance and can handle label-based synchronization.
+  </Tab>
+  
+  <Tab title="Conditional Mode">
+    **`GCM_DEFAULT_FIFO_MODE_CONDITIONAL` (2)**
+    
+    From `rsx/gcm_sys.h:32`
+    
+    Uses `rsxSetWriteCommandLabel()` to manage the command buffer. Similar management to optimized mode.
+    
+    ```c
+    // Initialize with conditional FIFO mode
+    gcmInitDefaultFifoMode(GCM_DEFAULT_FIFO_MODE_CONDITIONAL);
+    ```
+    
+    **Use when**: You need conditional rendering and advanced synchronization.
+  </Tab>
+</Tabs>
+
+## Initialization
+
+<Steps>
+  <Step title="Allocate Memory">
+    Allocate aligned memory for the command buffer:
+    
+    ```c
+    #define COMMAND_BUFFER_SIZE 0x80000  // 512KB
+    #define IO_BUFFER_SIZE (128*1024*1024) // 128MB
+    #define ALIGNMENT (1024*1024) // 1MB
+    
+    void *host_addr = memalign(ALIGNMENT, IO_BUFFER_SIZE);
+    if (!host_addr) {
+        printf("Failed to allocate I/O buffer\n");
+        return -1;
+    }
+    ```
+    
+    The I/O buffer must be:
+    - **1MB aligned**
+    - **Size multiple of 1MB**
+    - Located in **main memory**
+  </Step>
+  
+  <Step title="Initialize Context">
+    Create the GCM context:
+    
+    ```c
+    gcmContextData *context;
+    s32 ret = gcmInitBody(&context, COMMAND_BUFFER_SIZE, 
+                          IO_BUFFER_SIZE, host_addr);
+    if (ret != 0) {
+        printf("gcmInitBody failed: %d\n", ret);
+        return ret;
+    }
+    ```
+    
+    Or use the higher-level `rsxInit()` wrapper:
+    
+    ```c
+    s32 ret = rsxInit(&context, COMMAND_BUFFER_SIZE,
+                      IO_BUFFER_SIZE, host_addr);
+    ```
+  </Step>
+  
+  <Step title="Configure FIFO Mode">
+    Set the command buffer management mode:
+    
+    ```c
+    // Set optimized FIFO mode for better performance
+    gcmInitDefaultFifoMode(GCM_DEFAULT_FIFO_MODE_OPTIMIZE);
+    ```
+  </Step>
+  
+  <Step title="Set Buffer Sizes (Optional)">
+    Customize command buffer and segment sizes:
+    
+    ```c
+    // Set custom sizes (in words, not bytes)
+    u32 bufferSize = 0x20000;  // 512KB in words
+    u32 segmentSize = 0x8000;  // 128KB in words
+    
+    gcmSetDefaultFifoSize(bufferSize, segmentSize);
+    ```
+  </Step>
+</Steps>
+
+## Command Buffer Operations
+
+### Writing Commands
+
+Most RSX commands automatically handle command buffer writes:
+
+```c
+// These functions write to the command buffer internally
+rsxSetClearColor(context, 0x00000000);
+rsxSetViewport(context, x, y, w, h, min, max, scale, offset);
+rsxSetDepthTestEnable(context, GCM_TRUE);
+```
+
+### Getting Current Position
+
+```c
+// Get current write position in command buffer
+u32 *current = rsxGetCurrentBuffer();
+```
+
+### Flushing Commands
+
+Flush pending commands to the RSX:
+
+```c
+// Flush all pending commands
+rsxFlushBuffer(context);
+```
+
+<Note>
+  Always flush after submitting render commands to ensure they are sent to the RSX for processing.
+</Note>
+
+### Synchronization
+
+Wait for RSX to finish processing:
+
+```c
+// Wait for RSX to finish all commands
+rsxFinish(context, 1);
+```
+
+<Warning>
+  Calling `rsxFinish()` causes the CPU to stall until the RSX completes all pending work. Use sparingly for performance.
+</Warning>
+
+## Memory Mapping
+
+The GCM system provides functions for mapping memory regions for RSX access.
+
+### Mapping Main Memory
+
+Map a region of main memory for RSX access:
+
+```c
+void *buffer = memalign(1024*1024, size);
+u32 offset;
+
+// Map the buffer
+s32 ret = gcmMapMainMemory(buffer, size, &offset);
+if (ret != 0) {
+    printf("Failed to map memory: %d\n", ret);
+    return ret;
+}
+
+// Use offset in RSX commands...
+
+// Buffer is now accessible by RSX at 'offset'
+```
+
+### Unmapping Memory
+
+```c
+// Unmap by I/O address
+gcmUnmapIoAddress(io_offset);
+
+// Or unmap by effective address
+gcmUnmapEaIoAddress(buffer);
+```
+
+### Address Conversion
+
+Convert between effective addresses and RSX offsets:
+
+<CodeGroup>
+```c Address to Offset
+u32 offset;
+const void *address = color_buffer;
+
+s32 ret = gcmAddressToOffset(address, &offset);
+if (ret != 0) {
+    printf("Address not in RSX memory\n");
+}
+```
+
+```c Offset to Address
+void *address;
+u32 offset = 0x12345000;
+
+s32 ret = gcmIoOffsetToAddress(offset, &address);
+if (ret != 0) {
+    printf("Invalid offset\n");
+}
+```
+</CodeGroup>
+
+## Configuration Access
+
+Retrieve RSX system configuration:
+
+```c
+gcmConfiguration config;
+
+s32 ret = gcmGetConfiguration(&config);
+if (ret == 0) {
+    printf("Local address: %p\n", config.localAddress);
+    printf("Local size: %u MB\n", config.localSize / (1024*1024));
+    printf("I/O address: %p\n", config.ioAddress);
+    printf("I/O size: %u MB\n", config.ioSize / (1024*1024));
+    printf("Memory freq: %u MHz\n", config.memoryFreq / 1000000);
+    printf("Core freq: %u MHz\n", config.coreFreq / 1000000);
+}
+```
+
+Configuration structure from `rsx/gcm_sys.h:745`:
+
+```c
+typedef struct _gcmCfg {
+    void *localAddress;  // Effective start of RSX memory
+    void *ioAddress;     // Effective start of I/O mapped main memory
+    u32 localSize;       // Max RSX memory size (256MB)
+    u32 ioSize;          // Max I/O mapped size
+    u32 memoryFreq;      // RSX memory clock frequency
+    u32 coreFreq;        // RSX core clock frequency
+} gcmConfiguration;
+```
+
+## Display Management
+
+### Flip Operations
+
+The GCM system manages display buffer flipping:
+
+```c
+// Queue flip command
+gcmSetFlip(context, buffer_id);
+
+// Flush commands
+rsxFlushBuffer(context);
+
+// Wait for flip to be queued
+gcmSetWaitFlip(context);
+```
+
+### Flip Status
+
+Query and control flip status:
+
+<CodeGroup>
+```c Check Status
+// Returns 0 if flip completed, non-zero otherwise
+while (gcmGetFlipStatus() != 0) {
+    usleep(200);
+}
+```
+
+```c Reset Status
+// Reset flip status after flip completes
+gcmResetFlipStatus();
+```
+
+```c Set Status
+// Manually set flip status
+gcmSetFlipStatus();
+```
+</CodeGroup>
+
+### Flip Timing
+
+Get flip timing information:
+
+```c
+// Get timestamp of last flip
+s64 lastFlip = gcmGetLastFlipTime();
+
+// Get VBlank count
+u64 vblankCount = gcmGetVBlankCount();
+
+// Get current display field
+u32 field = gcmGetCurrentField();
+```
+
+### Immediate Flip
+
+Flip without waiting for VSync:
+
+```c
+// Flip immediately (may cause tearing)
+gcmSetFlipImmediate(buffer_id);
+```
+
+<Warning>
+  Immediate flips can cause screen tearing. Use `GCM_FLIP_VSYNC` mode for smooth display.
+</Warning>
+
+## Labels and Synchronization
+
+Labels provide synchronization points between CPU and RSX.
+
+### Getting Label Address
+
+```c
+// Get address of label (0-255)
+u32 *label = gcmGetLabelAddress(index);
+
+// RSX can write to this address
+// CPU can read to check progress
+```
+
+### Report Data
+
+Use reports for GPU queries:
+
+```c
+// Get report data address
+gcmReportData *report = gcmGetReportDataAddress(index);
+
+// Query report type
+u32 value = gcmGetReport(type, index);
+
+// Get timestamp
+u64 timestamp = gcmGetTimeStamp(index);
+```
+
+Report types from `rsx/gcm_sys.h:670-674`:
+- `GCM_ZPASS_PIXEL_CNT` - Z-pass pixel count
+- `GCM_ZCULL_STATS` - Z-cull statistics  
+- `GCM_ZCULL_STATS1` - Z-cull statistics 1
+- `GCM_ZCULL_STATS2` - Z-cull statistics 2
+- `GCM_ZCULL_STATS3` - Z-cull statistics 3
+
+## Callback Functions
+
+Register callbacks for various events:
+
+### VBlank Handler
+
+```c
+void vblank_handler(u32 head) {
+    // Called on VBlank
+    printf("VBlank on head %u\n", head);
+}
+
+// Register callback
+gcmSetVBlankHandler(vblank_handler);
+
+// Set VBlank frequency (in Hz)
+gcmSetVBlankFrequency(60);
+```
+
+### Flip Handler
+
+```c
+void flip_handler(u32 head) {
+    // Called when flip occurs
+    printf("Flip on head %u\n", head);
+}
+
+// Register callback  
+gcmSetFlipHandler(flip_handler);
+```
+
+### Graphics Error Handler
+
+```c
+void graphics_handler(u32 val) {
+    // Called on graphics pipeline error
+    printf("Graphics error: 0x%08x\n", val);
+}
+
+// Register callback
+gcmSetGraphicsHandler(graphics_handler);
+```
+
+## Tile and Z-Cull Management
+
+The RSX supports tiled memory regions for optimized access.
+
+### Setting Up Tiles
+
+```c
+// Configure a tile region
+gcmSetTile(
+    0,                      // Tile index (0-14)
+    GCM_LOCATION_RSX,       // Memory location
+    color_offset[0],        // Offset in memory
+    color_pitch * height,   // Size in bytes
+    color_pitch,            // Pitch in bytes
+    GCM_COMPMODE_DISABLED,  // Compression mode
+    0,                      // Tile base
+    0                       // Bank
+);
+
+// Bind the tile
+gcmBindTile(0);
+```
+
+### Invalidating Tiles
+
+```c
+// Unbind tile
+gcmUnbindTile(0);
+
+// Invalidate tile configuration
+gcmSetInvalidateTile(0);
+```
+
+### Z-Cull Setup
+
+Configure hierarchical Z-buffer culling:
+
+```c
+gcmSetZcull(
+    0,                      // Z-cull region index
+    depth_offset,           // Depth buffer offset
+    display_width,          // Width
+    display_height,         // Height  
+    0,                      // Cull start
+    GCM_ZCULL_Z16,         // Z format
+    GCM_SURFACE_CENTER_1,  // AA format
+    GCM_ZCULL_LESS,        // Z-cull direction
+    GCM_ZCULL_LONES,       // Z-cull format
+    GCM_SCULL_SFUNC_ALWAYS,// Stencil function
+    0x80,                   // Stencil ref
+    0xff                    // Stencil mask
+);
+```
+
+## Control Register Access
+
+Direct access to hardware control registers:
+
+```c
+// Get control register structure
+gcmControlRegister *ctrl = gcmGetControlRegister();
+
+// Read current values
+printf("PUT: 0x%08x\n", ctrl->put);
+printf("GET: 0x%08x\n", ctrl->get);
+printf("REF: 0x%08x\n", ctrl->ref);
+
+// Wait for RSX to catch up
+while (ctrl->get != ctrl->put) {
+    usleep(100);
+}
+```
+
+<Warning>
+  Direct register access is advanced usage. Incorrect use can cause system instability.
+</Warning>
+
+## Transfer Operations
+
+The GCM system provides blitting and transfer functions:
+
+### Transfer Structures
+
+<Tabs>
+  <Tab title="gcmTransferScale">
+    Scaled image blit with format conversion:
+    
+    ```c
+    gcmTransferScale scale;
+    
+    scale.conversion = GCM_TRANSFER_CONVERSION_TRUNCATE;
+    scale.format = GCM_TRANSFER_SCALE_FORMAT_A8R8G8B8;
+    scale.operation = GCM_TRANSFER_OPERATION_SRCCOPY;
+    
+    // Clipping rectangle
+    scale.clipX = 0;
+    scale.clipY = 0;
+    scale.clipW = dest_width;
+    scale.clipH = dest_height;
+    
+    // Destination rectangle
+    scale.outX = 0;
+    scale.outY = 0;
+    scale.outW = dest_width;
+    scale.outH = dest_height;
+    
+    // Scaling ratios (fixed point)
+    scale.ratioX = rsxGetFixedSint32((f32)src_width / dest_width);
+    scale.ratioY = rsxGetFixedSint32((f32)src_height / dest_height);
+    
+    // Source dimensions
+    scale.inW = src_width;
+    scale.inH = src_height;
+    scale.inX = 0;
+    scale.inY = 0;
+    
+    scale.pitch = src_pitch;
+    scale.origin = GCM_TRANSFER_ORIGIN_CORNER;
+    scale.interp = GCM_TRANSFER_INTERPOLATOR_LINEAR;
+    scale.offset = src_offset;
+    ```
+  </Tab>
+  
+  <Tab title="gcmTransferSurface">
+    Destination surface specification:
+    
+    ```c
+    gcmTransferSurface surface;
+    
+    surface.format = GCM_TRANSFER_SURFACE_FORMAT_A8R8G8B8;
+    surface.pitch = dest_pitch;
+    surface.offset = dest_offset;
+    ```
+  </Tab>
+</Tabs>
+
+## Example: Complete GCM Setup
+
+From `samples/graphics/rsxtest`:
+
+```c
+#include <rsx/rsx.h>
+#include <rsx/gcm_sys.h>
+
+#define CB_SIZE    0x80000
+#define HOST_SIZE  (128*1024*1024)
+
+gcmContextData *context;
+
+int init_gcm() {
+    // Allocate I/O buffer (1MB aligned)
+    void *host_addr = memalign(1024*1024, HOST_SIZE);
+    if (!host_addr) return -1;
+    
+    // Initialize GCM
+    s32 ret = rsxInit(&context, CB_SIZE, HOST_SIZE, host_addr);
+    if (ret != 0) {
+        free(host_addr);
+        return ret;
+    }
+    
+    // Set optimized FIFO mode
+    gcmInitDefaultFifoMode(GCM_DEFAULT_FIFO_MODE_OPTIMIZE);
+    
+    // Get configuration
+    gcmConfiguration config;
+    gcmGetConfiguration(&config);
+    
+    printf("RSX Configuration:\n");
+    printf("  Local: %p (%u MB)\n", 
+           config.localAddress, config.localSize >> 20);
+    printf("  I/O: %p (%u MB)\n",
+           config.ioAddress, config.ioSize >> 20);
+    printf("  Core: %u MHz\n", config.coreFreq / 1000000);
+    printf("  Memory: %u MHz\n", config.memoryFreq / 1000000);
+    
+    return 0;
+}
+```
+
+## Constants Reference
+
+### Memory Locations
+
+```c
+GCM_LOCATION_RSX     // RSX video memory (fast)
+GCM_LOCATION_CELL    // Main memory (flexible)
+GCM_LOCATION_REPORT  // Report memory
+```
+
+### DMA Contexts
+
+```c
+GCM_DMA_MEMORY_FRAME_BUFFER  // Frame buffer DMA
+GCM_DMA_MEMORY_HOST_BUFFER   // Host buffer DMA
+GCM_CONTEXT_SURFACE2D        // 2D surface context
+GCM_CONTEXT_SWIZZLE2D        // 2D swizzle context
+```
+
+### Transfer Types
+
+```c
+GCM_TRANSFER_LOCAL_TO_LOCAL  // RSX to RSX
+GCM_TRANSFER_MAIN_TO_LOCAL   // Main to RSX
+GCM_TRANSFER_LOCAL_TO_MAIN   // RSX to Main
+GCM_TRANSFER_MAIN_TO_MAIN    // Main to Main
+```
+
+## Performance Tips
+
+<Steps>
+  <Step title="Use Optimized FIFO Mode">
+    Set `GCM_DEFAULT_FIFO_MODE_OPTIMIZE` for better performance.
+  </Step>
+  
+  <Step title="Minimize Flushes">
+    Batch commands together before flushing to reduce CPU-GPU synchronization overhead.
+  </Step>
+  
+  <Step title="Avoid rsxFinish()">
+    Only call `rsxFinish()` when absolutely necessary. It causes CPU stalls.
+  </Step>
+  
+  <Step title="Use RSX Memory">
+    Allocate frequently-accessed data in RSX memory (`GCM_LOCATION_RSX`) for faster access.
+  </Step>
+  
+  <Step title="Align Memory Properly">
+    Always use 64-byte or 128-byte alignment for optimal DMA performance.
+  </Step>
+</Steps>
+
+## API Reference
+
+<AccordionGroup>
+  <Accordion title="gcmInitBody()">
+    Initialize GCM context.
+    
+    ```c
+    s32 gcmInitBody(gcmContextData **ctx, u32 cmdSize,
+                    u32 ioSize, const void *ioAddress);
+    ```
+  </Accordion>
+  
+  <Accordion title="gcmAddressToOffset()">
+    Convert address to RSX offset.
+    
+    ```c
+    s32 gcmAddressToOffset(const void *address, u32 *offset);
+    ```
+  </Accordion>
+  
+  <Accordion title="gcmMapMainMemory()">
+    Map main memory for RSX access.
+    
+    ```c
+    s32 gcmMapMainMemory(const void *address, u32 size, u32 *offset);
+    ```
+  </Accordion>
+  
+  <Accordion title="gcmGetConfiguration()">
+    Get RSX system configuration.
+    
+    ```c
+    s32 gcmGetConfiguration(gcmConfiguration *config);
+    ```
+  </Accordion>
+  
+  <Accordion title="gcmGetControlRegister()">
+    Get control register access.
+    
+    ```c
+    gcmControlRegister* gcmGetControlRegister();
+    ```
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,658 @@
+---
+title: 'Build System'
+description: 'Building PSL1GHT projects with Make and understanding the build rules'
+---
+
+## Overview
+
+PSL1GHT uses a Make-based build system with modular rule files. The system supports building:
+
+- PPU executables (main CPU programs)
+- SPU programs (compute accelerator code)
+- Data files (assets, shaders)
+- Self-signed executables and packages
+
+<Note>
+The build system follows the devkitPro model with centralized rules and per-project Makefiles.
+</Note>
+
+## Build System Architecture
+
+```
+PSL1GHT/
+├── base_rules     # Common build rules (all platforms)
+├── ppu_rules      # PPU-specific rules and tools
+├── spu_rules      # SPU-specific rules and tools
+└── data_rules     # Data file conversion rules
+```
+
+## Environment Setup
+
+### Required Variables
+
+```bash
+# PSL1GHT installation directory
+export PSL1GHT=/usr/local/ps3dev/psl1ght
+
+# PS3DEV toolchain directory
+export PS3DEV=/usr/local/ps3dev
+
+# Add to PATH
+export PATH=$PS3DEV/bin:$PS3DEV/ppu/bin:$PATH
+```
+
+<Warning>
+Makefiles will error if `PSL1GHT` is not set in your environment.
+</Warning>
+
+## Base Rules
+
+The `base_rules` file contains platform-independent build rules:
+
+```makefile base_rules
+ifeq ($(strip $(PS3DEV)),)
+  ifeq ($(strip $(DEVKITPS3)),)
+    export PS3DEV := /usr/local/ps3dev
+  else
+    export PS3DEV := $(DEVKITPS3)
+  endif
+endif
+
+# Allow for 'make VERBOSE=1' to see the recipe executions
+ifndef VERBOSE
+  VERB := @
+endif
+
+# Don't auto-delete elf & self files
+.PRECIOUS: %.elf %.self
+
+# Compiler prefix
+export AS      := $(PREFIX)as
+export CC      := $(PREFIX)gcc
+export CXX     := $(PREFIX)g++
+export AR      := $(PREFIX)ar
+export LD      ?= $(PREFIX)gcc
+export STRIP   := $(PREFIX)strip
+export OBJCOPY := $(PREFIX)objcopy
+```
+
+### Dependency Generation
+
+```makefile base_rules
+# Use dependencies when user has defined a place to put them into
+ifneq (,$(DEPSDIR))
+    DEPSOPT = -MMD -MP -MF $(DEPSDIR)/$*.d
+endif
+```
+
+### Pattern Rules
+
+```makefile base_rules
+# C compilation
+%.o: %.c
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(CC) $(DEPSOPT) $(CFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+# C++ compilation
+%.o: %.cpp
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(CXX) $(DEPSOPT) $(CXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+# Assembly
+%.o: %.s
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(CC) $(DEPSOPT) -x assembler-with-cpp $(ASFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+# Static library
+%.a:
+    $(VERB) echo $(notdir $@)
+    $(VERB) rm -f $@
+    $(VERB) $(AR) -rc $@ $^
+
+# Linking
+%.elf: $(OFILES)
+    $(VERB) echo linking ... $(notdir $@)
+    $(VERB) $(LD) $^ $(LDFLAGS) $(LIBPATHS) $(LIBS) -o $@
+```
+
+### Binary Data Embedding
+
+```makefile base_rules
+# Canned command sequence for binary data
+define bin2o
+    $(VERB) bin2s -a 64 $< | $(AS) -o $(@)
+    $(VERB) echo "extern const u8" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" > `(echo $(<F) | tr . _)`.h
+    $(VERB) echo "extern const u8" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];" >> `(echo $(<F) | tr . _)`.h
+    $(VERB) echo "extern const u32" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";" >> `(echo $(<F) | tr . _)`.h
+endef
+```
+
+<Accordion title="What does bin2o do?">
+  The `bin2o` function:
+  1. Converts binary file to assembly using `bin2s`
+  2. Assembles to object file
+  3. Generates a header with extern declarations for:
+     - `filename[]` - pointer to data
+     - `filename_end[]` - pointer to end
+     - `filename_size` - size in bytes
+</Accordion>
+
+## PPU Rules
+
+The `ppu_rules` file provides PPU-specific build rules:
+
+```makefile ppu_rules
+export PATH := $(PS3DEV)/bin:$(PS3DEV)/ppu/bin:$(PATH)
+
+export PORTLIBS := $(PS3DEV)/portlibs/ppu
+
+export LIBPSL1GHT_INC := -I$(PSL1GHT)/ppu/include -I$(PSL1GHT)/ppu/include/simdmath
+export LIBPSL1GHT_LIB := -L$(PSL1GHT)/ppu/lib
+
+PREFIX := ppu-
+
+MACHDEP = -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
+
+include $(PSL1GHT)/base_rules
+include $(PSL1GHT)/data_rules
+```
+
+### SELF and PKG Generation
+
+```makefile ppu_rules
+# Fake SELF type4 / type8 tools
+FSELF := fself
+FSELF_NPDRM := $(FSELF) -n
+
+# Signed SELF type4 / type8 tools
+SELF := make_self
+SELF_NPDRM := make_self_npdrm
+
+# NPDRM pkg tool
+PACKAGE_FINALIZE := package_finalize
+
+# Convert ELF to SELF
+%.self: %.elf
+    $(VERB) echo CEX self ... $(notdir $@)
+    $(VERB) mkdir -p $(BUILDDIR)
+    $(VERB) $(STRIP) $< -o $(BUILDDIR)/$(notdir $<)
+    $(VERB) $(SPRX) $(BUILDDIR)/$(notdir $<)
+    $(VERB) $(SELF) $(BUILDDIR)/$(notdir $<) $@
+    $(VERB) $(FSELF) $(BUILDDIR)/$(notdir $<) $(basename $@).fake.self
+```
+
+<Accordion title="ELF → SELF → PKG Process">
+  1. **ELF**: Standard executable format
+  2. **Strip**: Remove debugging symbols
+  3. **SPRX**: Process for PS3 loader
+  4. **SELF**: Signed executable format
+  5. **PKG**: Installable package with metadata
+</Accordion>
+
+### Package Creation
+
+```makefile ppu_rules
+%.pkg: %.self
+    $(VERB) echo building pkg ... $(notdir $@)
+    $(VERB) mkdir -p $(BUILDDIR)/pkg/USRDIR
+    $(VERB) cp $(ICON0) $(BUILDDIR)/pkg/ICON0.PNG
+    $(VERB) $(SELF_NPDRM) $(BUILDDIR)/$(basename $(notdir $<)).elf $(BUILDDIR)/pkg/USRDIR/EBOOT.BIN $(CONTENTID) >> /dev/null
+    $(VERB) $(SFO) --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) $(BUILDDIR)/pkg/PARAM.SFO
+    $(VERB) if [ -n "$(PKGFILES)" -a -d "$(PKGFILES)" ]; then cp -rf $(PKGFILES)/* $(BUILDDIR)/pkg/; fi
+    $(VERB) $(PKG) --contentid $(CONTENTID) $(BUILDDIR)/pkg/ $@ >> /dev/null
+    $(VERB) cp $@ $(basename $@).gnpdrm.pkg
+    $(VERB) $(PACKAGE_FINALIZE) $(basename $@).gnpdrm.pkg
+```
+
+### Package Settings
+
+```makefile ppu_rules
+# Package settings - allow for user override
+TITLE      ?= Untitled PSL1GHT homebrew
+APPID      ?= UNTITLED1
+SFOXML     ?= $(PS3DEV)/bin/sfo.xml
+ICON0      ?= $(PS3DEV)/bin/ICON0.PNG
+CONTENTID  ?= UP0001-$(APPID)_00-0000000000000000
+TARGET     ?= $(notdir $(CURDIR))
+BUILDDIR   ?= $(CURDIR)/build
+```
+
+### Cg Shader Compilation
+
+```makefile ppu_rules
+%.vpo: %.vcg
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(CGCOMP) -v $(CGCFLAGS) $^ $@
+
+%.fpo: %.fcg
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(CGCOMP) -f $(CGCFLAGS) $^ $@
+```
+
+## SPU Rules
+
+The `spu_rules` file provides SPU-specific build rules:
+
+```makefile spu_rules
+export PATH := $(PS3DEV)/bin:$(PS3DEV)/spu/bin:$(PATH)
+
+export PORTLIBS := $(PS3DEV)/portlibs/spu
+
+export LIBPSL1GHT_INC := -I$(PSL1GHT)/spu/include -I$(PSL1GHT)/spu/include/simdmath
+export LIBPSL1GHT_LIB := -L$(PSL1GHT)/spu/lib
+
+PREFIX := spu-
+
+MACHDEP = -mdual-nops -fmodulo-sched -ffunction-sections -fdata-sections
+
+include $(PSL1GHT)/base_rules
+```
+
+### SPU Program Types
+
+SPU rules support three program types:
+
+<CardGroup cols={3}>
+  <Card title="Work Manager (WM)" icon="briefcase">
+    Lightweight SPU programs for SPURS
+  </Card>
+  <Card title="Task" icon="list-check">
+    Standard SPU tasks
+  </Card>
+  <Card title="Job Queue (JQ)" icon="layer-group">
+    Position-independent code for job system
+  </Card>
+</CardGroup>
+
+### Work Manager Rules
+
+```makefile spu_rules
+export WM_CFLAGS  := -Os -mfixed-range=80-127 -funroll-loops -fschedule-insns
+export WM_STACK   ?= 0x39e0
+export WM_LDFLAGS := -nostdlib \
+                     -Wl,--defsym=__stack=$(WM_STACK) \
+                     -Wl,-Ttext-segment=0x2a00 \
+                     -Wl,--entry,mars_module_entry -Wl,-u,mars_module_entry \
+                     -Wl,--gc-sections \
+                     -Wl,--sort-common \
+                     -Wl,--sort-section=alignment \
+                     -Wl,--cref \
+                     -Wl,-s
+
+%.wm:
+    $(VERB) echo linking ... $(notdir $@)
+    $(VERB) $(LD) $^ $(WM_LDFLAGS) $(LDFLAGS) $(LIBPATHS) $(LIBS) -o $@
+```
+
+### Task Rules
+
+```makefile spu_rules
+export TASK_CFLAGS  := -Os -ffast-math -ftree-vectorize -funroll-loops -fschedule-insns
+export TASK_LDFLAGS := -Wl,-Ttext-segment=0x3a00 -Wl,--gc-sections -Wl,--local-store=0x3a00:0x3FFFF \
+                       -L$(PSL1GHT)/spu/lib -Wl,--start-group -lspumarstask -lspumars -lsputhread -Wl,--end-group
+
+%.task:
+    $(VERB) echo linking ... $(notdir $@)
+    $(VERB) $(LD) $^ $(TASK_LDFLAGS) $(LDFLAGS) $(LIBPATHS) $(LIBS) -o $@
+```
+
+### Job Queue Rules
+
+```makefile spu_rules
+export JOB_CFLAGS  := -Os -fpic -ffast-math -ftree-vectorize -funroll-loops -fschedule-insns
+export JOB_LDFLAGS := -nostartfiles -fpic -Wl,-r -Wl,-q -Wl,--entry,_start \
+                      -L$(PSL1GHT)/spu/lib -Wl,--start-group -lspumarsjq -lspumars -lsputhread -Wl,--end-group
+
+%.jq:
+    $(VERB) echo linking ... $(notdir $@)
+    $(VERB) $(LD) $^ $(JOB_LDFLAGS) $(LDFLAGS) $(LIBPATHS) $(LIBS) -o $@
+```
+
+<Accordion title="SPU Linker Flags Explained">
+  - **-Ttext-segment**: Set code segment start address
+  - **--local-store**: Specify local store range
+  - **-fpic**: Position-independent code (for JQ)
+  - **-mfixed-range=80-127**: Reserve registers 80-127
+  - **--gc-sections**: Remove unused code (critical for 256KB limit)
+</Accordion>
+
+## Data Rules
+
+The `data_rules` file handles asset conversion:
+
+```makefile data_rules
+PREFIX := ppu-
+
+MACHDEP = -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
+
+include $(PSL1GHT)/base_rules
+
+# Binary files
+%.bin.o: %.bin
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(bin2o)
+
+# Fonts
+%.ttf.o: %.ttf
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(bin2o)
+
+# Images
+%.png.o: %.png
+    @echo $(notdir $<)
+    @$(bin2o)
+
+%.jpg.o: %.jpg
+    @echo $(notdir $<)
+    @$(bin2o)
+
+# Audio
+%.mp3.o: %.mp3
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(bin2o)
+
+# Shaders
+%.vpo.o: %.vpo
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(bin2o)
+
+%.fpo.o: %.fpo
+    $(VERB) echo $(notdir $<)
+    $(VERB) $(bin2o)
+```
+
+## Project Makefile Structure
+
+Typical project Makefile for SPU test sample:
+
+```makefile samples/spu/sputest/Makefile
+.SUFFIXES:
+
+ifeq ($(strip $(PSL1GHT)),)
+$(error "Please set PSL1GHT in your environment. export PSL1GHT=<path>")
+endif
+
+include $(PSL1GHT)/ppu_rules
+
+TARGET     := $(notdir $(CURDIR))
+BUILD      := build
+SOURCES    := source
+DATA       := data
+INCLUDES   :=
+
+TITLE      := SPU Test sample - PSL1GHT
+APPID      := SPUTEST01
+CONTENTID  := UP0001-$(APPID)_00-0000000000000000
+
+CFLAGS     = -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE)
+CXXFLAGS   = $(CFLAGS)
+LDFLAGS    = $(MACHDEP) -Wl,-Map,$(notdir $@).map
+
+LIBS       := -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm
+
+LIBDIRS    :=
+```
+
+### Build Logic
+
+```makefile
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+
+export OUTPUT   := $(CURDIR)/$(TARGET)
+export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
+                   $(foreach dir,$(DATA),$(CURDIR)/$(dir))
+export DEPSDIR  := $(CURDIR)/$(BUILD)
+export BUILDDIR := $(CURDIR)/$(BUILD)
+
+# Automatically build a list of object files
+CFILES    := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES  := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+sFILES    := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+SFILES    := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.S)))
+BINFILES  := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*))) \
+             spu.bin
+
+# Use CXX for linking C++ projects, CC for standard C
+ifeq ($(strip $(CPPFILES)),)
+    export LD := $(CC)
+else
+    export LD := $(CXX)
+endif
+
+export OFILES := $(addsuffix .o,$(BINFILES)) \
+                 $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
+                 $(sFILES:.s=.o) $(SFILES:.S=.o)
+
+export INCLUDE := $(foreach dir,$(INCLUDES), -I$(CURDIR)/$(dir)) \
+                  $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+                  $(LIBPSL1GHT_INC) \
+                  -I$(CURDIR)/$(BUILD)
+
+export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
+                   $(LIBPSL1GHT_LIB)
+
+export OUTPUT := $(CURDIR)/$(TARGET)
+.PHONY: $(BUILD) clean bin
+
+$(BUILD): bin
+    @[ -d $@ ] || mkdir -p $@
+    @$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+bin:
+    @$(MAKE) --no-print-directory -C spu
+
+clean:
+    @echo clean ...
+    @$(MAKE) --no-print-directory -C spu clean
+    @rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).self $(DATA)/spu.bin
+
+run:
+    ps3load $(OUTPUT).self
+
+else
+
+DEPENDS := $(OFILES:.o=.d)
+
+$(OUTPUT).self: $(OUTPUT).elf
+$(OUTPUT).elf: $(OFILES)
+
+%.bin.o: %.bin
+    @echo $(notdir $<)
+    @$(bin2o)
+
+-include $(DEPENDS)
+
+endif
+```
+
+<Accordion title="How the Makefile Works">
+  1. **First invocation**: Not in build directory
+     - Builds SPU program first (`make -C spu`)
+     - Creates build directory
+     - Re-invokes make in build directory
+  
+  2. **Second invocation**: In build directory
+     - Compiles all source files to objects
+     - Links to ELF
+     - Converts ELF to SELF
+  
+  This pattern keeps build artifacts separate from source.
+</Accordion>
+
+## Building Complete Projects
+
+### Basic Build Commands
+
+```bash
+# Build everything
+make
+
+# Clean build artifacts
+make clean
+
+# Build with verbose output
+make VERBOSE=1
+
+# Build and run (requires ps3load)
+make run
+
+# Build PKG
+make myapp.pkg
+```
+
+### Multi-Target Projects
+
+```makefile
+.PHONY: all ppu spu clean
+
+all: ppu spu
+
+ppu:
+	@$(MAKE) -C ppu
+
+spu:
+	@$(MAKE) -C spu
+
+clean:
+	@$(MAKE) -C ppu clean
+	@$(MAKE) -C spu clean
+```
+
+## Compiler Optimization Flags
+
+### PPU Recommended Flags
+
+```makefile
+CFLAGS = -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE)
+```
+
+<AccordionGroup>
+  <Accordion title="Optimization Levels">
+    - **-O0**: No optimization (debugging)
+    - **-O1**: Basic optimization
+    - **-O2**: Recommended for production
+    - **-O3**: Aggressive optimization (may increase size)
+    - **-Os**: Optimize for size
+  </Accordion>
+  
+  <Accordion title="Cell-Specific Flags">
+    - **-mcpu=cell**: Target Cell processor
+    - **-mhard-float**: Use hardware FPU
+    - **-maltivec**: Enable AltiVec/VMX SIMD
+    - **-fmodulo-sched**: Enable modulo scheduling
+  </Accordion>
+</AccordionGroup>
+
+### SPU Recommended Flags
+
+```makefile
+CFLAGS = -Os -ffast-math -ftree-vectorize -funroll-loops -fschedule-insns
+```
+
+<Warning>
+**SPU Size Limit**: Code + data + stack must fit in 256 KB!
+
+Use `-Os` and `--gc-sections` aggressively.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="PSL1GHT not set">
+    **Error**: `Please set PSL1GHT in your environment`
+    
+    **Solution**:
+    ```bash
+    export PSL1GHT=/usr/local/ps3dev/psl1ght
+    ```
+  </Accordion>
+  
+  <Accordion title="Compiler not found">
+    **Error**: `ppu-gcc: command not found`
+    
+    **Solution**: Add toolchain to PATH:
+    ```bash
+    export PATH=$PS3DEV/bin:$PS3DEV/ppu/bin:$PATH
+    ```
+  </Accordion>
+  
+  <Accordion title="SPU binary too large">
+    **Error**: `section '.text' will not fit in region 'LOCAL_STORE'`
+    
+    **Solution**:
+    - Use `-Os` instead of `-O2`
+    - Enable `--gc-sections` in LDFLAGS
+    - Remove unused code
+    - Split into multiple SPU programs
+  </Accordion>
+  
+  <Accordion title="Undefined reference">
+    **Error**: `undefined reference to 'somefunction'`
+    
+    **Solution**: Add required library to LIBS:
+    ```makefile
+    LIBS := -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Standard Structure">
+    Follow the standard project layout:
+    ```
+    project/
+    ├── Makefile
+    ├── source/       # C/C++ source files
+    ├── include/      # Header files
+    ├── data/         # Assets
+    ├── build/        # Build artifacts (auto-generated)
+    └── spu/          # SPU subproject
+        ├── Makefile
+        └── source/
+    ```
+  </Step>
+  
+  <Step title="Manage Dependencies">
+    Use DEPSDIR for automatic dependency tracking:
+    ```makefile
+    export DEPSDIR := $(CURDIR)/$(BUILD)
+    -include $(DEPENDS)
+    ```
+  </Step>
+  
+  <Step title="Optimize Build Time">
+    - Use `make -j4` for parallel builds
+    - Enable ccache if available
+    - Minimize header includes
+  </Step>
+  
+  <Step title="Version Control">
+    Add to `.gitignore`:
+    ```
+    build/
+    *.elf
+    *.self
+    *.pkg
+    *.map
+    ```
+  </Step>
+</Steps>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="PPU Architecture" icon="microchip" href="/concepts/ppu-architecture">
+    Understanding PPU compilation
+  </Card>
+  <Card title="SPU Programming" icon="microchip" href="/concepts/spu-programming">
+    Building SPU programs
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Create your first project
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/overview">
+    Sample projects and Makefiles
+  </Card>
+</CardGroup>

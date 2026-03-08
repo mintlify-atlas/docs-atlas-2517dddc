@@ -1,0 +1,554 @@
+---
+title: Keyboard & Mouse
+description: USB keyboard and mouse input support for PS3
+---
+
+## Overview
+
+The PSL1GHT SDK supports USB keyboards and mice through the `io/kb.h` and `io/mouse.h` APIs. You can read key presses, modifier keys, LED states, mouse movement, and button clicks.
+
+<Note>
+Up to 7 keyboards and 127 mice can be connected simultaneously.
+</Note>
+
+## Keyboard Support
+
+### Initialization
+
+Initialize the keyboard system:
+
+```c
+#include <io/kb.h>
+
+// Initialize with maximum keyboards (max: 7)
+s32 ret = ioKbInit(MAX_KB_PORT_NUM);
+if (ret != 0) {
+    printf("Failed to initialize keyboard: %d\n", ret);
+}
+```
+
+### Getting Keyboard Information
+
+Query connected keyboards:
+
+```c
+KbInfo kbinfo;
+ioKbGetInfo(&kbinfo);
+
+printf("Max keyboards: %u\n", kbinfo.max);
+printf("Connected: %u\n", kbinfo.connected);
+
+for (int i = 0; i < MAX_KEYBOARDS; i++) {
+    if (kbinfo.status[i]) {
+        printf("Keyboard %d connected\n", i);
+    }
+}
+```
+
+<ParamField path="max" type="u32">
+  Maximum keyboards allowed
+</ParamField>
+
+<ParamField path="connected" type="u32">
+  Number of currently connected keyboards
+</ParamField>
+
+<ParamField path="info" type="u32">
+  Bit 0: System intercept flag
+</ParamField>
+
+<ParamField path="status" type="u8[127]">
+  Connection status array (0: disconnected, 1: connected)
+</ParamField>
+
+### Reading Keyboard Input
+
+Read key events in your main loop:
+
+```c
+KbData kbdata;
+s32 ret = ioKbRead(0, &kbdata);  // Keyboard 0
+
+if (ret == 0 && kbdata.nb_keycode > 0) {
+    // Process each keycode
+    for (int j = 0; j < kbdata.nb_keycode; j++) {
+        u16 keycode = kbdata.keycode[j];
+        printf("Key: 0x%04X\n", keycode);
+        
+        // Check for specific keys
+        if (keycode == KB_RAWKEY_ENTER) {
+            printf("Enter pressed\n");
+        }
+        if (keycode == KB_RAWKEY_ESCAPE) {
+            printf("Escape pressed\n");
+        }
+    }
+    
+    // Check modifier keys
+    if (kbdata.mkey.l_ctrl) printf("Left Ctrl held\n");
+    if (kbdata.mkey.l_shift) printf("Left Shift held\n");
+    if (kbdata.mkey.l_alt) printf("Left Alt held\n");
+    if (kbdata.mkey.l_win) printf("Left Win held\n");
+    
+    // Check LED states
+    if (kbdata.led.num_lock) printf("Num Lock ON\n");
+    if (kbdata.led.caps_lock) printf("Caps Lock ON\n");
+    if (kbdata.led.scroll_lock) printf("Scroll Lock ON\n");
+}
+```
+
+### KbData Structure
+
+<ParamField path="led" type="KbLed">
+  LED state (Num Lock, Caps Lock, Scroll Lock, etc.)
+</ParamField>
+
+<ParamField path="mkey" type="KbMkey">
+  Modifier key state (Ctrl, Shift, Alt, Win)
+</ParamField>
+
+<ParamField path="nb_keycode" type="s32">
+  Number of keycodes (0 = no data)
+</ParamField>
+
+<ParamField path="keycode" type="u16[62]">
+  Array of keycode values
+</ParamField>
+
+### Modifier Keys
+
+The `KbMkey` structure contains modifier key states:
+
+```c
+typedef struct KbMkey {
+    union {
+        u32 mkeys;
+        struct {
+            u32 reserved    : 24;
+            u32 r_win       : 1;  // Right Windows key
+            u32 r_alt       : 1;  // Right Alt
+            u32 r_shift     : 1;  // Right Shift
+            u32 r_ctrl      : 1;  // Right Ctrl
+            u32 l_win       : 1;  // Left Windows key
+            u32 l_alt       : 1;  // Left Alt
+            u32 l_shift     : 1;  // Left Shift
+            u32 l_ctrl      : 1;  // Left Ctrl (LSB)
+        };
+    };
+} KbMkey;
+```
+
+### LED Control
+
+Control keyboard LEDs:
+
+```c
+KbLed led_state;
+led_state.leds = 0;
+
+// Turn on Num Lock
+led_state.num_lock = 1;
+ioKbSetLEDStatus(0, led_state);
+
+// Turn on Caps Lock
+led_state.leds = 0;
+led_state.caps_lock = 1;
+ioKbSetLEDStatus(0, led_state);
+
+// Turn on Scroll Lock
+led_state.leds = 0;
+led_state.scroll_lock = 1;
+ioKbSetLEDStatus(0, led_state);
+
+// Turn all LEDs on
+led_state.leds = 0xFFFFFFFF;
+led_state.reserved = 0;
+ioKbSetLEDStatus(0, led_state);
+
+// Turn all LEDs off
+led_state.leds = 0;
+ioKbSetLEDStatus(0, led_state);
+```
+
+### Keyboard Configuration
+
+Get and set keyboard mode:
+
+```c
+KbConfig kbconfig;
+ioKbGetConfiguration(0, &kbconfig);
+
+printf("Mapping: %d\n", kbconfig.mapping);
+printf("Read mode: %d\n", kbconfig.rmode);
+printf("Code type: %d\n", kbconfig.codetype);
+
+// Set read mode
+ioKbSetReadMode(0, KB_RMODE_INPUTCHAR);
+
+// Set code type to ASCII
+ioKbSetCodeType(0, KB_CODETYPE_ASCII);
+```
+
+#### Read Modes
+
+<Card title="KB_RMODE_INPUTCHAR" icon="keyboard">
+  Character input mode (default)
+</Card>
+
+<Card title="KB_RMODE_PACKET" icon="stream">
+  Packet mode for raw data
+</Card>
+
+#### Code Types
+
+<Card title="KB_CODETYPE_RAW" icon="code">
+  Raw device codes
+</Card>
+
+<Card title="KB_CODETYPE_ASCII" icon="font">
+  ASCII character codes
+</Card>
+
+### Key Code Conversion
+
+Convert raw keycodes to ASCII:
+
+```c
+KbMapping mapping = KB_MAPPING_101;  // US keyboard
+KbMkey mkey;
+KbLed led;
+u16 rawcode = KB_RAWKEY_A;
+
+mkey.mkeys = kbdata.mkey.mkeys;
+led.leds = kbdata.led.leds;
+
+u16 ascii = ioKbCnvRawCode(mapping, mkey, led, rawcode);
+printf("ASCII: %c (0x%04X)\n", ascii & 0xFF, ascii);
+```
+
+### Keyboard Mappings
+
+Supported keyboard layouts:
+
+| Constant | Layout |
+|----------|--------|
+| `KB_MAPPING_101` | US (101-key) |
+| `KB_MAPPING_106` | Japanese (106-key) |
+| `KB_MAPPING_GERMAN_GERMANY` | German |
+| `KB_MAPPING_FRENCH_FRANCE` | French |
+| `KB_MAPPING_ENGLISH_UK` | UK English |
+| `KB_MAPPING_SPANISH_SPAIN` | Spanish |
+| `KB_MAPPING_ITALIAN_ITALY` | Italian |
+| `KB_MAPPING_DUTCH_NETHERLANDS` | Dutch |
+| `KB_MAPPING_RUSSIAN_RUSSIA` | Russian |
+| `KB_MAPPING_KOREAN_KOREA` | Korean |
+
+### Common Raw Key Codes
+
+| Constant | Key | Code |
+|----------|-----|------|
+| `KB_RAWKEY_ENTER` | Enter | 0x28 |
+| `KB_RAWKEY_ESCAPE` | Escape | 0x29 |
+| `KB_RAWKEY_BS` | Backspace | 0x2A |
+| `KB_RAWKEY_TAB` | Tab | 0x2B |
+| `KB_RAWKEY_SPACE` | Space | 0x2C |
+| `KB_RAWKEY_A` - `KB_RAWKEY_Z` | Letters | 0x04-0x1D |
+| `KB_RAWKEY_0` - `KB_RAWKEY_9` | Numbers | 0x27, 0x1E-0x26 |
+| `KB_RAWKEY_F1` - `KB_RAWKEY_F12` | Function keys | 0x3A-0x45 |
+| `KB_RAWKEY_UP_ARROW` | Up arrow | 0x52 |
+| `KB_RAWKEY_DOWN_ARROW` | Down arrow | 0x51 |
+| `KB_RAWKEY_LEFT_ARROW` | Left arrow | 0x50 |
+| `KB_RAWKEY_RIGHT_ARROW` | Right arrow | 0x4F |
+
+### Clear Keyboard Buffer
+
+```c
+ioKbClearBuf(0);
+```
+
+### Cleanup
+
+```c
+ioKbEnd();
+```
+
+## Mouse Support
+
+### Initialization
+
+Initialize the mouse system:
+
+```c
+#include <io/mouse.h>
+
+// Initialize with maximum mice (max: 127)
+s32 ret = ioMouseInit(MAX_MICE);
+if (ret != 0) {
+    printf("Failed to initialize mouse: %d\n", ret);
+}
+```
+
+### Getting Mouse Information
+
+Query connected mice:
+
+```c
+mouseInfo info;
+ioMouseGetInfo(&info);
+
+printf("Max mice: %u\n", info.max);
+printf("Connected: %u\n", info.connected);
+
+for (int i = 0; i < MAX_MICE; i++) {
+    if (info.status[i]) {
+        printf("Mouse %d connected\n", i);
+        printf("  Vendor ID: %04x\n", info.vendor_id[i]);
+        printf("  Product ID: %04x\n", info.product_id[i]);
+    }
+}
+```
+
+### Reading Mouse Input
+
+Read mouse movement and button states:
+
+```c
+mouseData data;
+s32 ret = ioMouseGetData(0, &data);  // Mouse 0
+
+if (ret == 0 && data.update) {
+    // Mouse movement (signed 8-bit delta)
+    s8 x_delta = data.x_axis;
+    s8 y_delta = data.y_axis;
+    s8 wheel = data.wheel;
+    s8 tilt = data.tilt;
+    
+    printf("Mouse: dx=%d dy=%d wheel=%d tilt=%d\n",
+           x_delta, y_delta, wheel, tilt);
+    
+    // Button states (bit flags)
+    u8 buttons = data.buttons;
+    if (buttons & 0x01) printf("Left button\n");
+    if (buttons & 0x02) printf("Right button\n");
+    if (buttons & 0x04) printf("Middle button\n");
+}
+```
+
+### mouseData Structure
+
+<ParamField path="update" type="u8">
+  Update flag (non-zero if data changed)
+</ParamField>
+
+<ParamField path="buttons" type="u8">
+  Button state bit flags
+</ParamField>
+
+<ParamField path="x_axis" type="s8">
+  Horizontal movement delta (-127 to +127)
+</ParamField>
+
+<ParamField path="y_axis" type="s8">
+  Vertical movement delta (-127 to +127)
+</ParamField>
+
+<ParamField path="wheel" type="s8">
+  Scroll wheel delta
+</ParamField>
+
+<ParamField path="tilt" type="s8">
+  Tilt wheel delta (for mice with tilt)
+</ParamField>
+
+### Mouse Button Masks
+
+| Bit | Button |
+|-----|--------|
+| 0x01 | Left button |
+| 0x02 | Right button |
+| 0x04 | Middle button |
+| 0x08 | Button 4 |
+| 0x10 | Button 5 |
+
+### Mouse Data List
+
+Get multiple mouse events at once:
+
+```c
+mouseDataList dataList;
+ioMouseGetDataList(0, &dataList);
+
+printf("Event count: %u\n", dataList.count);
+for (int i = 0; i < dataList.count; i++) {
+    mouseData *event = &dataList.list[i];
+    printf("Event %d: dx=%d dy=%d buttons=0x%02x\n",
+           i, event->x_axis, event->y_axis, event->buttons);
+}
+```
+
+### Clear Mouse Buffer
+
+```c
+ioMouseClearBuf(0);
+```
+
+### Cleanup
+
+```c
+ioMouseEnd();
+```
+
+## Complete Example
+
+From `samples/input/kbtest/`:
+
+```c
+#include <io/kb.h>
+#include <io/pad.h>
+#include <stdio.h>
+#include <unistd.h>
+
+int main() {
+    KbInfo kbinfo;
+    KbData kbdata;
+    padInfo2 padinfo2;
+    padData paddata;
+    int running = 1;
+    
+    // Initialize
+    ioPadInit(MAX_PORT_NUM);
+    ioKbInit(MAX_KB_PORT_NUM);
+    
+    // Set keyboard mode
+    ioKbGetInfo(&kbinfo);
+    for (int i = 0; i < MAX_KEYBOARDS; i++) {
+        if (kbinfo.status[i]) {
+            ioKbSetReadMode(i, KB_RMODE_INPUTCHAR);
+            ioKbSetCodeType(i, KB_CODETYPE_ASCII);
+        }
+    }
+    
+    // Main loop - read keyboard until pad X button
+    while (running) {
+        // Check for exit (pad X button)
+        if (ioPadGetInfo2(&padinfo2) == 0) {
+            for (int i = 0; i < MAX_PORT_NUM; i++) {
+                if (padinfo2.port_status[i]) {
+                    ioPadGetData(i, &paddata);
+                    if (paddata.BTN_CROSS) {
+                        printf("Exit requested\n");
+                        running = 0;
+                    }
+                }
+            }
+        }
+        
+        // Read keyboard input
+        if (ioKbGetInfo(&kbinfo) == 0) {
+            for (int i = 0; i < MAX_KEYBOARDS; i++) {
+                if (kbinfo.status[i]) {
+                    if (ioKbRead(i, &kbdata) == 0) {
+                        for (int j = 0; j < kbdata.nb_keycode; j++) {
+                            u16 keycode = kbdata.keycode[j];
+                            KbMkey mkey;
+                            KbLed led;
+                            mkey.mkeys = kbdata.mkey.mkeys;
+                            led.leds = kbdata.led.leds;
+                            
+                            if (keycode != 0) {
+                                printf("Key=%c (0x%04X) "
+                                       "mkeys=0x%08X leds=0x%08X\n",
+                                       keycode & 0xFF, keycode,
+                                       mkey.mkeys, led.leds);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        usleep(20000);
+    }
+    
+    // Cleanup
+    ioPadEnd();
+    ioKbEnd();
+    return 0;
+}
+```
+
+## API Reference
+
+### Keyboard Functions
+
+<ParamField path="ioKbInit" type="s32 ioKbInit(const u32 max)">
+  Initialize keyboard library
+</ParamField>
+
+<ParamField path="ioKbEnd" type="s32 ioKbEnd(void)">
+  Close keyboard library
+</ParamField>
+
+<ParamField path="ioKbGetInfo" type="s32 ioKbGetInfo(KbInfo* kb_info)">
+  Get keyboard connection information
+</ParamField>
+
+<ParamField path="ioKbRead" type="s32 ioKbRead(const u32 kb_no, KbData* data)">
+  Read keyboard data
+</ParamField>
+
+<ParamField path="ioKbSetReadMode" type="s32 ioKbSetReadMode(const u32 kb_no, const KbRmode kb_rmode)">
+  Set keyboard read mode
+</ParamField>
+
+<ParamField path="ioKbSetCodeType" type="s32 ioKbSetCodeType(const u32 kb_no, const KbCodeType kb_codetype)">
+  Set keyboard code type
+</ParamField>
+
+<ParamField path="ioKbSetLEDStatus" type="s32 ioKbSetLEDStatus(const u32 kb_no, const KbLed led_state)">
+  Control keyboard LEDs
+</ParamField>
+
+<ParamField path="ioKbCnvRawCode" type="u16 ioKbCnvRawCode(const KbMapping mapping, const KbMkey mkey, const KbLed led, const u16 rawcode)">
+  Convert raw keycode to character
+</ParamField>
+
+<ParamField path="ioKbGetConfiguration" type="s32 ioKbGetConfiguration(const u32 kb_no, KbConfig* kb_config)">
+  Get keyboard configuration
+</ParamField>
+
+<ParamField path="ioKbClearBuf" type="s32 ioKbClearBuf(const u32 kb_no)">
+  Clear keyboard buffer
+</ParamField>
+
+### Mouse Functions
+
+<ParamField path="ioMouseInit" type="s32 ioMouseInit(u32 max)">
+  Initialize mouse library
+</ParamField>
+
+<ParamField path="ioMouseEnd" type="s32 ioMouseEnd()">
+  Close mouse library
+</ParamField>
+
+<ParamField path="ioMouseGetInfo" type="s32 ioMouseGetInfo(mouseInfo* info)">
+  Get mouse connection information
+</ParamField>
+
+<ParamField path="ioMouseGetData" type="s32 ioMouseGetData(u32 port, mouseData* data)">
+  Get mouse data
+</ParamField>
+
+<ParamField path="ioMouseGetDataList" type="s32 ioMouseGetDataList(u32 port, mouseDataList* dataList)">
+  Get list of mouse events
+</ParamField>
+
+<ParamField path="ioMouseClearBuf" type="s32 ioMouseClearBuf(u32 port)">
+  Clear mouse buffer
+</ParamField>
+
+## See Also
+
+- [Controllers](/input/controllers) - DualShock 3 controller support
+- [Camera](/input/camera) - PlayStation Eye camera
+- [PlayStation Move](/input/playstation-move) - Motion controller

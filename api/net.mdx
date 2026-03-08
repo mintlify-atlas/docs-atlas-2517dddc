@@ -1,0 +1,736 @@
+---
+title: Network API
+description: BSD sockets networking API for PS3
+---
+
+The Network library provides a BSD sockets-compatible API for network communication on PlayStation 3.
+
+## Overview
+
+PSL1GHT's networking API closely follows the Berkeley sockets standard, making it familiar to developers with Unix/Linux networking experience. The library supports both IPv4 and IPv6 sockets.
+
+## Initialization
+
+### netInitialize
+
+```c
+s32 netInitialize(void);
+```
+
+Initialize the network subsystem with default parameters.
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### netDeinitialize
+
+```c
+s32 netDeinitialize(void);
+```
+
+Shutdown the network subsystem.
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### netInitializeNetworkEx
+
+```c
+s32 netInitializeNetworkEx(netInitParam *param);
+```
+
+Initialize the network subsystem with custom parameters.
+
+<ParamField path="param" type="netInitParam*" required>
+  Pointer to network initialization parameters:
+  - `memory` - Pointer to memory pool
+  - `memory_size` - Size of memory pool
+  - `flags` - Initialization flags
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### netFinalizeNetwork
+
+```c
+s32 netFinalizeNetwork(void);
+```
+
+Finalize the network subsystem.
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+## Socket Creation
+
+### netSocket
+
+```c
+s32 netSocket(s32 domain, s32 type, s32 protocol);
+```
+
+Create a network socket.
+
+<ParamField path="domain" type="s32" required>
+  Address family:
+  - `AF_INET` (2) - IPv4
+  - `AF_INET6` (24) - IPv6
+  - `AF_UNIX` (1) - Unix domain sockets
+</ParamField>
+
+<ParamField path="type" type="s32" required>
+  Socket type:
+  - `SOCK_STREAM` (0x0001) - TCP stream socket
+  - `SOCK_DGRAM` (0x0002) - UDP datagram socket
+  - `SOCK_RAW` (0x0003) - Raw socket
+</ParamField>
+
+<ParamField path="protocol" type="s32" required>
+  Protocol number (usually 0 for default).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns socket descriptor on success, negative value on error.
+</ResponseField>
+
+### netClose
+
+```c
+s32 netClose(s32 socket);
+```
+
+Close a socket.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor to close.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Connection Management
+
+### netBind
+
+```c
+s32 netBind(s32 socket, const struct sockaddr *address, socklen_t address_len);
+```
+
+Bind a socket to a local address.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="address" type="const struct sockaddr*" required>
+  Pointer to address structure.
+</ParamField>
+
+<ParamField path="address_len" type="socklen_t" required>
+  Size of address structure.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### netListen
+
+```c
+s32 netListen(s32 socket, s32 backlog);
+```
+
+Listen for incoming connections on a socket.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="backlog" type="s32" required>
+  Maximum length of pending connections queue.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### netAccept
+
+```c
+s32 netAccept(s32 socket, const struct sockaddr *address, socklen_t *address_len);
+```
+
+Accept an incoming connection.
+
+<ParamField path="socket" type="s32" required>
+  Listening socket descriptor.
+</ParamField>
+
+<ParamField path="address" type="const struct sockaddr*">
+  Pointer to address structure to receive client address (can be NULL).
+</ParamField>
+
+<ParamField path="address_len" type="socklen_t*">
+  Pointer to address length (can be NULL).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns new socket descriptor for accepted connection on success, negative value on error.
+</ResponseField>
+
+### netConnect
+
+```c
+s32 netConnect(s32 socket, const struct sockaddr *address, socklen_t address_len);
+```
+
+Connect a socket to a remote address.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="address" type="const struct sockaddr*" required>
+  Pointer to remote address structure.
+</ParamField>
+
+<ParamField path="address_len" type="socklen_t" required>
+  Size of address structure.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### netShutdown
+
+```c
+s32 netShutdown(s32 socket, s32 how);
+```
+
+Shutdown part of a full-duplex connection.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="how" type="s32" required>
+  Shutdown mode:
+  - `SHUT_RD` (0) - Further receives disallowed
+  - `SHUT_WR` (1) - Further sends disallowed
+  - `SHUT_RDWR` (2) - Further sends and receives disallowed
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Data Transfer
+
+### netSend
+
+```c
+ssize_t netSend(s32 socket, const void *buffer, size_t len, s32 flags);
+```
+
+Send data on a connected socket.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="buffer" type="const void*" required>
+  Pointer to data buffer to send.
+</ParamField>
+
+<ParamField path="len" type="size_t" required>
+  Length of data to send.
+</ParamField>
+
+<ParamField path="flags" type="s32">
+  Send flags (MSG_OOB, MSG_DONTROUTE, etc.).
+</ParamField>
+
+<ResponseField name="return" type="ssize_t">
+  Returns number of bytes sent on success, negative value on error.
+</ResponseField>
+
+### netRecv
+
+```c
+ssize_t netRecv(s32 socket, void *buffer, size_t len, s32 flags);
+```
+
+Receive data from a connected socket.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="buffer" type="void*" required>
+  Pointer to buffer to receive data.
+</ParamField>
+
+<ParamField path="len" type="size_t" required>
+  Maximum length of data to receive.
+</ParamField>
+
+<ParamField path="flags" type="s32">
+  Receive flags (MSG_PEEK, MSG_WAITALL, etc.).
+</ParamField>
+
+<ResponseField name="return" type="ssize_t">
+  Returns number of bytes received on success, 0 on connection close, negative value on error.
+</ResponseField>
+
+### netSendTo
+
+```c
+ssize_t netSendTo(s32 socket, const void *buffer, size_t len, s32 flags,
+                  const struct sockaddr *dest_addr, socklen_t dest_len);
+```
+
+Send data to a specific destination (typically used with UDP).
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="buffer" type="const void*" required>
+  Pointer to data buffer to send.
+</ParamField>
+
+<ParamField path="len" type="size_t" required>
+  Length of data to send.
+</ParamField>
+
+<ParamField path="flags" type="s32">
+  Send flags.
+</ParamField>
+
+<ParamField path="dest_addr" type="const struct sockaddr*" required>
+  Pointer to destination address.
+</ParamField>
+
+<ParamField path="dest_len" type="socklen_t" required>
+  Size of destination address structure.
+</ParamField>
+
+<ResponseField name="return" type="ssize_t">
+  Returns number of bytes sent on success, negative value on error.
+</ResponseField>
+
+### netRecvFrom
+
+```c
+ssize_t netRecvFrom(s32 socket, void *buffer, size_t len, s32 flags,
+                    struct sockaddr *from, socklen_t *fromlen);
+```
+
+Receive data and source address (typically used with UDP).
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="buffer" type="void*" required>
+  Pointer to buffer to receive data.
+</ParamField>
+
+<ParamField path="len" type="size_t" required>
+  Maximum length of data to receive.
+</ParamField>
+
+<ParamField path="flags" type="s32">
+  Receive flags.
+</ParamField>
+
+<ParamField path="from" type="struct sockaddr*">
+  Pointer to address structure to receive source address (can be NULL).
+</ParamField>
+
+<ParamField path="fromlen" type="socklen_t*">
+  Pointer to address length (can be NULL).
+</ParamField>
+
+<ResponseField name="return" type="ssize_t">
+  Returns number of bytes received on success, negative value on error.
+</ResponseField>
+
+## Socket Options
+
+### netGetSockOpt
+
+```c
+s32 netGetSockOpt(s32 socket, s32 level, s32 option_name,
+                  void *option_value, socklen_t *option_len);
+```
+
+Get socket option value.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="level" type="s32" required>
+  Protocol level (e.g., SOL_SOCKET).
+</ParamField>
+
+<ParamField path="option_name" type="s32" required>
+  Option name (e.g., SO_REUSEADDR, SO_KEEPALIVE).
+</ParamField>
+
+<ParamField path="option_value" type="void*" required>
+  Pointer to buffer to receive option value.
+</ParamField>
+
+<ParamField path="option_len" type="socklen_t*" required>
+  Pointer to option value length.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### netSetSockOpt
+
+```c
+s32 netSetSockOpt(s32 socket, s32 level, s32 option_name,
+                  const void *option_value, socklen_t option_len);
+```
+
+Set socket option value.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="level" type="s32" required>
+  Protocol level (e.g., SOL_SOCKET).
+</ParamField>
+
+<ParamField path="option_name" type="s32" required>
+  Option name.
+</ParamField>
+
+<ParamField path="option_value" type="const void*" required>
+  Pointer to option value.
+</ParamField>
+
+<ParamField path="option_len" type="socklen_t" required>
+  Size of option value.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Multiplexing
+
+### netSelect
+
+```c
+s32 netSelect(s32 nfds, fd_set *readfds, fd_set *writefds,
+              fd_set *errorfds, struct timeval *timeout);
+```
+
+Monitor multiple sockets for I/O readiness.
+
+<ParamField path="nfds" type="s32" required>
+  Highest socket descriptor + 1.
+</ParamField>
+
+<ParamField path="readfds" type="fd_set*">
+  Set of sockets to check for readability.
+</ParamField>
+
+<ParamField path="writefds" type="fd_set*">
+  Set of sockets to check for writability.
+</ParamField>
+
+<ParamField path="errorfds" type="fd_set*">
+  Set of sockets to check for errors.
+</ParamField>
+
+<ParamField path="timeout" type="struct timeval*">
+  Timeout value (NULL for blocking).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns number of ready sockets on success, 0 on timeout, negative value on error.
+</ResponseField>
+
+### netPoll
+
+```c
+s32 netPoll(struct pollfd *fds, nfds_t nfds, s32 timeout);
+```
+
+Poll multiple sockets for events.
+
+<ParamField path="fds" type="struct pollfd*" required>
+  Array of pollfd structures.
+</ParamField>
+
+<ParamField path="nfds" type="nfds_t" required>
+  Number of elements in fds array.
+</ParamField>
+
+<ParamField path="timeout" type="s32">
+  Timeout in milliseconds (-1 for infinite).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns number of ready sockets on success, 0 on timeout, negative value on error.
+</ResponseField>
+
+## Address Information
+
+### netGetSockName
+
+```c
+s32 netGetSockName(s32 socket, struct sockaddr *address, socklen_t *address_len);
+```
+
+Get local address of a socket.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="address" type="struct sockaddr*" required>
+  Pointer to address structure to be filled.
+</ParamField>
+
+<ParamField path="address_len" type="socklen_t*" required>
+  Pointer to address length.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+### netGetPeerName
+
+```c
+s32 netGetPeerName(s32 socket, struct sockaddr *address, socklen_t *address_len);
+```
+
+Get remote address of a connected socket.
+
+<ParamField path="socket" type="s32" required>
+  Socket descriptor.
+</ParamField>
+
+<ParamField path="address" type="struct sockaddr*" required>
+  Pointer to address structure to be filled.
+</ParamField>
+
+<ParamField path="address_len" type="socklen_t*" required>
+  Pointer to address length.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, negative value on error.
+</ResponseField>
+
+## Host Resolution
+
+### netGetHostByName
+
+```c
+struct net_hostent* netGetHostByName(const char *name);
+```
+
+Resolve hostname to IP address.
+
+<ParamField path="name" type="const char*" required>
+  Hostname to resolve.
+</ParamField>
+
+<ResponseField name="return" type="struct net_hostent*">
+  Returns pointer to hostent structure on success, NULL on error.
+</ResponseField>
+
+### netGetHostByAddr
+
+```c
+struct net_hostent* netGetHostByAddr(const char *addr, socklen_t len, s32 type);
+```
+
+Resolve IP address to hostname.
+
+<ParamField path="addr" type="const char*" required>
+  Pointer to binary address.
+</ParamField>
+
+<ParamField path="len" type="socklen_t" required>
+  Length of address.
+</ParamField>
+
+<ParamField path="type" type="s32" required>
+  Address type (AF_INET or AF_INET6).
+</ParamField>
+
+<ResponseField name="return" type="struct net_hostent*">
+  Returns pointer to hostent structure on success, NULL on error.
+</ResponseField>
+
+## Error Handling
+
+### Error Codes
+
+Network functions return negative error codes. Common errors include:
+
+- `NET_EWOULDBLOCK` (35) - Operation would block
+- `NET_EINPROGRESS` (36) - Operation in progress
+- `NET_ECONNREFUSED` (61) - Connection refused
+- `NET_ETIMEDOUT` (60) - Connection timed out
+- `NET_ENOTCONN` (57) - Socket not connected
+- `NET_EISCONN` (56) - Socket already connected
+
+### netErrnoLoc
+
+```c
+s32* netErrnoLoc(void);
+```
+
+Get pointer to network error number.
+
+<ResponseField name="return" type="s32*">
+  Returns pointer to errno variable.
+</ResponseField>
+
+Use the `net_errno` macro to access the error value:
+
+```c
+if (netConnect(sock, addr, len) < 0) {
+    printf("Error: %d\n", net_errno);
+}
+```
+
+## Example: TCP Client
+
+```c
+#include <net/net.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <stdio.h>
+
+int main() {
+    s32 sock;
+    struct sockaddr_in server;
+    char message[256];
+    char response[1024];
+    
+    // Initialize network
+    netInitialize();
+    
+    // Create socket
+    sock = netSocket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        printf("Socket creation failed\n");
+        return -1;
+    }
+    
+    // Setup server address
+    memset(&server, 0, sizeof(server));
+    server.sin_family = AF_INET;
+    server.sin_port = htons(80);
+    inet_pton(AF_INET, "192.168.1.100", &server.sin_addr);
+    
+    // Connect to server
+    if (netConnect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
+        printf("Connection failed: %d\n", net_errno);
+        netClose(sock);
+        return -1;
+    }
+    
+    printf("Connected to server\n");
+    
+    // Send data
+    strcpy(message, "GET / HTTP/1.0\r\n\r\n");
+    if (netSend(sock, message, strlen(message), 0) < 0) {
+        printf("Send failed\n");
+        netClose(sock);
+        return -1;
+    }
+    
+    // Receive response
+    ssize_t received = netRecv(sock, response, sizeof(response) - 1, 0);
+    if (received > 0) {
+        response[received] = '\0';
+        printf("Response:\n%s\n", response);
+    }
+    
+    // Cleanup
+    netClose(sock);
+    netDeinitialize();
+    
+    return 0;
+}
+```
+
+## Example: UDP Server
+
+```c
+#include <net/net.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <stdio.h>
+
+int main() {
+    s32 sock;
+    struct sockaddr_in server, client;
+    char buffer[1024];
+    socklen_t client_len;
+    
+    // Initialize network
+    netInitialize();
+    
+    // Create UDP socket
+    sock = netSocket(AF_INET, SOCK_DGRAM, 0);
+    
+    // Setup server address
+    memset(&server, 0, sizeof(server));
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(8888);
+    
+    // Bind socket
+    if (netBind(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
+        printf("Bind failed\n");
+        netClose(sock);
+        return -1;
+    }
+    
+    printf("UDP server listening on port 8888\n");
+    
+    // Receive loop
+    while (1) {
+        client_len = sizeof(client);
+        ssize_t received = netRecvFrom(sock, buffer, sizeof(buffer) - 1,
+                                      0, (struct sockaddr*)&client, &client_len);
+        
+        if (received > 0) {
+            buffer[received] = '\0';
+            printf("Received: %s\n", buffer);
+            
+            // Echo back
+            netSendTo(sock, buffer, received, 0,
+                     (struct sockaddr*)&client, client_len);
+        }
+    }
+    
+    netClose(sock);
+    netDeinitialize();
+    return 0;
+}
+```

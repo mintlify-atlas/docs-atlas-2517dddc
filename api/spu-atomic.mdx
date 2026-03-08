@@ -1,0 +1,496 @@
+---
+title: SPU Atomic Operations
+description: Lock-free atomic operations for SPU inter-thread synchronization
+---
+
+## Overview
+
+The SPU atomic operations API provides lock-free synchronization primitives for safe concurrent access to shared memory locations in main memory. These operations use the Cell's reservation-based atomic mechanism (Load Locked / Store Conditional).
+
+### Key Features
+
+- **Lock-free**: No OS-level locks required
+- **128-byte granularity**: Operations work on cache-line sized blocks
+- **Automatic retry**: Built-in retry logic on contention
+- **Multiple SPU safe**: Coordinate between multiple SPUs
+- **PPU compatible**: Can synchronize with PPU threads
+
+## Atomic Integer Operations
+
+All atomic operations take a local buffer (128-byte aligned) and an effective address (also 128-byte aligned). They return the **previous value** from memory.
+
+### spu_atomic_incr32
+
+Atomically increment a 32-bit value in main memory.
+
+```c
+uint32_t spu_atomic_incr32(uint32_t *ls, uint64_t ea)
+```
+
+<ParamField path="ls" type="uint32_t*" required>
+  Local store buffer (128-byte aligned)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address in main memory (128-byte aligned)
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  The value before incrementing
+</ResponseField>
+
+### spu_atomic_incr64
+
+Atomically increment a 64-bit value.
+
+```c
+uint64_t spu_atomic_incr64(uint64_t *ls, uint64_t ea)
+```
+
+### spu_atomic_decr32
+
+Atomically decrement a 32-bit value.
+
+```c
+uint32_t spu_atomic_decr32(uint32_t *ls, uint64_t ea)
+```
+
+### spu_atomic_decr64
+
+Atomically decrement a 64-bit value.
+
+```c
+uint64_t spu_atomic_decr64(uint64_t *ls, uint64_t ea)
+```
+
+### spu_atomic_test_and_decr32
+
+Atomically decrement if value is greater than zero.
+
+```c
+uint32_t spu_atomic_test_and_decr32(uint32_t *ls, uint64_t ea)
+```
+
+<ParamField path="ls" type="uint32_t*" required>
+  Local store buffer
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  Previous value (decrements only if it was &gt; 0)
+</ResponseField>
+
+### spu_atomic_test_and_decr64
+
+Atomically test and decrement a 64-bit value.
+
+```c
+uint64_t spu_atomic_test_and_decr64(uint64_t *ls, uint64_t ea)
+```
+
+## Atomic Arithmetic
+
+### spu_atomic_add32
+
+Atomically add a value to a 32-bit integer.
+
+```c
+uint32_t spu_atomic_add32(uint32_t *ls, uint64_t ea, uint32_t value)
+```
+
+<ParamField path="ls" type="uint32_t*" required>
+  Local store buffer
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address
+</ParamField>
+
+<ParamField path="value" type="uint32_t" required>
+  Value to add
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  Previous value before addition
+</ResponseField>
+
+### spu_atomic_add64
+
+Atomically add to a 64-bit integer.
+
+```c
+uint64_t spu_atomic_add64(uint64_t *ls, uint64_t ea, uint64_t value)
+```
+
+### spu_atomic_sub32
+
+Atomically subtract from a 32-bit integer.
+
+```c
+uint32_t spu_atomic_sub32(uint32_t *ls, uint64_t ea, uint32_t value)
+```
+
+### spu_atomic_sub64
+
+Atomically subtract from a 64-bit integer.
+
+```c
+uint64_t spu_atomic_sub64(uint64_t *ls, uint64_t ea, uint64_t value)
+```
+
+## Atomic Bitwise Operations
+
+### spu_atomic_or32
+
+Atomically OR a value with a 32-bit integer.
+
+```c
+uint32_t spu_atomic_or32(uint32_t *ls, uint64_t ea, uint32_t value)
+```
+
+<ParamField path="value" type="uint32_t" required>
+  Bitmask to OR
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  Previous value before OR operation
+</ResponseField>
+
+### spu_atomic_or64
+
+Atomically OR with a 64-bit integer.
+
+```c
+uint64_t spu_atomic_or64(uint64_t *ls, uint64_t ea, uint64_t value)
+```
+
+### spu_atomic_and32
+
+Atomically AND a value with a 32-bit integer.
+
+```c
+uint32_t spu_atomic_and32(uint32_t *ls, uint64_t ea, uint32_t value)
+```
+
+### spu_atomic_and64
+
+Atomically AND with a 64-bit integer.
+
+```c
+uint64_t spu_atomic_and64(uint64_t *ls, uint64_t ea, uint64_t value)
+```
+
+## Atomic Store and Swap
+
+### spu_atomic_store32
+
+Atomically store a new value.
+
+```c
+uint32_t spu_atomic_store32(uint32_t *ls, uint64_t ea, uint32_t value)
+```
+
+<ParamField path="value" type="uint32_t" required>
+  New value to store
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  Previous value (effectively an atomic exchange)
+</ResponseField>
+
+### spu_atomic_store64
+
+Atomically store a 64-bit value.
+
+```c
+uint64_t spu_atomic_store64(uint64_t *ls, uint64_t ea, uint64_t value)
+```
+
+## Compare and Swap
+
+### spu_atomic_compare_and_swap32
+
+Atomically compare and swap a 32-bit value.
+
+```c
+uint32_t spu_atomic_compare_and_swap32(uint32_t *ls, uint64_t ea, uint32_t compare, uint32_t value)
+```
+
+<ParamField path="ls" type="uint32_t*" required>
+  Local store buffer
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address
+</ParamField>
+
+<ParamField path="compare" type="uint32_t" required>
+  Expected current value
+</ParamField>
+
+<ParamField path="value" type="uint32_t" required>
+  New value to store if comparison succeeds
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  Actual value in memory (check if equal to compare to determine success)
+</ResponseField>
+
+### spu_atomic_compare_and_swap64
+
+Atomically compare and swap a 64-bit value.
+
+```c
+uint64_t spu_atomic_compare_and_swap64(uint64_t *ls, uint64_t ea, uint64_t compare, uint64_t value)
+```
+
+## Manual Atomic Operations
+
+### spu_atomic_lock_line32
+
+Load a cache line with reservation for manual atomic operation.
+
+```c
+uint32_t spu_atomic_lock_line32(uint32_t *ls, uint64_t ea)
+```
+
+<ParamField path="ls" type="uint32_t*" required>
+  Local store buffer (128 bytes, 128-byte aligned)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address (will be aligned to 128-byte boundary)
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  Current value at the specified address
+</ResponseField>
+
+### spu_atomic_lock_line64
+
+Load a cache line for 64-bit atomic operation.
+
+```c
+uint64_t spu_atomic_lock_line64(uint64_t *ls, uint64_t ea)
+```
+
+### spu_atomic_store_conditional32
+
+Attempt to store with reservation check.
+
+```c
+int spu_atomic_store_conditional32(uint32_t *ls, uint64_t ea, uint32_t value)
+```
+
+<ParamField path="ls" type="uint32_t*" required>
+  Local store buffer (same as used in lock_line)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address
+</ParamField>
+
+<ParamField path="value" type="uint32_t" required>
+  Value to store at the aligned offset
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Nonzero if store succeeded, zero if reservation was lost
+</ResponseField>
+
+### spu_atomic_store_conditional64
+
+Conditional store for 64-bit values.
+
+```c
+int spu_atomic_store_conditional64(uint64_t *ls, uint64_t ea, uint64_t value)
+```
+
+## No-Op Operation
+
+### spu_atomic_nop32
+
+Atomic no-op (reads and writes back unchanged).
+
+```c
+uint32_t spu_atomic_nop32(uint32_t *ls, uint64_t ea)
+```
+
+Useful for testing atomic mechanism or forcing a cache line load.
+
+### spu_atomic_nop64
+
+```c
+uint64_t spu_atomic_nop64(uint64_t *ls, uint64_t ea)
+```
+
+## Example Usage
+
+### Simple Atomic Counter
+
+```c
+#include <sys/spu_atomic.h>
+
+// Shared counter in main memory (128-byte aligned)
+uint64_t shared_counter_addr = 0x20000000;
+
+// Local buffer (must be 128-byte aligned)
+uint32_t local_buf[32] __attribute__((aligned(128)));
+
+// Atomically increment counter
+uint32_t old_value = spu_atomic_incr32(local_buf, shared_counter_addr);
+printf("Counter was %u, now %u\n", old_value, old_value + 1);
+```
+
+### Atomic Flags (Bitwise Operations)
+
+```c
+// Set multiple status bits atomically
+uint32_t flags_addr = 0x20000080;  // Must be 128-byte aligned
+uint32_t local_buf[32] __attribute__((aligned(128)));
+
+#define FLAG_READY    0x01
+#define FLAG_BUSY     0x02
+#define FLAG_COMPLETE 0x04
+
+// Set BUSY flag
+spu_atomic_or32(local_buf, flags_addr, FLAG_BUSY);
+
+// Clear BUSY, set COMPLETE
+spu_atomic_and32(local_buf, flags_addr, ~FLAG_BUSY);
+spu_atomic_or32(local_buf, flags_addr, FLAG_COMPLETE);
+```
+
+### Spinlock Implementation
+
+```c
+typedef struct {
+    uint32_t locked;
+    uint32_t padding[31];  // Pad to 128 bytes
+} __attribute__((aligned(128))) spinlock_t;
+
+uint64_t lock_addr = 0x20000000;
+uint32_t local_buf[32] __attribute__((aligned(128)));
+
+void spinlock_acquire() {
+    uint32_t old;
+    do {
+        // Try to swap 0 (unlocked) with 1 (locked)
+        old = spu_atomic_compare_and_swap32(local_buf, lock_addr, 0, 1);
+    } while (old != 0);  // Retry if lock was already held
+}
+
+void spinlock_release() {
+    // Store 0 (unlocked)
+    spu_atomic_store32(local_buf, lock_addr, 0);
+}
+```
+
+### Semaphore (Test and Decrement)
+
+```c
+// Semaphore in main memory
+uint64_t sem_addr = 0x20000000;
+uint32_t local_buf[32] __attribute__((aligned(128)));
+
+void semaphore_wait() {
+    uint32_t old;
+    do {
+        // Decrement only if > 0
+        old = spu_atomic_test_and_decr32(local_buf, sem_addr);
+        if (old == 0) {
+            // Semaphore is zero, wait a bit
+            for (volatile int i = 0; i < 1000; i++);
+        }
+    } while (old == 0);
+}
+
+void semaphore_post() {
+    spu_atomic_incr32(local_buf, sem_addr);
+}
+```
+
+### Manual Atomic Operation
+
+```c
+// Custom atomic operation: multiply by 2
+uint64_t value_addr = 0x20000000;
+uint32_t local_buf[32] __attribute__((aligned(128)));
+
+int success;
+do {
+    // Load with reservation
+    uint32_t current = spu_atomic_lock_line32(local_buf, value_addr);
+    
+    // Compute new value
+    uint32_t new_value = current * 2;
+    
+    // Try to store
+    success = spu_atomic_store_conditional32(local_buf, value_addr, new_value);
+    
+} while (!success);  // Retry if another SPU modified the value
+```
+
+### Lock-Free Stack (ABA-safe)
+
+```c
+typedef struct node {
+    uint64_t next;  // Address of next node
+    uint32_t data;
+    uint32_t aba_counter;  // Prevent ABA problem
+} node_t;
+
+typedef struct {
+    uint64_t head;         // Address of head node
+    uint32_t aba_counter;
+    uint32_t padding[29];
+} __attribute__((aligned(128))) stack_t;
+
+uint64_t stack_addr = 0x20000000;
+uint64_t local_buf[16] __attribute__((aligned(128)));
+
+void push(uint64_t node_addr) {
+    node_t node;
+    uint64_t old_head;
+    
+    do {
+        // Read current stack state
+        old_head = spu_atomic_lock_line64(local_buf, stack_addr);
+        
+        // Update node to point to current head
+        node.next = old_head;
+        
+        // Try to make this node the new head
+    } while (!spu_atomic_store_conditional64(local_buf, stack_addr, node_addr));
+}
+```
+
+## Performance Considerations
+
+1. **Alignment**: All atomic operations require 128-byte alignment
+2. **Contention**: High contention causes retry loops - consider alternatives
+3. **Cache effects**: Each atomic op loads 128 bytes even for small values
+4. **False sharing**: Separate frequently-updated atomics by 128 bytes
+5. **Alternative patterns**: Sometimes message passing is more efficient than atomics
+
+## Alignment Requirements
+
+```c
+// Correct: 128-byte aligned
+uint32_t atomic_value[32] __attribute__((aligned(128)));
+uint64_t addr = 0x20000000;  // Must be 128-byte aligned
+
+// The actual value can be anywhere within the 128-byte block
+// The API handles the offset automatically
+```
+
+## Memory Ordering
+
+All atomic operations include:
+- `spu_dsync()` before store conditional (ensures local changes are visible)
+- Implicit memory barriers from the atomic mechanism itself
+
+This ensures proper ordering for most use cases. For complex memory ordering requirements, additional synchronization may be needed.

@@ -1,0 +1,704 @@
+---
+title: SPURS Framework
+description: High-level task scheduling and workload management for SPU programming in PSL1GHT
+---
+
+## Overview
+
+**SPURS (SPU Runtime System)** is a high-level framework that provides sophisticated task scheduling and workload management across multiple SPUs. It abstracts away low-level thread management and provides automatic load balancing and priority scheduling.
+
+<Note>
+SPURS is ideal for complex applications with dynamic workloads, multiple task types, and varying computational demands. For simple, static SPU workloads, direct SPU thread groups may be more appropriate.
+</Note>
+
+## What is SPURS?
+
+SPURS provides:
+
+<CardGroup cols={2}>
+  <Card title="Automatic Load Balancing" icon="scale-balanced">
+    Distributes tasks across available SPUs dynamically
+  </Card>
+  <Card title="Priority Scheduling" icon="list-ol">
+    Supports multiple priority levels for task execution
+  </Card>
+  <Card title="Task Preemption" icon="pause">
+    Higher priority tasks can interrupt lower priority ones
+  </Card>
+  <Card title="Resource Management" icon="gear">
+    Manages SPU thread groups and system resources
+  </Card>
+</CardGroup>
+
+## SPURS Architecture
+
+```
+┌─────────────────────────────────────────┐
+│         Application Layer               │
+│  (Task submission, job management)      │
+└─────────────────────────────────────────┘
+                  │
+┌─────────────────────────────────────────┐
+│         SPURS Framework                 │
+│  - Task scheduling                      │
+│  - Load balancing                       │
+│  - Priority management                  │
+└─────────────────────────────────────────┘
+                  │
+┌─────────────────────────────────────────┐
+│      SPU Thread Group Layer             │
+│   (Managed automatically by SPURS)      │
+└─────────────────────────────────────────┘
+                  │
+        ┌─────────┴─────────┐
+        │                   │
+    ┌───▼───┐          ┌────▼───┐
+    │ SPU 0 │   ...    │ SPU 5  │
+    └───────┘          └────────┘
+```
+
+## Basic SPURS Usage
+
+### Initialization
+
+<Steps>
+  <Step title="Initialize SPU System">
+    ```c
+    #include <sys/spu.h>
+    
+    // Initialize 6 SPUs (no raw SPUs)
+    s32 ret = sysSpuInitialize(6, 0);
+    if (ret) {
+        printf("SPU initialization failed: %08x\n", ret);
+        return ret;
+    }
+    ```
+  </Step>
+
+  <Step title="Allocate SPURS Instance">
+    ```c
+    #include <spurs/spurs.h>
+    #include <malloc.h>
+    
+    // Allocate aligned SPURS structure
+    Spurs *spurs = (Spurs*)memalign(SPURS_ALIGN, sizeof(Spurs));
+    if (!spurs) {
+        printf("Failed to allocate SPURS instance\n");
+        return -1;
+    }
+    ```
+  </Step>
+
+  <Step title="Configure SPURS Attributes">
+    ```c
+    SpursAttribute attr;
+    
+    // Initialize attribute structure
+    ret = spursAttributeInitialize(&attr, 
+        6,              // Number of SPUs
+        250,            // SPU thread group priority
+        200,            // PPU thread priority
+        true            // Exit if no work
+    );
+    
+    if (ret) {
+        printf("Attribute initialization failed: %08x\n", ret);
+        free(spurs);
+        return ret;
+    }
+    ```
+  </Step>
+
+  <Step title="Set Optional Attributes">
+    ```c
+    // Set name prefix for debugging
+    ret = spursAttributeSetNamePrefix(&attr, 
+        "MyApp", strlen("MyApp"));
+    
+    // Enable SPU printf (if available)
+    ret = spursAttributeEnableSpuPrintfIfAvailable(&attr);
+    
+    // Set thread group type (optional)
+    ret = spursAttributeSetSpuThreadGroupType(&attr, 
+        SPU_THREAD_GROUP_TYPE_NORMAL);
+    ```
+  </Step>
+
+  <Step title="Initialize SPURS">
+    ```c
+    // Initialize SPURS with attributes
+    ret = spursInitializeWithAttribute(spurs, &attr);
+    if (ret) {
+        printf("SPURS initialization failed: %08x\n", ret);
+        free(spurs);
+        return ret;
+    }
+    
+    printf("SPURS initialized successfully\n");
+    ```
+  </Step>
+</Steps>
+
+### Complete Example
+
+```c SPURS Initialization Example
+#include <stdio.h>
+#include <string.h>
+#include <malloc.h>
+#include <ppu-types.h>
+#include <spurs/spurs.h>
+#include <lv2/spu.h>
+#include <sys/thread.h>
+#include <sys/spu.h>
+
+#define SPU_NUMBER 6
+#define SPURS_PREFIX_NAME "example"
+#define SPU_THREAD_GROUP_PRIORITY 250
+
+int main(void) {
+    int ret;
+    sys_ppu_thread_t ppu_thread_id;
+    int ppu_prio;
+    unsigned int nthread;
+    
+    // Initialize SPU system
+    ret = sysSpuInitialize(SPU_NUMBER, 0);
+    printf("sysSpuInitialize: %08x\n", ret);
+    
+    // Get PPU thread priority for SPURS
+    ret = sysThreadGetId(&ppu_thread_id);
+    printf("sysThreadGetId: %08x (ID: %lx)\n", ret, ppu_thread_id);
+    
+    ret = sysThreadGetPriority(ppu_thread_id, &ppu_prio);
+    printf("sysThreadGetPriority: %08x (Priority: %d)\n", 
+           ret, ppu_prio);
+    
+    // Allocate SPURS instance
+    Spurs *spurs = (Spurs*)memalign(SPURS_ALIGN, sizeof(Spurs));
+    
+    // Initialize attributes
+    SpursAttribute attr;
+    ret = spursAttributeInitialize(&attr, 
+        SPU_NUMBER, 
+        SPU_THREAD_GROUP_PRIORITY, 
+        ppu_prio - 1,   // PPU priority slightly lower
+        true            // Exit if no work
+    );
+    
+    if (ret) {
+        printf("spursAttributeInitialize failed: %08x\n", ret);
+        free(spurs);
+        return ret;
+    }
+    
+    // Set name prefix
+    ret = spursAttributeSetNamePrefix(&attr, 
+        SPURS_PREFIX_NAME, strlen(SPURS_PREFIX_NAME));
+    if (ret) {
+        printf("spursAttributeSetNamePrefix failed: %08x\n", ret);
+        free(spurs);
+        return ret;
+    }
+    
+    // Initialize SPURS
+    ret = spursInitializeWithAttribute(spurs, &attr);
+    if (ret) {
+        printf("spursInitializeWithAttribute failed: %08x\n", ret);
+        free(spurs);
+        return ret;
+    }
+    
+    // Query SPURS information
+    ret = spursGetNumSpuThread(spurs, &nthread);
+    if (ret) {
+        printf("spursGetNumSpuThread failed: %08x\n", ret);
+    } else {
+        printf("SPURS has %u SPU threads available\n", nthread);
+    }
+    
+    // Get SPU thread IDs
+    sys_spu_thread_t *threads = 
+        (sys_spu_thread_t*)malloc(sizeof(sys_spu_thread_t) * nthread);
+    
+    ret = spursGetSpuThreadId(spurs, threads, &nthread);
+    if (ret) {
+        printf("spursGetSpuThreadId failed: %08x\n", ret);
+    } else {
+        for (unsigned int i = 0; i < nthread; i++) {
+            printf("SPU Thread %u: ID = %08x\n", i, threads[i]);
+        }
+    }
+    
+    // Get detailed SPURS info
+    SpursInfo info;
+    ret = spursGetInfo(spurs, &info);
+    if (ret) {
+        printf("spursGetInfo failed: %08x\n", ret);
+    } else {
+        printf("\nSPURS Information:\n");
+        printf("  Number of SPUs: %d\n", info.nSpus);
+        printf("  SPU Group Priority: %d\n", info.spuGroupPriority);
+        printf("  PPU Thread Priority: %d\n", info.ppuThreadPriority);
+        printf("  Exit If No Work: %s\n", 
+               info.exitIfNoWork ? "true" : "false");
+        printf("  Name Prefix: %s\n", info.namePrefix);
+        printf("  SPU Thread IDs:\n");
+        for (int i = 0; i < info.nSpus; i++) {
+            printf("    SPU %d: %08x\n", i, info.spuThreads[i]);
+        }
+    }
+    
+    // TODO: Submit tasks to SPURS here
+    
+    // Finalize SPURS
+    printf("\nFinalizing SPURS\n");
+    ret = spursFinalize(spurs);
+    if (ret) {
+        printf("spursFinalize failed: %08x\n", ret);
+        free(threads);
+        free(spurs);
+        return ret;
+    }
+    
+    free(threads);
+    free(spurs);
+    
+    printf("SPURS example completed successfully\n");
+    return 0;
+}
+```
+
+## SPURS Attributes
+
+### SpursAttribute Structure
+
+```c Attribute Configuration
+SpursAttribute attr;
+
+// Initialize with parameters
+spursAttributeInitialize(&attr,
+    nSpus,              // Number of SPUs (1-6)
+    spuPriority,        // SPU thread group priority
+    ppuPriority,        // PPU handler thread priority
+    exitIfNoWork        // Exit when no tasks remain
+);
+
+// Set name prefix (max 15 characters)
+spursAttributeSetNamePrefix(&attr, "TaskScheduler", 13);
+
+// Set thread group type
+spursAttributeSetSpuThreadGroupType(&attr, 
+    SPU_THREAD_GROUP_TYPE_NORMAL);
+
+// Enable SPU printf debugging
+spursAttributeEnableSpuPrintfIfAvailable(&attr);
+
+// Assign memory container (optional)
+sys_mem_container_t container;
+// ... create container ...
+spursAttributeSetMemoryContainerForSpuThread(&attr, container);
+```
+
+### Thread Group Types
+
+<Tabs>
+  <Tab title="NORMAL">
+    Standard thread group with normal scheduling
+    
+    ```c
+    SPU_THREAD_GROUP_TYPE_NORMAL
+    ```
+  </Tab>
+  
+  <Tab title="SEQUENTIAL">
+    Tasks execute sequentially (useful for debugging)
+    
+    ```c
+    SPU_THREAD_GROUP_TYPE_SEQUENTIAL
+    ```
+  </Tab>
+  
+  <Tab title="SYSTEM">
+    System-level priority thread group
+    
+    ```c
+    SPU_THREAD_GROUP_TYPE_SYSTEM
+    ```
+  </Tab>
+  
+  <Tab title="MEMORY_FROM_CONTAINER">
+    Use dedicated memory container
+    
+    ```c
+    SPU_THREAD_GROUP_TYPE_MEMORY_FROM_CONTAINER
+    ```
+  </Tab>
+</Tabs>
+
+## SPURS Management
+
+### Query SPURS State
+
+```c Information Retrieval
+SpursInfo info;
+ret = spursGetInfo(spurs, &info);
+
+printf("SPURS Configuration:\n");
+printf("  SPUs: %d\n", info.nSpus);
+printf("  SPU Priority: %d\n", info.spuGroupPriority);
+printf("  PPU Priority: %d\n", info.ppuThreadPriority);
+printf("  Exit If No Work: %s\n", 
+       info.exitIfNoWork ? "Yes" : "No");
+printf("  SPURS2: %s\n", info.spurs2 ? "Yes" : "No");
+printf("  Name: %s\n", info.namePrefix);
+printf("  Deadline Misses: %u\n", info.deadlineMissCounter);
+printf("  Deadline Meets: %u\n", info.deadlineMeetCounter);
+```
+
+### Get SPU Thread Information
+
+```c Thread Enumeration
+unsigned int num_threads;
+ret = spursGetNumSpuThread(spurs, &num_threads);
+
+sys_spu_thread_t *thread_ids = 
+    malloc(sizeof(sys_spu_thread_t) * num_threads);
+
+ret = spursGetSpuThreadId(spurs, thread_ids, &num_threads);
+
+for (unsigned int i = 0; i < num_threads; i++) {
+    printf("SPU Thread %u: ID=%08x\n", i, thread_ids[i]);
+    
+    // Can use thread ID with regular SPU thread functions
+    u64 config;
+    sysSpuThreadGetConfiguration(thread_ids[i], &config);
+}
+
+free(thread_ids);
+```
+
+### Get SPU Thread Group
+
+```c Thread Group Access
+sys_spu_group_t group_id;
+ret = spursGetSpuThreadGroupId(spurs, &group_id);
+
+printf("SPURS thread group ID: %08x\n", group_id);
+
+// Can use with thread group functions
+u32 priority;
+sysSpuThreadGroupGetPriority(group_id, &priority);
+printf("Thread group priority: %u\n", priority);
+```
+
+## Priority and Workload Management
+
+### Set Priorities
+
+```c Priority Configuration
+// Set priorities for workload slots (0-15)
+u8 priorities[SPURS_MAX_SPU] = {
+    0,  // Highest priority
+    0,
+    1,  // Medium priority
+    1,
+    2,  // Lower priority
+    2,
+    3,  // Lowest priority
+    3
+};
+
+ret = spursSetPriorities(spurs, 
+    0,              // Workload number
+    priorities      // Priority array
+);
+```
+
+### Set Maximum Contention
+
+```c Contention Control
+// Limit number of SPUs that can run a specific workload
+ret = spursSetMaxContention(spurs,
+    0,              // Workload number
+    4               // Max 4 SPUs for this workload
+);
+```
+
+### Wake Up SPURS
+
+```c Manual Wake
+// Wake up SPURS to check for new work
+// Useful when exitIfNoWork=true
+ret = spursWakeUp(spurs);
+```
+
+## SPURS vs SPURS2
+
+PSL1GHT supports both SPURS and SPURS2:
+
+<Tabs>
+  <Tab title="SPURS (Standard)">
+    ```c
+    Spurs *spurs = memalign(SPURS_ALIGN, sizeof(Spurs));
+    // Size: 4096 bytes (SPURS_SIZE)
+    
+    spursInitializeWithAttribute(spurs, &attr);
+    ```
+  </Tab>
+  
+  <Tab title="SPURS2 (Extended)">
+    ```c
+    Spurs2 *spurs2 = memalign(SPURS_ALIGN, sizeof(Spurs2));
+    // Size: 8192 bytes (SPURS_SIZE2)
+    
+    spursInitializeWithAttribute2(spurs2, &attr);
+    ```
+    
+    <Note>
+    SPURS2 provides extended functionality with larger internal buffers. Use when you need advanced features or have many concurrent tasks.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Direct Initialization (Without Attributes)
+
+```c Simple Initialization
+Spurs *spurs = memalign(SPURS_ALIGN, sizeof(Spurs));
+
+ret = spursInitialize(spurs,
+    6,              // Number of SPUs
+    200,            // SPU priority
+    150,            // PPU priority
+    true            // Exit if no work
+);
+
+if (ret) {
+    printf("spursInitialize failed: %08x\n", ret);
+    free(spurs);
+    return ret;
+}
+```
+
+## Cleanup
+
+<Warning>
+Always finalize SPURS before freeing the structure. Failure to do so can cause resource leaks or system instability.
+</Warning>
+
+```c Proper Cleanup
+// Finalize SPURS (waits for tasks to complete)
+ret = spursFinalize(spurs);
+if (ret) {
+    printf("Warning: spursFinalize failed: %08x\n", ret);
+}
+
+// Free SPURS structure
+free(spurs);
+spurs = NULL;
+```
+
+## Task Scheduling (Advanced)
+
+<Note>
+Task scheduling APIs (task sets, jobs, etc.) are part of SPURS but may require additional headers and libraries. The basic SPURS framework shown here manages the SPU infrastructure; task submission requires additional setup.
+</Note>
+
+Typical SPURS task workflow:
+
+```c Task Submission Pattern
+// 1. Initialize SPURS (shown above)
+Spurs *spurs = ...
+spursInitializeWithAttribute(spurs, &attr);
+
+// 2. Create task set or job queue
+// (Requires additional SPURS task APIs)
+
+// 3. Submit tasks to SPURS
+// - Tasks are automatically scheduled across SPUs
+// - Load balanced based on availability
+// - Prioritized according to configuration
+
+// 4. Wait for completion
+// (Task-specific wait functions)
+
+// 5. Finalize
+spursFinalize(spurs);
+```
+
+## Debugging SPURS
+
+### Enable SPU Printf
+
+```c Debug Output
+// PPU side - initialize printf service
+sysSpuPrintfInitialize(100, my_printf_handler);
+
+// Enable in SPURS attributes
+spursAttributeEnableSpuPrintfIfAvailable(&attr);
+
+// SPU programs can now use:
+// #include <spu_printf.h>
+// spu_printf("Debug: value = %d\n", x);
+
+// Cleanup
+sysSpuPrintfFinalize();
+```
+
+### Monitor Deadlines
+
+```c Deadline Statistics
+SpursInfo info;
+spursGetInfo(spurs, &info);
+
+printf("Deadlines met: %u\n", info.deadlineMeetCounter);
+printf("Deadlines missed: %u\n", info.deadlineMissCounter);
+
+if (info.deadlineMissCounter > 0) {
+    printf("Warning: %u tasks missed their deadlines\n",
+           info.deadlineMissCounter);
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Size Appropriately" icon="ruler">
+    Use SPURS for complex workloads; simple tasks may not need it
+  </Card>
+  <Card title="Set Correct Priorities" icon="signal">
+    PPU priority should be lower than SPU group priority
+  </Card>
+  <Card title="Monitor Performance" icon="chart-line">
+    Check deadline counters and adjust priorities as needed
+  </Card>
+  <Card title="Clean Exit" icon="door-open">
+    Set exitIfNoWork=true for applications with finite workloads
+  </Card>
+</CardGroup>
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Game Engine Task System">
+    Use SPURS to manage game subsystems:
+    - Physics simulation (high priority)
+    - Animation updates (medium priority)
+    - AI pathfinding (lower priority)
+    - Audio processing (high priority, low latency)
+  </Accordion>
+
+  <Accordion title="Media Processing">
+    Process video/audio streams:
+    - Video decode tasks
+    - Audio DSP effects
+    - Image filters
+    - Encoding pipelines
+  </Accordion>
+
+  <Accordion title="Scientific Computing">
+    Distribute computational workloads:
+    - Particle simulations
+    - Matrix operations
+    - Monte Carlo methods
+    - Signal processing
+  </Accordion>
+</AccordionGroup>
+
+## Memory Requirements
+
+| Structure | Size | Alignment |
+|-----------|------|----------|
+| `Spurs` | 4096 bytes | 128 bytes |
+| `Spurs2` | 8192 bytes | 128 bytes |
+| `SpursAttribute` | 512 bytes | 8 bytes |
+
+```c Memory Allocation
+// Always use memalign with proper alignment
+Spurs *spurs = memalign(SPURS_ALIGN, sizeof(Spurs));
+
+if ((uintptr_t)spurs % SPURS_ALIGN != 0) {
+    printf("Error: SPURS not properly aligned!\n");
+    free(spurs);
+    return -1;
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Initialization Fails">
+    **Error**: `spursInitializeWithAttribute` returns non-zero
+    
+    **Solutions**:
+    - Verify SPU system initialized with `sysSpuInitialize`
+    - Check SPURS structure is properly aligned (128 bytes)
+    - Ensure attribute structure is valid
+    - Verify PPU priority is less than SPU priority
+  </Accordion>
+
+  <Accordion title="Tasks Not Executing">
+    **Problem**: Tasks submitted but not running
+    
+    **Solutions**:
+    - Call `spursWakeUp` if using `exitIfNoWork=true`
+    - Check task submission code
+    - Verify SPU programs are loaded correctly
+    - Monitor with `spursGetInfo` to check thread status
+  </Accordion>
+
+  <Accordion title="Performance Issues">
+    **Problem**: Slower than expected execution
+    
+    **Solutions**:
+    - Review priority settings
+    - Check for deadline misses in `SpursInfo`
+    - Reduce contention limits if too restrictive
+    - Profile individual tasks
+    - Consider using raw SPU threads for simple workloads
+  </Accordion>
+</AccordionGroup>
+
+## API Reference
+
+### Initialization Functions
+
+- [spursAttributeInitialize](/api/spurs) (spurs/spurs.h:12)
+- [spursInitializeWithAttribute](/api/spurs) (spurs/spurs.h:13)
+- [spursInitialize](/api/spurs) (spurs/spurs.h:15)
+- [spursFinalize](/api/spurs) (spurs/spurs.h:16)
+
+### Configuration Functions
+
+- [spursAttributeSetNamePrefix](/api/spurs) (spurs/spurs.h:25)
+- [spursAttributeSetSpuThreadGroupType](/api/spurs) (spurs/spurs.h:26)
+- [spursAttributeEnableSpuPrintfIfAvailable](/api/spurs) (spurs/spurs.h:27)
+
+### Information Functions
+
+- [spursGetInfo](/api/spurs) (spurs/spurs.h:23)
+- [spursGetNumSpuThread](/api/spurs) (spurs/spurs.h:18)
+- [spursGetSpuThreadId](/api/spurs) (spurs/spurs.h:21)
+- [spursGetSpuThreadGroupId](/api/spurs) (spurs/spurs.h:22)
+
+### Management Functions
+
+- [spursWakeUp](/api/spurs) (spurs/spurs.h:17)
+- [spursSetMaxContention](/api/spurs) (spurs/spurs.h:19)
+- [spursSetPriorities](/api/spurs) (spurs/spurs.h:20)
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="SPU Overview" icon="microchip" href="/spu/overview">
+    Learn SPU fundamentals and architecture
+  </Card>
+  <Card title="Thread Management" icon="users" href="/spu/thread-management">
+    Low-level SPU thread group management
+  </Card>
+  <Card title="DMA Transfers" icon="right-left" href="/spu/dma-transfers">
+    Data transfer for SPU tasks
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/rsx">
+    Complete function reference
+  </Card>
+</CardGroup>

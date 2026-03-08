@@ -1,0 +1,409 @@
+---
+title: 'Graphics Samples'
+description: 'RSX graphics, 3D rendering, textures, and image processing examples'
+---
+
+The graphics samples demonstrate the RSX (Reality Synthesizer) graphics processor, 3D rendering with shaders, texture mapping, and 2D graphics using Cairo.
+
+## Available Graphics Samples
+
+<CardGroup cols={2}>
+  <Card title="rsxtest" icon="cube">
+    Basic 3D rendering with vertex and fragment shaders
+  </Card>
+  
+  <Card title="rsxtest_spu" icon="microchip">
+    RSX rendering with SPU-assisted vertex processing
+  </Card>
+  
+  <Card title="cairo" icon="paintbrush">
+    2D vector graphics using Cairo library
+  </Card>
+  
+  <Card title="pngtest" icon="image">
+    PNG image loading and display
+  </Card>
+  
+  <Card title="jpgtest" icon="file-image">
+    JPEG image loading and display
+  </Card>
+  
+  <Card title="blitting" icon="copy">
+    Surface blitting and buffer operations
+  </Card>
+  
+  <Card title="rsxtest_dl" icon="list">
+    Display list based rendering
+  </Card>
+  
+  <Card title="rsxtest_flip" icon="rotate">
+    Buffer flipping and vsync
+  </Card>
+</CardGroup>
+
+## rsxtest - 3D Graphics Fundamentals
+
+**Location:** `samples/graphics/rsxtest/`
+
+Demonstrates complete 3D rendering pipeline with diffuse and specular lighting.
+
+### What It Demonstrates
+
+- RSX context initialization
+- Vertex and fragment shader loading
+- 3D mesh creation (sphere, donut, cube)
+- Texture mapping
+- Lighting calculations (diffuse + specular)
+- Double buffering and vsync
+
+### Key Code: Initialization
+
+```cpp samples/graphics/rsxtest/source/main.cpp
+int main(int argc, const char *argv[])
+{
+    padInfo padinfo;
+    padData paddata;
+    void *host_addr = memalign(HOST_ADDR_ALIGNMENT, HOSTBUFFER_SIZE);
+
+    printf("rsxtest starting...\n");
+
+    // Initialize screen and RSX context
+    init_screen(host_addr, HOSTBUFFER_SIZE);
+    ioPadInit(7);
+    
+    // Load shaders
+    init_shader();
+    
+    // Initialize texture
+    init_texture();
+
+    // Create 3D meshes
+    sphere = createSphere(3.0f, 32, 32);
+    donut = createDonut(3.0f, 1.5f, 32, 32);
+    cube = createCube(5.0f);
+
+    // Setup callbacks
+    atexit(program_exit_callback);
+    sysUtilRegisterCallback(0, sysutil_exit_callback, NULL);
+
+    // Create projection matrix
+    P = transpose(Matrix4::perspective(DEGTORAD(45.0f), aspect_ratio, 1.0f, 3000.0f));
+
+    setDrawEnv();
+    setRenderTarget(curr_fb);
+
+    running = 1;
+    while(running) {
+        sysUtilCheckCallback();
+        
+        // Check for controller input
+        ioPadGetInfo(&padinfo);
+        for(int i = 0; i < MAX_PADS; i++) {
+            if(padinfo.status[i]) {
+                ioPadGetData(i, &paddata);
+                if(paddata.BTN_CROSS)
+                    goto done;
+            }
+        }
+        
+        drawFrame();
+        flip();
+    }
+
+done:
+    printf("rsxtest done...\n");
+    program_exit_callback();
+    return 0;
+}
+```
+
+### Drawing Pipeline
+
+The rendering process:
+
+<Steps>
+  <Step title="Set viewport and clear">
+    Configure viewport, scissor region, and clear buffers
+  </Step>
+  
+  <Step title="Set draw state">
+    Enable depth testing, set culling mode, configure blending
+  </Step>
+  
+  <Step title="Load shaders">
+    Load vertex and fragment programs with their parameters
+  </Step>
+  
+  <Step title="Bind vertex data">
+    Bind vertex positions, normals, and texture coordinates
+  </Step>
+  
+  <Step title="Set shader uniforms">
+    Pass matrices, lighting parameters, material properties
+  </Step>
+  
+  <Step title="Draw geometry">
+    Issue draw calls for each mesh using indexed triangles
+  </Step>
+</Steps>
+
+### Shader Setup
+
+```cpp
+void init_shader()
+{
+    u32 fpsize = 0;
+    u32 vpsize = 0;
+
+    // Get vertex shader code
+    rsxVertexProgramGetUCode(vpo, &vp_ucode, &vpsize);
+    
+    // Get shader constants
+    projMatrix = rsxVertexProgramGetConst(vpo, "projMatrix");
+    mvMatrix = rsxVertexProgramGetConst(vpo, "modelViewMatrix");
+
+    // Get fragment shader code
+    rsxFragmentProgramGetUCode(fpo, &fp_ucode, &fpsize);
+    
+    // Allocate fragment shader buffer in RSX memory
+    fp_buffer = (u32*)rsxMemalign(64, fpsize);
+    memcpy(fp_buffer, fp_ucode, fpsize);
+    rsxAddressToOffset(fp_buffer, &fp_offset);
+
+    // Get fragment shader parameters
+    textureUnit = rsxFragmentProgramGetAttrib(fpo, "texture");
+    eyePosition = rsxFragmentProgramGetConst(fpo, "eyePosition");
+    globalAmbient = rsxFragmentProgramGetConst(fpo, "globalAmbient");
+    litPosition = rsxFragmentProgramGetConst(fpo, "lightPosition");
+    litColor = rsxFragmentProgramGetConst(fpo, "lightColor");
+    spec = rsxFragmentProgramGetConst(fpo, "shininess");
+    Ks = rsxFragmentProgramGetConst(fpo, "Ks");
+    Kd = rsxFragmentProgramGetConst(fpo, "Kd");
+}
+```
+
+## rsxtest_spu - SPU-Assisted Graphics
+
+**Location:** `samples/graphics/rsxtest_spu/`
+
+Combines RSX rendering with SPU vertex processing for improved performance.
+
+### What It Demonstrates
+
+- SPU vertex transformation
+- PPU-SPU data transfer
+- Workload distribution
+- Parallel processing benefits
+
+## cairo - 2D Vector Graphics
+
+**Location:** `samples/graphics/cairo/`
+
+Shows how to use the Cairo graphics library for 2D drawing.
+
+### What It Demonstrates
+
+- Cairo surface creation
+- Vector drawing primitives
+- Rotation and transformation
+- Real-time FPS display
+
+### Drawing with Cairo
+
+```c samples/graphics/cairo/source/main.c
+void drawFrame(rsxBuffer *buffer, int frame)
+{
+    cairo_t *cr;
+    cairo_surface_t *surface = NULL;
+    static time_t starttime = 0;
+    double fps = 0;
+
+    if (starttime == 0)
+        starttime = time(NULL);
+    else
+        fps = frame / difftime(time(NULL), starttime);
+
+    // Create Cairo surface from RSX buffer
+    surface = cairo_image_surface_create_for_data(
+        (u8 *)buffer->ptr,
+        CAIRO_FORMAT_RGB24,
+        buffer->width,
+        buffer->height,
+        buffer->width * 4
+    );
+
+    if (surface != NULL) {
+        cr = cairo_create(surface);
+        if (cr != NULL) {
+            // Clear to white
+            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+            cairo_paint(cr);
+
+            // Draw rotating square
+            cairo_save(cr);
+            cairo_new_path(cr);
+            cairo_translate(cr, buffer->width / 2, buffer->height / 2);
+            cairo_rotate(cr, frame * M_PI / 180);
+            cairo_set_antialias(cr, CAIRO_ANTIALIAS_SUBPIXEL);
+            
+            int size = 100;
+            cairo_line_to(cr, -(size / 2), -(size / 2));
+            cairo_line_to(cr, -(size / 2), +(size / 2));
+            cairo_line_to(cr, +(size / 2), +(size / 2));
+            cairo_line_to(cr, +(size / 2), -(size / 2));
+            cairo_close_path(cr);
+
+            // Animated color
+            float rel = sin((frame % 180) * M_PI / 180);
+            float r = (rel < 0.5) ? 0.85 : 2 * (1.0 - rel);
+            float g = (rel < 0.5) ? 2 * rel : 0.85;
+            
+            cairo_set_source_rgb(cr, r, g, 0);
+            cairo_fill_preserve(cr);
+            cairo_stroke(cr);
+
+            // Display FPS
+            cairo_identity_matrix(cr);
+            cairo_set_source_rgb(cr, 0, 0, 0);
+            cairo_select_font_face(cr, "Purisa",
+                CAIRO_FONT_SLANT_NORMAL,
+                CAIRO_FONT_WEIGHT_BOLD);
+            cairo_set_font_size(cr, 13);
+            cairo_move_to(cr, 50, 30);
+            
+            char buf[100];
+            snprintf(buf, 100, "FPS : %f", fps);
+            cairo_show_text(cr, buf);
+
+            cairo_destroy(cr);
+        }
+
+        cairo_surface_finish(surface);
+        cairo_surface_destroy(surface);
+    }
+}
+```
+
+## Image Loading Samples
+
+### pngtest - PNG Images
+
+**Location:** `samples/graphics/pngtest/`
+
+Loads and displays PNG images using libpng.
+
+### jpgtest - JPEG Images
+
+**Location:** `samples/graphics/jpgtest/`
+
+Loads and displays JPEG images using libjpeg.
+
+## Building Graphics Samples
+
+### Build All Graphics Samples
+
+```bash
+cd samples/graphics
+make
+```
+
+### Build Individual Sample
+
+```bash
+cd samples/graphics/rsxtest
+make
+```
+
+### Clean
+
+```bash
+make clean
+```
+
+## Common Patterns
+
+### RSX Initialization
+
+<Accordion title="Screen and context setup">
+```cpp
+void *host_addr = memalign(HOST_ADDR_ALIGNMENT, HOSTBUFFER_SIZE);
+init_screen(host_addr, HOSTBUFFER_SIZE);
+```
+
+Allocates aligned memory for RSX command buffer and initializes the display.
+</Accordion>
+
+<Accordion title="Shader loading">
+```cpp
+rsxVertexProgramGetUCode(vpo, &vp_ucode, &vpsize);
+rsxFragmentProgramGetUCode(fpo, &fp_ucode, &fpsize);
+```
+
+Extracts compiled shader microcode from embedded shader programs.
+</Accordion>
+
+<Accordion title="Vertex binding">
+```cpp
+rsxAddressToOffset(&mesh->vertices[0].pos, &offset);
+rsxBindVertexArrayAttrib(context, GCM_VERTEX_ATTRIB_POS, 0, offset,
+    sizeof(S3DVertex), 3, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
+```
+
+Binds vertex attribute arrays to shader inputs.
+</Accordion>
+
+### Buffer Management
+
+```cpp
+// Set render target
+setRenderTarget(curr_fb);
+
+// Clear buffers
+rsxSetClearColor(context, color);
+rsxSetClearDepthStencil(context, 0xffffff00);
+rsxClearSurface(context, GCM_CLEAR_R | GCM_CLEAR_G | GCM_CLEAR_B |
+    GCM_CLEAR_A | GCM_CLEAR_S | GCM_CLEAR_Z);
+
+// Flip after rendering
+flip();
+```
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Use RSX memory for frequently accessed data">
+    Allocate vertex buffers, textures, and shader code in RSX memory using `rsxMemalign()` for best performance.
+  </Accordion>
+  
+  <Accordion title="Minimize state changes">
+    Group draw calls with similar render states together to reduce overhead.
+  </Accordion>
+  
+  <Accordion title="Consider SPU assistance">
+    For complex vertex processing, offload work to SPUs as shown in `rsxtest_spu`.
+  </Accordion>
+  
+  <Accordion title="Use appropriate precision">
+    Use half-precision floats in shaders where full precision isn't needed.
+  </Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="RSX API Reference" icon="book" href="/api/rsx">
+    Complete RSX graphics API documentation
+  </Card>
+  
+  <Card title="Graphics Guide" icon="graduation-cap" href="/graphics/rsx-overview">
+    In-depth graphics programming concepts
+  </Card>
+  
+  <Card title="Shader Programming" icon="code" href="/graphics/vertex-shaders">
+    Writing vertex and fragment shaders
+  </Card>
+  
+  <Card title="SPU Samples" icon="microchip" href="/examples/spu-samples">
+    SPU programming for graphics acceleration
+  </Card>
+</CardGroup>

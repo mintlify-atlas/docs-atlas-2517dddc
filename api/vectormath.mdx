@@ -1,0 +1,600 @@
+---
+title: Vector Math Library
+description: SIMD-optimized vector, matrix, and quaternion math for both PPU and SPU
+---
+
+## Overview
+
+The Vector Math library provides highly optimized 3D math operations using SIMD instructions. It's available in both C and C++ interfaces and works on both PPU (PowerPC) and SPU processors.
+
+### Key Features
+
+- **Cross-platform**: Same API for PPU and SPU
+- **SIMD optimized**: Uses AltiVec (PPU) and SPU intrinsics
+- **Complete 3D math**: Vectors, matrices, quaternions, points
+- **C and C++ APIs**: Choose based on preference
+- **Array-of-Structures (AoS)**: Cache-friendly memory layout
+
+### Headers
+
+<Tabs>
+  <Tab title="PPU C">
+    ```c
+    #include <vectormath/ppu/c/vectormath_aos.h>
+    ```
+  </Tab>
+  <Tab title="PPU C++">
+    ```cpp
+    #include <vectormath/ppu/cpp/vectormath_aos.h>
+    ```
+  </Tab>
+  <Tab title="SPU C">
+    ```c
+    #include <vectormath/spu/c/vectormath_aos.h>
+    ```
+  </Tab>
+  <Tab title="SPU C++">
+    ```cpp
+    #include <vectormath/spu/cpp/vectormath_aos.h>
+    ```
+  </Tab>
+</Tabs>
+
+## Data Types
+
+### Vector Types
+
+```c
+typedef struct _VmathVector3 {
+    vec_float4 vec128;
+} VmathVector3;  // 3D vector (x, y, z)
+
+typedef struct _VmathVector4 {
+    vec_float4 vec128;
+} VmathVector4;  // 4D vector (x, y, z, w)
+
+typedef struct _VmathPoint3 {
+    vec_float4 vec128;
+} VmathPoint3;  // 3D point
+```
+
+### Matrix Types
+
+```c
+typedef struct _VmathMatrix3 {
+    VmathVector3 col0;
+    VmathVector3 col1;
+    VmathVector3 col2;
+} VmathMatrix3;  // 3x3 matrix
+
+typedef struct _VmathMatrix4 {
+    VmathVector4 col0;
+    VmathVector4 col1;
+    VmathVector4 col2;
+    VmathVector4 col3;
+} VmathMatrix4;  // 4x4 matrix
+
+typedef struct _VmathTransform3 {
+    VmathVector3 col0;
+    VmathVector3 col1;
+    VmathVector3 col2;
+    VmathVector3 col3;
+} VmathTransform3;  // 3x4 transformation matrix
+```
+
+### Quaternion Type
+
+```c
+typedef struct _VmathQuat {
+    vec_float4 vec128;
+} VmathQuat;  // Quaternion (x, y, z, w)
+```
+
+## 3D Vector Operations
+
+### vmathV3MakeFromElems
+
+Construct a 3D vector from components.
+
+```c
+void vmathV3MakeFromElems(VmathVector3 *result, float x, float y, float z)
+```
+
+<ParamField path="result" type="VmathVector3*" required>
+  Pointer to output vector
+</ParamField>
+
+<ParamField path="x" type="float" required>
+  X component
+</ParamField>
+
+<ParamField path="y" type="float" required>
+  Y component
+</ParamField>
+
+<ParamField path="z" type="float" required>
+  Z component
+</ParamField>
+
+### vmathV3Add
+
+Add two 3D vectors.
+
+```c
+void vmathV3Add(VmathVector3 *result, const VmathVector3 *vec0, const VmathVector3 *vec1)
+```
+
+### vmathV3Sub
+
+Subtract two 3D vectors.
+
+```c
+void vmathV3Sub(VmathVector3 *result, const VmathVector3 *vec0, const VmathVector3 *vec1)
+```
+
+### vmathV3ScalarMul
+
+Multiply vector by scalar.
+
+```c
+void vmathV3ScalarMul(VmathVector3 *result, const VmathVector3 *vec, float scalar)
+```
+
+### vmathV3Dot
+
+Compute dot product.
+
+```c
+float vmathV3Dot(const VmathVector3 *vec0, const VmathVector3 *vec1)
+```
+
+<ResponseField name="return" type="float">
+  Dot product: vec0.x * vec1.x + vec0.y * vec1.y + vec0.z * vec1.z
+</ResponseField>
+
+### vmathV3Cross
+
+Compute cross product.
+
+```c
+void vmathV3Cross(VmathVector3 *result, const VmathVector3 *vec0, const VmathVector3 *vec1)
+```
+
+### vmathV3Length
+
+Compute vector length.
+
+```c
+float vmathV3Length(const VmathVector3 *vec)
+```
+
+<ResponseField name="return" type="float">
+  Length: sqrt(x² + y² + z²)
+</ResponseField>
+
+### vmathV3LengthSqr
+
+Compute squared length (faster, no sqrt).
+
+```c
+float vmathV3LengthSqr(const VmathVector3 *vec)
+```
+
+### vmathV3Normalize
+
+Normalize vector to unit length.
+
+```c
+void vmathV3Normalize(VmathVector3 *result, const VmathVector3 *vec)
+```
+
+<Note>
+Result is unpredictable when input is zero or near-zero.
+</Note>
+
+### vmathV3Lerp
+
+Linear interpolation between vectors.
+
+```c
+void vmathV3Lerp(VmathVector3 *result, float t, const VmathVector3 *vec0, const VmathVector3 *vec1)
+```
+
+<ParamField path="t" type="float" required>
+  Interpolation factor (0.0 = vec0, 1.0 = vec1)
+</ParamField>
+
+### vmathV3Slerp
+
+Spherical linear interpolation.
+
+```c
+void vmathV3Slerp(VmathVector3 *result, float t, const VmathVector3 *unitVec0, const VmathVector3 *unitVec1)
+```
+
+## 3x3 Matrix Operations
+
+### vmathM3MakeIdentity
+
+Create identity matrix.
+
+```c
+void vmathM3MakeIdentity(VmathMatrix3 *result)
+```
+
+### vmathM3MakeRotationX
+
+Create rotation matrix around X axis.
+
+```c
+void vmathM3MakeRotationX(VmathMatrix3 *result, float radians)
+```
+
+<ParamField path="radians" type="float" required>
+  Rotation angle in radians
+</ParamField>
+
+Similar functions:
+- `vmathM3MakeRotationY` - Rotate around Y axis
+- `vmathM3MakeRotationZ` - Rotate around Z axis
+
+### vmathM3MakeRotationAxis
+
+Create rotation matrix around arbitrary axis.
+
+```c
+void vmathM3MakeRotationAxis(VmathMatrix3 *result, float radians, const VmathVector3 *unitVec)
+```
+
+<ParamField path="unitVec" type="const VmathVector3*" required>
+  Unit-length rotation axis
+</ParamField>
+
+### vmathM3MakeRotationZYX
+
+Create rotation matrix from Euler angles (Z, then Y, then X).
+
+```c
+void vmathM3MakeRotationZYX(VmathMatrix3 *result, const VmathVector3 *radiansXYZ)
+```
+
+### vmathM3MulV3
+
+Multiply matrix by vector.
+
+```c
+void vmathM3MulV3(VmathVector3 *result, const VmathMatrix3 *mat, const VmathVector3 *vec)
+```
+
+### vmathM3Mul
+
+Multiply two matrices.
+
+```c
+void vmathM3Mul(VmathMatrix3 *result, const VmathMatrix3 *mat0, const VmathMatrix3 *mat1)
+```
+
+### vmathM3Transpose
+
+Transpose a matrix.
+
+```c
+void vmathM3Transpose(VmathMatrix3 *result, const VmathMatrix3 *mat)
+```
+
+### vmathM3Inverse
+
+Compute matrix inverse.
+
+```c
+void vmathM3Inverse(VmathMatrix3 *result, const VmathMatrix3 *mat)
+```
+
+<Note>
+Result is unpredictable when determinant is zero or near-zero.
+</Note>
+
+### vmathM3Determinant
+
+Compute determinant.
+
+```c
+float vmathM3Determinant(const VmathMatrix3 *mat)
+```
+
+## 4x4 Matrix Operations
+
+### vmathM4MakeTranslation
+
+Create translation matrix.
+
+```c
+void vmathM4MakeTranslation(VmathMatrix4 *result, const VmathVector3 *translateVec)
+```
+
+### vmathM4MakeScale
+
+Create scaling matrix.
+
+```c
+void vmathM4MakeScale(VmathMatrix4 *result, const VmathVector3 *scaleVec)
+```
+
+### vmathM4MakeLookAt
+
+Create view matrix for camera.
+
+```c
+void vmathM4MakeLookAt(VmathMatrix4 *result, const VmathPoint3 *eyePos,
+                       const VmathPoint3 *lookAtPos, const VmathVector3 *upVec)
+```
+
+<ParamField path="eyePos" type="const VmathPoint3*" required>
+  Camera position
+</ParamField>
+
+<ParamField path="lookAtPos" type="const VmathPoint3*" required>
+  Target position
+</ParamField>
+
+<ParamField path="upVec" type="const VmathVector3*" required>
+  Up direction (usually (0, 1, 0))
+</ParamField>
+
+### vmathM4MakePerspective
+
+Create perspective projection matrix.
+
+```c
+void vmathM4MakePerspective(VmathMatrix4 *result, float fovyRadians, float aspect,
+                            float zNear, float zFar)
+```
+
+<ParamField path="fovyRadians" type="float" required>
+  Vertical field of view in radians
+</ParamField>
+
+<ParamField path="aspect" type="float" required>
+  Aspect ratio (width / height)
+</ParamField>
+
+<ParamField path="zNear" type="float" required>
+  Near clipping plane
+</ParamField>
+
+<ParamField path="zFar" type="float" required>
+  Far clipping plane
+</ParamField>
+
+### vmathM4MakeOrthographic
+
+Create orthographic projection matrix.
+
+```c
+void vmathM4MakeOrthographic(VmathMatrix4 *result, float left, float right,
+                             float bottom, float top, float zNear, float zFar)
+```
+
+## Quaternion Operations
+
+### vmathQMakeFromElems
+
+Construct quaternion from components.
+
+```c
+void vmathQMakeFromElems(VmathQuat *result, float x, float y, float z, float w)
+```
+
+### vmathQMakeIdentity
+
+Create identity quaternion (no rotation).
+
+```c
+void vmathQMakeIdentity(VmathQuat *result)
+```
+
+### vmathQMakeRotationAxis
+
+Create quaternion for rotation around axis.
+
+```c
+void vmathQMakeRotationAxis(VmathQuat *result, float radians, const VmathVector3 *unitVec)
+```
+
+### vmathQMul
+
+Multiply two quaternions.
+
+```c
+void vmathQMul(VmathQuat *result, const VmathQuat *quat0, const VmathQuat *quat1)
+```
+
+### vmathQRotate
+
+Rotate a vector using a quaternion.
+
+```c
+void vmathQRotate(VmathVector3 *result, const VmathQuat *unitQuat, const VmathVector3 *vec)
+```
+
+### vmathQNormalize
+
+Normalize quaternion to unit length.
+
+```c
+void vmathQNormalize(VmathQuat *result, const VmathQuat *quat)
+```
+
+### vmathQSlerp
+
+Spherical linear interpolation between quaternions.
+
+```c
+void vmathQSlerp(VmathQuat *result, float t, const VmathQuat *unitQuat0, const VmathQuat *unitQuat1)
+```
+
+## Example Usage
+
+### Basic Vector Math
+
+```c
+#include <vectormath/ppu/c/vectormath_aos.h>
+
+VmathVector3 v1, v2, result;
+
+// Create vectors
+vmathV3MakeFromElems(&v1, 1.0f, 2.0f, 3.0f);
+vmathV3MakeFromElems(&v2, 4.0f, 5.0f, 6.0f);
+
+// Add vectors
+vmathV3Add(&result, &v1, &v2);
+printf("Sum: (%f, %f, %f)\n",
+       vmathV3GetX(&result),
+       vmathV3GetY(&result),
+       vmathV3GetZ(&result));
+
+// Dot product
+float dot = vmathV3Dot(&v1, &v2);
+printf("Dot product: %f\n", dot);
+
+// Cross product
+vmathV3Cross(&result, &v1, &v2);
+
+// Normalize
+vmathV3Normalize(&result, &v1);
+float length = vmathV3Length(&result);
+printf("Normalized length: %f\n", length);  // Should be 1.0
+```
+
+### Transform Hierarchy
+
+```c
+VmathMatrix4 world, view, proj, mvp;
+VmathVector3 position, scale;
+VmathQuat rotation;
+
+// Setup world transform
+vmathV3MakeFromElems(&position, 10.0f, 0.0f, -5.0f);
+vmathV3MakeFromElems(&scale, 2.0f, 2.0f, 2.0f);
+vmathQMakeIdentity(&rotation);
+
+VmathMatrix3 rotMat;
+vmathM3MakeFromQ(&rotMat, &rotation);
+
+VmathMatrix4 scaleMat, transMat;
+vmathM4MakeScale(&scaleMat, &scale);
+vmathM4MakeTranslation(&transMat, &position);
+
+// Combine: world = translation * rotation * scale
+vmathM4Mul(&world, &transMat, (VmathMatrix4*)&rotMat);
+vmathM4Mul(&world, &world, &scaleMat);
+
+// Setup camera
+VmathPoint3 eye, lookAt;
+VmathVector3 up;
+vmathP3MakeFromElems(&eye, 0.0f, 5.0f, 10.0f);
+vmathP3MakeFromElems(&lookAt, 0.0f, 0.0f, 0.0f);
+vmathV3MakeFromElems(&up, 0.0f, 1.0f, 0.0f);
+vmathM4MakeLookAt(&view, &eye, &lookAt, &up);
+
+// Setup projection
+float fov = 3.14159f / 4.0f;  // 45 degrees
+float aspect = 16.0f / 9.0f;
+vmathM4MakePerspective(&proj, fov, aspect, 0.1f, 100.0f);
+
+// Combine: MVP = projection * view * world
+VmathMatrix4 temp;
+vmathM4Mul(&temp, &view, &world);
+vmathM4Mul(&mvp, &proj, &temp);
+
+// Use MVP matrix for rendering
+```
+
+### Quaternion Rotation
+
+```c
+VmathVector3 axis, point, rotated;
+VmathQuat rotation;
+
+// Rotate 90 degrees around Y axis
+vmathV3MakeYAxis(&axis);
+vmathQMakeRotationAxis(&rotation, 3.14159f / 2.0f, &axis);
+
+// Rotate a point
+vmathV3MakeFromElems(&point, 1.0f, 0.0f, 0.0f);
+vmathQRotate(&rotated, &rotation, &point);
+
+printf("Rotated point: (%f, %f, %f)\n",
+       vmathV3GetX(&rotated),
+       vmathV3GetY(&rotated),
+       vmathV3GetZ(&rotated));
+// Should be approximately (0, 0, -1)
+```
+
+### Interpolation
+
+```c
+VmathVector3 start, end, interpolated;
+vmathV3MakeFromElems(&start, 0.0f, 0.0f, 0.0f);
+vmathV3MakeFromElems(&end, 10.0f, 10.0f, 10.0f);
+
+// Animate from start to end
+for (float t = 0.0f; t <= 1.0f; t += 0.1f) {
+    vmathV3Lerp(&interpolated, t, &start, &end);
+    printf("t=%.1f: (%f, %f, %f)\n", t,
+           vmathV3GetX(&interpolated),
+           vmathV3GetY(&interpolated),
+           vmathV3GetZ(&interpolated));
+}
+
+// Quaternion slerp
+VmathQuat q1, q2, interpolatedQ;
+vmathQMakeRotationX(&q1, 0.0f);
+vmathQMakeRotationX(&q2, 3.14159f);
+
+for (float t = 0.0f; t <= 1.0f; t += 0.1f) {
+    vmathQSlerp(&interpolatedQ, t, &q1, &q2);
+    // Use interpolatedQ for smooth rotation
+}
+```
+
+## Performance Tips
+
+1. **Avoid normalization**: Only normalize when necessary
+2. **Use LengthSqr**: For distance comparisons, use squared length to avoid sqrt
+3. **Reuse results**: Cache matrix inverses and other expensive operations
+4. **Quaternions**: More efficient than matrices for repeated rotations
+5. **SIMD alignment**: Vectors are already SIMD-optimized internally
+6. **C vs C++**: Both have similar performance, choose based on style preference
+
+## Common Patterns
+
+### Distance Check (without sqrt)
+
+```c
+VmathVector3 diff;
+vmathV3Sub(&diff, &pos1, &pos2);
+float distSqr = vmathV3LengthSqr(&diff);
+float radiusSqr = 5.0f * 5.0f;
+
+if (distSqr < radiusSqr) {
+    // Within radius
+}
+```
+
+### Safe Normalization
+
+```c
+VmathVector3 v, normalized;
+float length = vmathV3Length(&v);
+
+if (length > 0.0001f) {  // Check for near-zero
+    vmathV3Normalize(&normalized, &v);
+} else {
+    vmathV3MakeFromElems(&normalized, 0.0f, 0.0f, 1.0f);  // Default
+}
+```
+
+## See Also
+
+- [SIMD Math Library](/api/simdmath) - Lower-level SIMD math functions

@@ -1,0 +1,565 @@
+---
+title: Filesystem
+description: File I/O operations and filesystem access on PS3
+---
+
+The PSL1GHT SDK provides comprehensive filesystem APIs for accessing the PS3's various storage devices including the hard disk drive (HDD), USB devices, and optical discs.
+
+## Overview
+
+Filesystem operations are provided through two header files:
+- `sys/file.h` - Low-level syscall wrappers
+- `lv2/sysfs.h` - High-level filesystem functions and data structures
+
+## Storage Mount Points
+
+The PS3 filesystem uses specific mount points for different storage devices:
+
+<CodeGroup>
+```c Mount Points
+#include <sys/paths.h>
+
+// Application home directory
+SYS_APP_HOME    "/app_home"
+
+// Hard disk drive
+SYS_DEV_HDD0    "/dev_hdd0"
+
+// USB devices
+SYS_DEV_USB     "/dev_usb"
+
+// Blu-ray disc
+SYS_DEV_BDVD    "/dev_bdvd"
+
+// Memory stick
+SYS_DEV_MS      "/dev_ms"
+
+// Remote host (for debugging)
+SYS_HOST_ROOT   "/host_root"
+```
+</CodeGroup>
+
+<Note>
+`/dev_hdd1` is reserved for system use only and should not be accessed by applications.
+</Note>
+
+## File Operations
+
+### Opening Files
+
+Files are opened using `sysFsOpen()` with various flags to control access mode.
+
+<CodeGroup>
+```c sysFsOpen
+s32 sysFsOpen(const char *path, s32 oflags, s32 *fd, 
+              const void *arg, u64 argsize);
+```
+
+```c Example
+#include <lv2/sysfs.h>
+
+s32 fd;
+s32 ret;
+const char *path = "/dev_hdd0/game/MYAPP00001/data.bin";
+
+// Open file for reading
+ret = sysFsOpen(path, SYS_O_RDONLY, &fd, NULL, 0);
+if (ret != 0) {
+    printf("Failed to open file: %d\n", ret);
+    return ret;
+}
+```
+</CodeGroup>
+
+<ParamField path="path" type="const char*" required>
+  Full path to the file to open
+</ParamField>
+
+<ParamField path="oflags" type="s32" required>
+  Open flags controlling access mode and behavior
+</ParamField>
+
+<ParamField path="fd" type="s32*" required>
+  Pointer to receive the file descriptor
+</ParamField>
+
+<ParamField path="arg" type="const void*">
+  Additional arguments (usually NULL)
+</ParamField>
+
+<ParamField path="argsize" type="u64">
+  Size of additional arguments (usually 0)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+### Open Flags
+
+<AccordionGroup>
+<Accordion title="Access Mode Flags">
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `SYS_O_RDONLY` | 0 | Open for reading only |
+| `SYS_O_WRONLY` | 1 | Open for writing only |
+| `SYS_O_RDWR` | 2 | Open for reading and writing |
+| `SYS_O_ACCMODE` | 3 | Access mode mask |
+
+</Accordion>
+
+<Accordion title="Creation and Behavior Flags">
+
+| Flag | Description |
+|------|-------------|
+| `SYS_O_CREAT` | Create file if it doesn't exist |
+| `SYS_O_EXCL` | Fail if file already exists (use with CREAT) |
+| `SYS_O_TRUNC` | Truncate file to zero length |
+| `SYS_O_APPEND` | Append to end of file |
+| `SYS_O_MSELF` | Open as MSELF encrypted file |
+
+</Accordion>
+</AccordionGroup>
+
+### Reading and Writing
+
+<CodeGroup>
+```c sysFsRead
+s32 sysFsRead(s32 fd, void *ptr, u64 len, u64 *read);
+```
+
+```c sysFsWrite  
+s32 sysFsWrite(s32 fd, const void *ptr, u64 size, u64 *written);
+```
+
+```c Example
+#include <lv2/sysfs.h>
+
+char buffer[1024];
+u64 bytes_read;
+s32 ret;
+
+// Read data from file
+ret = sysFsRead(fd, buffer, sizeof(buffer), &bytes_read);
+if (ret == 0) {
+    printf("Read %llu bytes\n", bytes_read);
+}
+
+// Write data to file
+const char *data = "Hello, PS3!";
+u64 bytes_written;
+ret = sysFsWrite(fd, data, strlen(data), &bytes_written);
+```
+</CodeGroup>
+
+### Seeking
+
+<CodeGroup>
+```c sysFsLseek
+s32 sysFsLseek(s32 fd, s64 offset, s32 whence, u64 *position);
+```
+
+```c Example
+#include <lv2/sysfs.h>
+#include <unistd.h>
+
+u64 new_pos;
+
+// Seek to beginning
+sysFsLseek(fd, 0, SEEK_SET, &new_pos);
+
+// Seek to end
+sysFsLseek(fd, 0, SEEK_END, &new_pos);
+
+// Seek relative to current position
+sysFsLseek(fd, 100, SEEK_CUR, &new_pos);
+```
+</CodeGroup>
+
+<ParamField path="whence" type="s32">
+  - `SEEK_SET` - Offset from beginning of file
+  - `SEEK_CUR` - Offset from current position
+  - `SEEK_END` - Offset from end of file
+</ParamField>
+
+### Closing Files
+
+<CodeGroup>
+```c sysFsClose
+s32 sysFsClose(s32 fd);
+```
+
+```c Example
+// Always close files when done
+sysFsClose(fd);
+```
+</CodeGroup>
+
+## File Information
+
+### File Statistics
+
+<CodeGroup>
+```c sysFsStat
+s32 sysFsStat(const char *path, sysFSStat *stat);
+s32 sysFsFstat(s32 fd, sysFSStat *stat);
+```
+
+```c Data Structure
+typedef struct _sys_fs_stat {
+    s32 st_mode;      // File mode/permissions
+    s32 st_uid;       // User ID
+    s32 st_gid;       // Group ID
+    time_t st_atime;  // Last access time
+    time_t st_mtime;  // Last modification time
+    time_t st_ctime;  // Creation time
+    u64 st_size;      // File size in bytes
+    u64 st_blksize;   // Block size
+} __attribute__((packed)) sysFSStat;
+```
+
+```c Example
+#include <lv2/sysfs.h>
+
+sysFSStat stat;
+s32 ret;
+
+ret = sysFsStat("/dev_hdd0/game/MYAPP00001/data.bin", &stat);
+if (ret == 0) {
+    printf("File size: %llu bytes\n", stat.st_size);
+    printf("Modified: %ld\n", stat.st_mtime);
+}
+```
+</CodeGroup>
+
+## Directory Operations
+
+### Opening and Reading Directories
+
+<CodeGroup>
+```c Directory Functions
+s32 sysFsOpendir(const char *path, s32 *fd);
+s32 sysFsReaddir(s32 fd, sysFSDirent *entry, u64 *read);
+s32 sysFsClosedir(s32 fd);
+```
+
+```c Directory Entry
+typedef struct _sys_fs_dirent {
+    u8 d_type;                  // Entry type
+    u8 d_namlen;                // Name length
+    char d_name[MAXPATHLEN + 1]; // Entry name
+} sysFSDirent;
+```
+
+```c Example
+#include <lv2/sysfs.h>
+
+s32 fd;
+s32 ret;
+u64 read;
+sysFSDirent entry;
+
+// Open directory
+ret = sysFsOpendir("/dev_hdd0/game", &fd);
+if (ret != 0) {
+    printf("Failed to open directory\n");
+    return ret;
+}
+
+// Read directory entries
+while (1) {
+    ret = sysFsReaddir(fd, &entry, &read);
+    if (ret != 0 || read == 0)
+        break;
+    
+    printf("Found: %s\n", entry.d_name);
+}
+
+// Close directory
+sysFsClosedir(fd);
+```
+</CodeGroup>
+
+### Creating and Removing Directories
+
+<CodeGroup>
+```c sysFsMkdir
+s32 sysFsMkdir(const char *path, s32 mode);
+```
+
+```c sysFsRmdir
+s32 sysFsRmdir(const char *path);
+```
+
+```c Example
+// Create directory with permissions 0755
+sysFsMkdir("/dev_hdd0/game/MYAPP00001/saves", 0755);
+
+// Remove empty directory
+sysFsRmdir("/dev_hdd0/game/MYAPP00001/temp");
+```
+</CodeGroup>
+
+## File Management
+
+### Deleting Files
+
+<CodeGroup>
+```c sysFsUnlink
+s32 sysFsUnlink(const char *path);
+```
+
+```c Example
+// Delete a file
+ret = sysFsUnlink("/dev_hdd0/game/MYAPP00001/old_data.bin");
+if (ret != 0) {
+    printf("Failed to delete file: %d\n", ret);
+}
+```
+</CodeGroup>
+
+### Renaming Files
+
+<CodeGroup>
+```c Low-level Rename
+LV2_SYSCALL sysLv2FsRename(const char *path, const char *newpath);
+```
+
+```c Example
+// Rename a file
+sysLv2FsRename("/dev_hdd0/game/MYAPP00001/old.dat",
+               "/dev_hdd0/game/MYAPP00001/new.dat");
+```
+</CodeGroup>
+
+### File Permissions
+
+<CodeGroup>
+```c sysFsChmod
+s32 sysFsChmod(const char *path, s32 mode);
+```
+
+```c Example
+// Set file permissions to read/write for owner
+sysFsChmod("/dev_hdd0/game/MYAPP00001/config.ini", 0644);
+```
+</CodeGroup>
+
+### File Truncation
+
+<CodeGroup>
+```c Truncation Functions
+LV2_SYSCALL sysLv2FsTruncate(const char *path, u64 size);
+LV2_SYSCALL sysLv2FsFtruncate(s32 fd, u64 size);
+```
+
+```c Example
+// Truncate file to 1KB
+sysLv2FsTruncate("/dev_hdd0/game/MYAPP00001/log.txt", 1024);
+
+// Truncate open file
+sysLv2FsFtruncate(fd, 2048);
+```
+</CodeGroup>
+
+## Advanced Features
+
+### Asynchronous I/O
+
+PSL1GHT supports asynchronous file operations for non-blocking I/O.
+
+<CodeGroup>
+```c AIO Structure
+typedef struct _sys_fs_aio {
+    s32 fd;           // File descriptor
+    u64 offset;       // Offset in file
+    u32 buffer_addr;  // Buffer address
+    u64 size;         // Transfer size
+    u64 usrdata;      // User data
+} sysFSAio;
+
+typedef void (*sysFsAioCallback)(sysFSAio *aio, s32 error, 
+                                  s32 xid, u64 size);
+```
+
+```c AIO Functions
+s32 sysFsAioInit(const char *path);
+s32 sysFsAioRead(sysFSAio *aio, s32 *id, sysFsAioCallback cb);
+s32 sysFsAioWrite(sysFSAio *aio, s32 *id, sysFsAioCallback cb);
+s32 sysFsAioCancel(s32 id);
+s32 sysFsAioFinish(const char *path);
+```
+</CodeGroup>
+
+### I/O Buffering
+
+<CodeGroup>
+```c Buffer Configuration
+s32 sysFsSetIoBuffer(s32 fd, size_t bufferSizeLimit, 
+                     s32 pageType, sys_mem_container_t container);
+```
+
+```c Page Types
+#define SYS_FS_IO_BUFFER_PAGE_SIZE_64KB  2
+#define SYS_FS_IO_BUFFER_PAGE_SIZE_1MB   4
+```
+
+```c Example
+// Set 1MB I/O buffer for better performance
+sysFsSetIoBuffer(fd, 1024*1024, 
+                 SYS_FS_IO_BUFFER_PAGE_SIZE_1MB, 
+                 0); // 0 = default container
+```
+</CodeGroup>
+
+### Free Space Information
+
+<CodeGroup>
+```c sysFsGetFreeSize
+s32 sysFsGetFreeSize(const char *path, u32 *blockSize, u64 *freeBlocks);
+```
+
+```c Example
+#include <lv2/sysfs.h>
+
+u32 block_size;
+u64 free_blocks;
+s32 ret;
+
+ret = sysFsGetFreeSize("/dev_hdd0", &block_size, &free_blocks);
+if (ret == 0) {
+    u64 free_bytes = (u64)block_size * free_blocks;
+    printf("Free space: %llu MB\n", free_bytes / (1024*1024));
+}
+```
+</CodeGroup>
+
+## Complete Example
+
+<CodeGroup>
+```c File I/O Example
+#include <stdio.h>
+#include <string.h>
+#include <lv2/sysfs.h>
+#include <sys/paths.h>
+
+int save_game_data(const char *filename, const void *data, size_t size) {
+    s32 fd;
+    s32 ret;
+    u64 written;
+    char path[256];
+    
+    // Build full path
+    snprintf(path, sizeof(path), "%s/game/MYAPP00001/%s",
+             SYS_DEV_HDD0, filename);
+    
+    // Open file for writing, create if needed
+    ret = sysFsOpen(path, SYS_O_WRONLY | SYS_O_CREAT | SYS_O_TRUNC,
+                    &fd, NULL, 0);
+    if (ret != 0) {
+        printf("Failed to open %s: %d\n", path, ret);
+        return ret;
+    }
+    
+    // Write data
+    ret = sysFsWrite(fd, data, size, &written);
+    if (ret != 0) {
+        printf("Write failed: %d\n", ret);
+        sysFsClose(fd);
+        return ret;
+    }
+    
+    // Ensure data is flushed to disk
+    sysLv2FsFsync(fd);
+    
+    // Close file
+    sysFsClose(fd);
+    
+    printf("Saved %llu bytes to %s\n", written, filename);
+    return 0;
+}
+
+int load_game_data(const char *filename, void *buffer, size_t max_size) {
+    s32 fd;
+    s32 ret;
+    u64 bytes_read;
+    char path[256];
+    sysFSStat stat;
+    
+    // Build full path
+    snprintf(path, sizeof(path), "%s/game/MYAPP00001/%s",
+             SYS_DEV_HDD0, filename);
+    
+    // Check file exists and get size
+    ret = sysFsStat(path, &stat);
+    if (ret != 0) {
+        printf("File not found: %s\n", path);
+        return ret;
+    }
+    
+    if (stat.st_size > max_size) {
+        printf("File too large: %llu > %zu\n", stat.st_size, max_size);
+        return -1;
+    }
+    
+    // Open file for reading
+    ret = sysFsOpen(path, SYS_O_RDONLY, &fd, NULL, 0);
+    if (ret != 0) {
+        printf("Failed to open %s: %d\n", path, ret);
+        return ret;
+    }
+    
+    // Read data
+    ret = sysFsRead(fd, buffer, stat.st_size, &bytes_read);
+    sysFsClose(fd);
+    
+    if (ret != 0) {
+        printf("Read failed: %d\n", ret);
+        return ret;
+    }
+    
+    printf("Loaded %llu bytes from %s\n", bytes_read, filename);
+    return bytes_read;
+}
+```
+</CodeGroup>
+
+## Error Handling
+
+All filesystem functions return 0 on success and a negative error code on failure. Common error codes are defined in `sys/lv2errno.h`.
+
+<Warning>
+Always check return values and handle errors appropriately. File operations can fail for many reasons including:
+- File not found
+- Permission denied
+- Disk full
+- Invalid file descriptor
+- Device not ready
+</Warning>
+
+## Best Practices
+
+<CardGroup cols={2}>
+<Card title="Always Close Files" icon="circle-xmark">
+Always close file descriptors when done to prevent resource leaks.
+</Card>
+
+<Card title="Check Return Values" icon="circle-check">
+Verify all filesystem operations succeed before continuing.
+</Card>
+
+<Card title="Use Full Paths" icon="route">
+Always use absolute paths starting with a mount point like `/dev_hdd0`.
+</Card>
+
+<Card title="Flush Critical Data" icon="floppy-disk">
+Use `sysLv2FsFsync()` to ensure important data is written to disk.
+</Card>
+</CardGroup>
+
+## See Also
+
+- [Memory Management](/system/memory) - Memory allocation for file buffers
+- [Threads](/system/threads) - Thread-safe file access
+- [Processes](/system/processes) - Process-level filesystem operations

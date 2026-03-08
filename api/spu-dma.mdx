@@ -1,0 +1,487 @@
+---
+title: SPU DMA Operations
+description: Direct Memory Access functions for transferring data between SPU local store and main memory
+---
+
+## Overview
+
+The SPU DMA API provides high-performance data transfer functions between the SPU's local store and main memory (or other SPUs' local stores). All DMA operations use the Memory Flow Controller (MFC) and support asynchronous transfers with tag-based synchronization.
+
+### Key Features
+
+- **16-byte alignment** required for most transfers
+- **Maximum transfer size**: 16 KB per DMA operation
+- **32 DMA tags** for managing multiple concurrent transfers
+- **List DMA** for scatter-gather operations
+- **Atomic operations** for lock-free synchronization
+- **Fence and barrier** commands for ordering
+
+## Basic DMA Transfers
+
+### spu_dma_get
+
+Transfer data from main memory to local store.
+
+```c
+void spu_dma_get(void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="ls" type="void*" required>
+  Local store address (must be 16-byte aligned)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address in main memory (must be 16-byte aligned)
+</ParamField>
+
+<ParamField path="size" type="uint32_t" required>
+  Transfer size in bytes (must be multiple of 16, max 16384)
+</ParamField>
+
+<ParamField path="tag" type="uint32_t" required>
+  DMA tag ID (0-31)
+</ParamField>
+
+<ParamField path="tid" type="uint32_t">
+  Transfer class ID (usually 0)
+</ParamField>
+
+<ParamField path="rid" type="uint32_t">
+  Replace ID for fence operations (usually 0)
+</ParamField>
+
+### spu_dma_put
+
+Transfer data from local store to main memory.
+
+```c
+void spu_dma_put(const void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="ls" type="const void*" required>
+  Local store address (must be 16-byte aligned)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address in main memory (must be 16-byte aligned)
+</ParamField>
+
+<ParamField path="size" type="uint32_t" required>
+  Transfer size in bytes (must be multiple of 16, max 16384)
+</ParamField>
+
+<ParamField path="tag" type="uint32_t" required>
+  DMA tag ID (0-31)
+</ParamField>
+
+<ParamField path="tid" type="uint32_t">
+  Transfer class ID
+</ParamField>
+
+<ParamField path="rid" type="uint32_t">
+  Replace ID
+</ParamField>
+
+## Barrier and Fence Commands
+
+### spu_dma_getb
+
+Get with barrier - waits for all previous DMA operations on this tag to complete.
+
+```c
+void spu_dma_getb(void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+Parameters are the same as `spu_dma_get`.
+
+### spu_dma_getf
+
+Get with fence - ensures ordered execution relative to previous DMAs.
+
+```c
+void spu_dma_getf(void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+### spu_dma_putb
+
+Put with barrier.
+
+```c
+void spu_dma_putb(const void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+### spu_dma_putf
+
+Put with fence.
+
+```c
+void spu_dma_putf(const void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+## Small Transfers (&lt; 16 bytes)
+
+### spu_dma_small_get
+
+Transfer small unaligned data (1, 2, 4, or 8 bytes).
+
+```c
+void spu_dma_small_get(void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="ls" type="void*" required>
+  Local store address (alignment must match EA)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address in main memory
+</ParamField>
+
+<ParamField path="size" type="uint32_t" required>
+  Transfer size (must be 1, 2, 4, or 8 bytes)
+</ParamField>
+
+<ParamField path="tag" type="uint32_t" required>
+  DMA tag ID (0-31)
+</ParamField>
+
+### spu_dma_small_put
+
+Write small unaligned data.
+
+```c
+void spu_dma_small_put(const void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+## List DMA (Scatter-Gather)
+
+### spu_dma_list_get
+
+Transfer multiple non-contiguous blocks using a list.
+
+```c
+void spu_dma_list_get(void *ls, uint64_t ea, const spu_dma_list_element *list,
+                     uint32_t lsize, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="ls" type="void*" required>
+  Starting local store address (16-byte aligned)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Base effective address (16-byte aligned)
+</ParamField>
+
+<ParamField path="list" type="const spu_dma_list_element*" required>
+  Pointer to list of transfer descriptors (8-byte aligned)
+</ParamField>
+
+<ParamField path="lsize" type="uint32_t" required>
+  Size of the list in bytes (must be multiple of 8, max 16384)
+</ParamField>
+
+<ParamField path="tag" type="uint32_t" required>
+  DMA tag ID
+</ParamField>
+
+The list element structure:
+
+```c
+typedef struct {
+    uint32_t size;      // Transfer size for this element
+    uint32_t ea_low;    // Low 32 bits of EA offset
+} spu_dma_list_element;
+```
+
+### spu_dma_list_put
+
+Write multiple non-contiguous blocks using a list.
+
+```c
+void spu_dma_list_put(const void *ls, uint64_t ea, const spu_dma_list_element *list,
+                     uint32_t lsize, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+## Large Transfers (&gt; 16 KB)
+
+### spu_dma_large_get
+
+Transfer data larger than 16 KB (automatically split into multiple DMAs).
+
+```c
+void spu_dma_large_get(void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="size" type="uint32_t" required>
+  Transfer size in bytes (can exceed 16384)
+</ParamField>
+
+### spu_dma_large_put
+
+Write data larger than 16 KB.
+
+```c
+void spu_dma_large_put(const void *ls, uint64_t ea, uint32_t size, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+## Typed Data Transfers
+
+### spu_dma_get_uint32
+
+Read a 32-bit value from main memory.
+
+```c
+uint32_t spu_dma_get_uint32(uint64_t ea, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address (4-byte aligned)
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  The value read from memory
+</ResponseField>
+
+### spu_dma_put_uint32
+
+Write a 32-bit value to main memory.
+
+```c
+void spu_dma_put_uint32(uint32_t value, uint64_t ea, uint32_t tag, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="value" type="uint32_t" required>
+  Value to write
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address (4-byte aligned)
+</ParamField>
+
+Similar functions exist for:
+- `spu_dma_get_uint8` / `spu_dma_put_uint8`
+- `spu_dma_get_uint16` / `spu_dma_put_uint16`
+- `spu_dma_get_uint64` / `spu_dma_put_uint64`
+
+## Synchronization
+
+### spu_dma_wait_tag_status_all
+
+Wait for all DMAs with specified tags to complete.
+
+```c
+uint32_t spu_dma_wait_tag_status_all(uint32_t tagmask)
+```
+
+<ParamField path="tagmask" type="uint32_t" required>
+  Bitmask of tags to wait for (bit N = tag N)
+</ParamField>
+
+<ResponseField name="return" type="uint32_t">
+  Bitmask of completed tags
+</ResponseField>
+
+### spu_dma_wait_tag_status_any
+
+Wait for any DMA with specified tags to complete.
+
+```c
+uint32_t spu_cma_wait_tag_status_any(uint32_t tagmask)
+```
+
+### spu_dma_wait_tag_status_immediate
+
+Check tag status without blocking.
+
+```c
+uint32_t spu_dma_wait_tag_status_immediate(uint32_t tagmask)
+```
+
+<ResponseField name="return" type="uint32_t">
+  Bitmask of completed tags (returns immediately, may be 0)
+</ResponseField>
+
+## Atomic DMA Operations
+
+### spu_dma_getllar
+
+Load locked (atomic read reservation).
+
+```c
+void spu_dma_getllar(void *ls, uint64_t ea, uint32_t tid, uint32_t rid)
+```
+
+<ParamField path="ls" type="void*" required>
+  Local store address (128-byte aligned)
+</ParamField>
+
+<ParamField path="ea" type="uint64_t" required>
+  Effective address (128-byte aligned)
+</ParamField>
+
+### spu_dma_putllc
+
+Store conditional (completes atomic operation).
+
+```c
+void spu_dma_putllc(const void *ls, uint64_t ea, uint32_t tid, uint32_t rid)
+```
+
+Returns success/failure via atomic status register.
+
+### spu_dma_putlluc
+
+Store unconditional (releases lock without condition).
+
+```c
+void spu_dma_putlluc(const void *ls, uint64_t ea, uint32_t tid, uint32_t rid)
+```
+
+### spu_dma_wait_atomic_status
+
+Wait for atomic operation completion and get status.
+
+```c
+#define spu_dma_wait_atomic_status() mfc_read_atomic_status()
+```
+
+<ResponseField name="return" type="uint32_t">
+  Nonzero if atomic operation succeeded, zero if it failed
+</ResponseField>
+
+## Example Usage
+
+### Basic DMA Transfer
+
+```c
+#include <dma/spu_dma.h>
+
+// Allocate aligned buffer in local store
+char buffer[1024] __attribute__((aligned(16)));
+uint64_t main_mem_addr = 0x10000000;
+uint32_t tag = 0;
+
+// Initiate DMA transfer from main memory
+spu_dma_get(buffer, main_mem_addr, 1024, tag, 0, 0);
+
+// Wait for completion
+spu_dma_wait_tag_status_all(1 << tag);
+
+// Process data
+for (int i = 0; i < 1024; i++) {
+    buffer[i] = buffer[i] * 2;
+}
+
+// Write back to main memory
+spu_dma_put(buffer, main_mem_addr, 1024, tag, 0, 0);
+spu_dma_wait_tag_status_all(1 << tag);
+```
+
+### Double-Buffering Pattern
+
+```c
+#define BUFFER_SIZE 16384
+#define TAG_A 0
+#define TAG_B 1
+
+char buffer_a[BUFFER_SIZE] __attribute__((aligned(16)));
+char buffer_b[BUFFER_SIZE] __attribute__((aligned(16)));
+uint64_t src_addr = 0x10000000;
+int blocks = 10;
+
+// Start first transfer
+spu_dma_get(buffer_a, src_addr, BUFFER_SIZE, TAG_A, 0, 0);
+
+for (int i = 1; i < blocks; i++) {
+    // Alternate buffers
+    char *current = (i & 1) ? buffer_b : buffer_a;
+    char *next = (i & 1) ? buffer_a : buffer_b;
+    uint32_t current_tag = (i & 1) ? TAG_B : TAG_A;
+    uint32_t next_tag = (i & 1) ? TAG_A : TAG_B;
+    
+    // Start next transfer
+    spu_dma_get(next, src_addr + i * BUFFER_SIZE, BUFFER_SIZE, next_tag, 0, 0);
+    
+    // Wait for current buffer
+    spu_dma_wait_tag_status_all(1 << current_tag);
+    
+    // Process current buffer
+    process_data(current, BUFFER_SIZE);
+}
+
+// Process last buffer
+char *last = (blocks & 1) ? buffer_a : buffer_b;
+uint32_t last_tag = (blocks & 1) ? TAG_A : TAG_B;
+spu_dma_wait_tag_status_all(1 << last_tag);
+process_data(last, BUFFER_SIZE);
+```
+
+### List DMA Example
+
+```c
+// Transfer 4 separate 256-byte blocks
+spu_dma_list_element list[4] __attribute__((aligned(8)));
+char buffer[1024] __attribute__((aligned(16)));
+uint64_t base_addr = 0x10000000;
+
+// Setup list elements
+list[0].size = 256;
+list[0].ea_low = 0;      // Offset from base_addr
+
+list[1].size = 256;
+list[1].ea_low = 4096;   // Skip ahead 4KB
+
+list[2].size = 256;
+list[2].ea_low = 8192;   // Skip ahead 8KB
+
+list[3].size = 256;
+list[3].ea_low = 16384;  // Skip ahead 16KB
+
+// Execute list DMA
+uint32_t tag = 5;
+spu_dma_list_get(buffer, base_addr, list, sizeof(list), tag, 0, 0);
+spu_dma_wait_tag_status_all(1 << tag);
+
+// Now buffer contains 4 non-contiguous blocks
+```
+
+### Atomic Operation Example
+
+```c
+// Atomic increment in main memory
+uint64_t counter_addr = 0x20000000;
+uint32_t local_buf[32] __attribute__((aligned(128)));
+
+do {
+    // Load with reservation
+    spu_dma_getllar(local_buf, counter_addr, 0, 0);
+    uint32_t status = spu_dma_wait_atomic_status();
+    
+    // Increment counter
+    local_buf[0]++;
+    
+    // Store conditional
+    spu_dma_putllc(local_buf, counter_addr, 0, 0);
+    status = spu_dma_wait_atomic_status();
+    
+    // Retry if another SPU modified the value
+} while (status == 0);
+```
+
+## Performance Tips
+
+1. **Alignment**: Always align buffers to 16 bytes for best performance
+2. **Size**: Use 128-byte or larger transfers when possible
+3. **Tags**: Use multiple tags to overlap computation and DMA
+4. **Double buffering**: Transfer next buffer while processing current one
+5. **Barriers**: Use fence/barrier commands only when ordering is required
+6. **List DMA**: More efficient than multiple small DMAs
+7. **Large transfers**: Use `spu_dma_large_*` functions for transfers &gt; 16 KB
+
+## Alignment Requirements
+
+| Operation | LS Alignment | EA Alignment | Size Alignment |
+|-----------|--------------|--------------|----------------|
+| Normal DMA | 16 bytes | 16 bytes | 16 bytes |
+| Small DMA | Match EA | Any | 1, 2, 4, or 8 |
+| List DMA | 16 bytes | 16 bytes | 16 bytes per element |
+| Atomic DMA | 128 bytes | 128 bytes | 128 bytes |

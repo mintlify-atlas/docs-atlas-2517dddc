@@ -1,0 +1,599 @@
+---
+title: Processes
+description: Process management, system information, and application lifecycle
+---
+
+PSL1GHT provides process management APIs for controlling application lifecycle, retrieving system information, and configuring process parameters on the PlayStation 3.
+
+## Overview
+
+Process functionality is provided through:
+- `sys/process.h` - Process syscalls and configuration
+- `lv2/process.h` - Process lifecycle functions
+
+## Process Types
+
+<CodeGroup>
+```c Type Definitions
+typedef u32 sys_pid_t;               // Process ID
+typedef u32 sys_program_segment_t;   // Program segment ID
+typedef u32 sys_overlay_t;           // Overlay module ID
+```
+</CodeGroup>
+
+## Process Configuration
+
+### Process Parameters
+
+Every PSL1GHT application must define process parameters using the `SYS_PROCESS_PARAM` macro.
+
+<CodeGroup>
+```c Process Parameter Structure
+typedef struct _sys_process_param {
+    u32 size;              // Structure size
+    u32 magic;             // Magic number (0x13bcc5f6)
+    u32 version;           // SDK version
+    u32 sdk_version;       // Firmware version
+    s32 prio;              // Process priority
+    u32 stacksize;         // Main thread stack size
+    u32 malloc_pagesize;   // Malloc page size
+    u32 ppc_seg;           // PPC segment type
+} sys_process_param_t;
+```
+
+```c SYS_PROCESS_PARAM Macro
+#include <sys/process.h>
+
+// Define process parameters (place at global scope)
+SYS_PROCESS_PARAM(1000, 0x100000)
+
+// Parameters:
+// - Priority: 1000 (normal priority)
+// - Stack size: 0x100000 (1MB)
+
+int main(int argc, char *argv[]) {
+    // Your application code
+    return 0;
+}
+```
+</CodeGroup>
+
+<ParamField path="priority" type="s32" required>
+  Process priority (1000 = normal, lower = higher priority)
+</ParamField>
+
+<ParamField path="stacksize" type="u32" required>
+  Main thread stack size. Use predefined constants or custom value.
+</ParamField>
+
+<Warning>
+The `SYS_PROCESS_PARAM` macro must be used exactly once at global scope in your application, or the application will fail to run.
+</Warning>
+
+### Stack Size Constants
+
+<CodeGroup>
+```c Stack Size Options
+#include <sys/process.h>
+
+#define SYS_PROCESS_SPAWN_STACK_SIZE_32K   0x10
+#define SYS_PROCESS_SPAWN_STACK_SIZE_64K   0x20
+#define SYS_PROCESS_SPAWN_STACK_SIZE_96K   0x30
+#define SYS_PROCESS_SPAWN_STACK_SIZE_128K  0x40
+#define SYS_PROCESS_SPAWN_STACK_SIZE_256K  0x50
+#define SYS_PROCESS_SPAWN_STACK_SIZE_512K  0x60
+#define SYS_PROCESS_SPAWN_STACK_SIZE_1M    0x70
+```
+
+```c Example with Named Size
+// Use 256KB stack
+SYS_PROCESS_PARAM(1000, SYS_PROCESS_SPAWN_STACK_SIZE_256K)
+
+// Or use custom size in bytes
+SYS_PROCESS_PARAM(1000, 0x100000)  // 1MB
+```
+</CodeGroup>
+
+### Advanced Process Parameters
+
+<AccordionGroup>
+<Accordion title="Overlay Module Support">
+
+For applications using overlay modules:
+
+```c
+SYS_PROCESS_PARAM_OVLM(priority, stacksize)
+```
+
+This variant configures the process for overlay module support, which allows loading code modules dynamically.
+
+</Accordion>
+
+<Accordion title="Fixed Address (PRX)">
+
+For PRX (PlayStation Relocatable eXecutable) modules:
+
+```c
+SYS_PROCESS_PARAM_FIXED(priority, stacksize)
+```
+
+This variant is used for loadable modules that require fixed addressing.
+
+</Accordion>
+
+<Accordion title="Version Constants">
+
+```c
+// SDK Versions
+#define SYS_PROCESS_SPAWN_VERSION_1        0x00000001
+#define SYS_PROCESS_SPAWN_VERSION_084      0x00008400
+#define SYS_PROCESS_SPAWN_VERSION_090      0x00009000
+#define SYS_PROCESS_SPAWN_VERSION_330      0x00330000
+
+// Firmware Versions
+#define SYS_PROCESS_SPAWN_FW_VERSION_192   0x00192001
+#define SYS_PROCESS_SPAWN_FW_VERSION_330   0x00330000
+
+// Page Sizes for malloc
+#define SYS_PROCESS_SPAWN_MALLOC_PAGE_SIZE_NONE  0x00000000
+#define SYS_PROCESS_SPAWN_MALLOC_PAGE_SIZE_64K   0x00010000
+#define SYS_PROCESS_SPAWN_MALLOC_PAGE_SIZE_1M    0x00100000
+```
+
+</Accordion>
+</AccordionGroup>
+
+## Process Information
+
+### Process IDs
+
+<CodeGroup>
+```c Process ID Functions
+LV2_SYSCALL sysProcessGetPid(void);
+LV2_SYSCALL sysProcessGetPpid(void);
+```
+
+```c Example
+#include <stdio.h>
+#include <sys/process.h>
+
+sys_pid_t pid = sysProcessGetPid();
+printf("Current process ID: %u\n", pid);
+
+sys_pid_t ppid = sysProcessGetPpid();
+printf("Parent process ID: %u\n", ppid);
+```
+</CodeGroup>
+
+<ResponseField name="sysProcessGetPid" type="sys_pid_t">
+  Returns the current process ID
+</ResponseField>
+
+<ResponseField name="sysProcessGetPpid" type="sys_pid_t">
+  Returns the parent process ID
+</ResponseField>
+
+### Object Count Information
+
+<CodeGroup>
+```c sysProcessGetNumberOfObject
+LV2_SYSCALL sysProcessGetNumberOfObject(u32 object, size_t *numptr);
+```
+
+```c Example
+#include <sys/process.h>
+
+size_t num_mutexes;
+s32 ret;
+
+ret = sysProcessGetNumberOfObject(SYS_OBJECT_MUTEX, &num_mutexes);
+if (ret == 0) {
+    printf("Number of mutexes: %zu\n", num_mutexes);
+}
+```
+</CodeGroup>
+
+<ParamField path="object" type="u32" required>
+  Object type to query (see object types below)
+</ParamField>
+
+<ParamField path="numptr" type="size_t*" required>
+  Pointer to receive the object count
+</ParamField>
+
+### System Object Types
+
+<CodeGroup>
+```c Object Type Constants
+#define SYS_OBJECT_MEM                     (0x08UL)
+#define SYS_OBJECT_MUTEX                   (0x85UL)
+#define SYS_OBJECT_COND                    (0x86UL)
+#define SYS_OBJECT_RWLOCK                  (0x88UL)
+#define SYS_OBJECT_INTR_TAG                (0x0AUL)
+#define SYS_OBJECT_INTR_SERVICE_HANDLE     (0x0BUL)
+#define SYS_OBJECT_EVENT_QUEUE             (0x8DUL)
+#define SYS_OBJECT_EVENT_PORT              (0x0EUL)
+#define SYS_OBJECT_TRACE                   (0x21UL)
+#define SYS_OBJECT_SPUIMAGE                (0x22UL)
+#define SYS_OBJECT_PRX                     (0x23UL)
+#define SYS_OBJECT_SPUPORT                 (0x24UL)
+#define SYS_OBJECT_LWMUTEX                 (0x95UL)
+#define SYS_OBJECT_TIMER                   (0x11UL)
+#define SYS_OBJECT_SEMAPHORE               (0x96UL)
+#define SYS_OBJECT_FS_FD                   (0x73UL)
+#define SYS_OBJECT_LWCOND                  (0x97UL)
+#define SYS_OBJECT_EVENT_FLAG              (0x98UL)
+```
+
+```c Query Multiple Objects
+#include <sys/process.h>
+
+void print_resource_usage() {
+    size_t count;
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_MUTEX, &count) == 0)
+        printf("Mutexes: %zu\n", count);
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_COND, &count) == 0)
+        printf("Condition variables: %zu\n", count);
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_FS_FD, &count) == 0)
+        printf("File descriptors: %zu\n", count);
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_EVENT_QUEUE, &count) == 0)
+        printf("Event queues: %zu\n", count);
+}
+```
+</CodeGroup>
+
+### PPU GUID Information
+
+<CodeGroup>
+```c sysProcessGetPpuGuid
+LV2_SYSCALL sysProcessGetPpuGuid(void);
+```
+
+```c Example
+#include <sys/process.h>
+
+sys_addr_t guid = sysProcessGetPpuGuid();
+printf("PPU GUID address: 0x%08X\n", guid);
+```
+</CodeGroup>
+
+<ResponseField name="return" type="sys_addr_t">
+  Returns the address of the PPU GUID information from the ELF
+</ResponseField>
+
+## Process Lifecycle
+
+### Exiting Processes
+
+<CodeGroup>
+```c sysProcessExit
+void sysProcessExit(int status) __attribute__((noreturn));
+```
+
+```c Example
+#include <lv2/process.h>
+
+int main(int argc, char *argv[]) {
+    printf("Application starting...\n");
+    
+    // Do application work...
+    
+    printf("Application exiting\n");
+    sysProcessExit(0);  // Exit with status 0 (success)
+}
+```
+</CodeGroup>
+
+<ParamField path="status" type="int" required>
+  Exit status code (0 = success, non-zero = error)
+</ParamField>
+
+<Note>
+`sysProcessExit()` does not return. All cleanup should be done before calling this function.
+</Note>
+
+### Exit and Spawn
+
+<CodeGroup>
+```c sysProcessExitSpawn2
+void sysProcessExitSpawn2(const char *path,
+                         const char *argv[],
+                         const char *envp[],
+                         void *data,
+                         size_t size,
+                         int priority,
+                         u64 flags);
+```
+
+```c Example
+#include <lv2/process.h>
+
+void launch_another_app() {
+    const char *path = "/dev_hdd0/game/OTHERAPP/USRDIR/EBOOT.BIN";
+    const char *argv[] = { "EBOOT.BIN", "arg1", "arg2", NULL };
+    const char *envp[] = { NULL };
+    
+    // Exit this process and execute another
+    sysProcessExitSpawn2(path,
+                        argv,
+                        envp,
+                        NULL,                           // No extra data
+                        0,                              // Size
+                        1000,                           // Priority
+                        SYS_PROCESS_SPAWN_STACK_SIZE_1M); // Flags
+    
+    // This point is never reached unless spawn fails
+    printf("Failed to spawn new process\n");
+}
+```
+</CodeGroup>
+
+<ParamField path="path" type="const char*" required>
+  Full path to the executable to launch
+</ParamField>
+
+<ParamField path="argv" type="const char**" required>
+  Command-line arguments (NULL-terminated array)
+</ParamField>
+
+<ParamField path="envp" type="const char**">
+  Environment variables (NULL-terminated array, can be NULL)
+</ParamField>
+
+<ParamField path="data" type="void*">
+  Additional data to pass to new process (can be NULL)
+</ParamField>
+
+<ParamField path="size" type="size_t">
+  Size of additional data
+</ParamField>
+
+<ParamField path="priority" type="int" required>
+  Priority for the new process
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Process spawn flags (stack size, etc.)
+</ParamField>
+
+<Warning>
+This function only returns if spawning fails. On success, the current process is replaced by the new one.
+</Warning>
+
+## Advanced Features
+
+### SPU Lock Line Reservation
+
+<CodeGroup>
+```c sysProcessIsSpuLockLinkReservation
+LV2_SYSCALL sysProcessIsSpuLockLinkReservation(u32 addr, u64 flags);
+```
+
+```c Example
+// Check if SPU can wait for lock line reservation lost event
+u32 lock_addr = 0x12345000;
+u64 flags = 0;
+
+s32 ret = sysProcessIsSpuLockLinkReservation(lock_addr, flags);
+if (ret == 0) {
+    printf("SPU lock line reservation is valid\n");
+}
+```
+</CodeGroup>
+
+## Complete Process Example
+
+<CodeGroup>
+```c Application Lifecycle Example
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/process.h>
+#include <lv2/process.h>
+
+// Define process parameters (REQUIRED)
+SYS_PROCESS_PARAM(1000, SYS_PROCESS_SPAWN_STACK_SIZE_1M)
+
+void print_process_info() {
+    sys_pid_t pid = sysProcessGetPid();
+    sys_pid_t ppid = sysProcessGetPpid();
+    
+    printf("Process ID: %u\n", pid);
+    printf("Parent Process ID: %u\n", ppid);
+}
+
+void print_resource_usage() {
+    size_t count;
+    
+    printf("\nResource Usage:\n");
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_MUTEX, &count) == 0)
+        printf("  Mutexes: %zu\n", count);
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_COND, &count) == 0)
+        printf("  Condition Variables: %zu\n", count);
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_FS_FD, &count) == 0)
+        printf("  File Descriptors: %zu\n", count);
+    
+    if (sysProcessGetNumberOfObject(SYS_OBJECT_EVENT_QUEUE, &count) == 0)
+        printf("  Event Queues: %zu\n", count);
+}
+
+int main(int argc, char *argv[]) {
+    printf("Application started\n");
+    
+    // Print process information
+    print_process_info();
+    
+    // Print command line arguments
+    printf("\nCommand line arguments:\n");
+    for (int i = 0; i < argc; i++) {
+        printf("  argv[%d]: %s\n", i, argv[i]);
+    }
+    
+    // Do application work...
+    printf("\nRunning application...\n");
+    
+    // Print resource usage
+    print_resource_usage();
+    
+    // Clean exit
+    printf("\nApplication exiting normally\n");
+    sysProcessExit(0);
+    
+    return 0;  // Never reached
+}
+```
+</CodeGroup>
+
+## Error Handling Example
+
+<CodeGroup>
+```c Error Handling and Cleanup
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <sys/process.h>
+#include <lv2/process.h>
+
+SYS_PROCESS_PARAM(1000, SYS_PROCESS_SPAWN_STACK_SIZE_512K)
+
+static volatile int g_running = 1;
+
+void cleanup_resources() {
+    printf("Cleaning up resources...\n");
+    
+    // Close files, destroy mutexes, etc.
+    
+    printf("Cleanup complete\n");
+}
+
+void signal_handler(int sig) {
+    printf("Received signal %d\n", sig);
+    g_running = 0;
+}
+
+int main(int argc, char *argv[]) {
+    // Set up signal handlers
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    
+    printf("Application running (press Ctrl+C to exit)\n");
+    
+    // Main loop
+    while (g_running) {
+        // Do work...
+        usleep(100000);  // 100ms
+    }
+    
+    // Cleanup before exit
+    cleanup_resources();
+    
+    printf("Exiting gracefully\n");
+    sysProcessExit(0);
+    
+    return 0;
+}
+```
+</CodeGroup>
+
+## Application Launcher Example
+
+<CodeGroup>
+```c Simple Application Launcher
+#include <stdio.h>
+#include <string.h>
+#include <lv2/process.h>
+#include <sys/process.h>
+
+SYS_PROCESS_PARAM(1000, SYS_PROCESS_SPAWN_STACK_SIZE_256K)
+
+void launch_game(const char *game_id) {
+    char path[256];
+    const char *argv[2];
+    
+    // Build path to game
+    snprintf(path, sizeof(path), 
+             "/dev_hdd0/game/%s/USRDIR/EBOOT.BIN", game_id);
+    
+    // Set up arguments
+    argv[0] = "EBOOT.BIN";
+    argv[1] = NULL;
+    
+    printf("Launching: %s\n", path);
+    
+    // Exit and spawn the game
+    sysProcessExitSpawn2(path,
+                        argv,
+                        NULL,    // No environment
+                        NULL,    // No extra data
+                        0,
+                        1000,    // Normal priority
+                        SYS_PROCESS_SPAWN_STACK_SIZE_1M);
+    
+    // Only reached if spawn fails
+    printf("ERROR: Failed to launch %s\n", game_id);
+    sysProcessExit(1);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("Usage: %s <GAME_ID>\n", argv[0]);
+        sysProcessExit(1);
+    }
+    
+    launch_game(argv[1]);
+    return 0;
+}
+```
+</CodeGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+<Card title="Always Define Parameters" icon="gear">
+Every application must call `SYS_PROCESS_PARAM` exactly once at global scope.
+</Card>
+
+<Card title="Clean Exit" icon="door-open">
+Perform all cleanup before calling `sysProcessExit()`.
+</Card>
+
+<Card title="Monitor Resources" icon="chart-line">
+Use `sysProcessGetNumberOfObject()` to track resource usage.
+</Card>
+
+<Card title="Handle Arguments" icon="list">
+Properly parse and validate `argc` and `argv` parameters.
+</Card>
+</CardGroup>
+
+<Warning>
+**Common Mistakes:**
+- Forgetting to include `SYS_PROCESS_PARAM` (application won't start)
+- Using `exit()` instead of `sysProcessExit()` (may not clean up properly)
+- Not NULL-terminating argv arrays for `sysProcessExitSpawn2()`
+- Setting stack size too small (causes crashes)
+</Warning>
+
+## Process Priority Guidelines
+
+<Note>
+**Priority Recommendations:**
+
+- **0-99**: System-critical tasks (avoid)
+- **100-999**: High-priority application tasks
+- **1000**: Normal application priority (recommended default)
+- **1001-3000**: Background tasks
+- **3001+**: Very low priority tasks
+</Note>
+
+## See Also
+
+- [Threads](/system/threads) - Creating and managing PPU threads
+- [Memory Management](/system/memory) - Process memory allocation
+- [Filesystem](/system/filesystem) - File operations in processes

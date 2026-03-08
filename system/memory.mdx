@@ -1,0 +1,549 @@
+---
+title: Memory Management
+description: Memory allocation, heap management, and memory mapping on PS3
+---
+
+PSL1GHT provides comprehensive memory management APIs for allocating and managing memory on the PlayStation 3, including direct allocation, memory mapping, and heap management.
+
+## Overview
+
+Memory management is provided through:
+- `sys/memory.h` - Low-level memory allocation syscalls
+- `lv2/memory.h` - Memory mapping functions
+- `sys/heap.h` - Heap management utilities
+
+## Memory Types
+
+<CodeGroup>
+```c Type Definitions
+typedef u32 sys_mem_id_t;        // Memory block ID
+typedef u32 sys_mem_addr_t;      // Memory address
+typedef u32 sys_mem_container_t; // Memory container ID
+```
+</CodeGroup>
+
+## Direct Memory Allocation
+
+### Basic Allocation
+
+<CodeGroup>
+```c sysMemoryAllocate
+LV2_SYSCALL sysMemoryAllocate(size_t size, u64 flags, 
+                              sys_mem_addr_t *alloc_addr);
+```
+
+```c Example
+#include <sys/memory.h>
+
+sys_mem_addr_t addr;
+s32 ret;
+
+// Allocate 1MB of memory with 64KB pages
+u64 flags = SYS_MEMORY_PAGE_SIZE_64K | SYS_MEMORY_ACCESS_RIGHT_ANY;
+ret = sysMemoryAllocate(1024 * 1024, flags, &addr);
+
+if (ret == 0) {
+    printf("Allocated memory at: 0x%08X\n", addr);
+    
+    // Use the memory...
+    void *ptr = (void*)(uintptr_t)addr;
+    
+    // Free when done
+    sysMemoryFree(addr);
+}
+```
+</CodeGroup>
+
+<ParamField path="size" type="size_t" required>
+  Size of memory to allocate in bytes
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Memory allocation flags (page size and access rights)
+</ParamField>
+
+<ParamField path="alloc_addr" type="sys_mem_addr_t*" required>
+  Pointer to receive the allocated memory address
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero error code on failure
+</ResponseField>
+
+### Page Size Flags
+
+<AccordionGroup>
+<Accordion title="Page Size Options">
+
+| Constant | Description |
+|----------|-------------|
+| `SYS_MEMORY_PAGE_SIZE_1M` | Use 1MB pages (0x400) |
+| `SYS_MEMORY_PAGE_SIZE_64K` | Use 64KB pages (0x200) |
+
+<Note>
+Larger page sizes can improve performance but may waste memory if allocating small amounts.
+</Note>
+
+</Accordion>
+
+<Accordion title="Access Rights Flags">
+
+| Constant | Description |
+|----------|-------------|
+| `SYS_MEMORY_ACCESS_RIGHT_PPU_THR` | PPU thread access (0x08) |
+| `SYS_MEMORY_ACCESS_RIGHT_HANDLER` | Handler access (0x04) |
+| `SYS_MEMORY_ACCESS_RIGHT_SPU_THR` | SPU thread access (0x02) |
+| `SYS_MEMORY_ACCESS_RIGHT_RAW_SPU` | Raw SPU access (0x01) |
+| `SYS_MEMORY_ACCESS_RIGHT_ANY` | All access rights (0x0F) |
+| `SYS_MEMORY_ACCESS_RIGHT_NONE` | No access (0xF0) |
+
+</Accordion>
+
+<Accordion title="Protection Flags">
+
+| Constant | Description |
+|----------|-------------|
+| `SYS_MEMORY_PROT_READ_ONLY` | Read-only access (0x80000) |
+| `SYS_MEMORY_PROT_READ_WRITE` | Read-write access (0x40000) |
+
+</Accordion>
+</AccordionGroup>
+
+### Freeing Memory
+
+<CodeGroup>
+```c sysMemoryFree
+LV2_SYSCALL sysMemoryFree(sys_mem_addr_t start_addr);
+```
+
+```c Example
+// Always free allocated memory
+ret = sysMemoryFree(addr);
+if (ret != 0) {
+    printf("Failed to free memory: %d\n", ret);
+}
+```
+</CodeGroup>
+
+## Memory Containers
+
+Memory containers provide isolated memory pools for resource management.
+
+<CodeGroup>
+```c Container Management
+LV2_SYSCALL sysMemContainerCreate(sys_mem_container_t *container, 
+                                  size_t size);
+LV2_SYSCALL sysMemContainerDestroy(sys_mem_container_t container);
+```
+
+```c Allocate from Container
+LV2_SYSCALL sysMemAllocateFromContainer(size_t size,
+                                        sys_mem_container_t container,
+                                        u64 flags,
+                                        sys_mem_addr_t *alloc_addr);
+```
+
+```c Example
+#include <sys/memory.h>
+
+sys_mem_container_t container;
+sys_mem_addr_t addr;
+s32 ret;
+
+// Create 5MB container
+ret = sysMemContainerCreate(&container, 5 * 1024 * 1024);
+if (ret != 0) {
+    printf("Failed to create container: %d\n", ret);
+    return ret;
+}
+
+// Allocate from container
+u64 flags = SYS_MEMORY_PAGE_SIZE_64K | SYS_MEMORY_ACCESS_RIGHT_ANY;
+ret = sysMemAllocateFromContainer(1024 * 1024, container, flags, &addr);
+if (ret == 0) {
+    printf("Allocated from container at: 0x%08X\n", addr);
+    
+    // Use memory...
+    
+    sysMemoryFree(addr);
+}
+
+// Destroy container when done
+sysMemContainerDestroy(container);
+```
+</CodeGroup>
+
+## Memory Mapper
+
+The memory mapper provides advanced memory management with virtual address mapping.
+
+### Address Allocation
+
+<CodeGroup>
+```c sysMMapperAllocateAddress
+LV2_SYSCALL sysMMapperAllocateAddress(size_t size, u64 flags,
+                                      size_t alignment,
+                                      sys_mem_addr_t *alloc_addr);
+```
+
+```c Example
+#include <sys/memory.h>
+
+sys_mem_addr_t vaddr;
+s32 ret;
+
+// Allocate virtual address space with 1MB alignment
+u64 flags = SYS_MEMORY_PAGE_SIZE_1M | SYS_MEMORY_ACCESS_RIGHT_ANY;
+ret = sysMMapperAllocateAddress(2 * 1024 * 1024,  // 2MB
+                                flags,
+                                1024 * 1024,       // 1MB alignment
+                                &vaddr);
+if (ret == 0) {
+    printf("Virtual address allocated: 0x%08X\n", vaddr);
+}
+```
+</CodeGroup>
+
+### Memory Allocation and Mapping
+
+<CodeGroup>
+```c Memory Mapper Functions
+s32 sysMMapperAllocateMemory(size_t size, u64 flags, 
+                             sys_mem_id_t *mem_id);
+s32 sysMMapperMapMemory(sys_mem_addr_t start_addr, 
+                        sys_mem_id_t mem_id, u64 flags);
+s32 sysMMapperUnmapMemory(sys_mem_addr_t start_addr, 
+                          sys_mem_id_t *mem_id);
+s32 sysMMapperFreeMemory(sys_mem_id_t mem_id);
+```
+
+```c Example
+#include <lv2/memory.h>
+
+sys_mem_id_t mem_id;
+sys_mem_addr_t vaddr;
+s32 ret;
+
+// Allocate physical memory
+u64 flags = SYS_MEMORY_PAGE_SIZE_1M | SYS_MEMORY_ACCESS_RIGHT_ANY;
+ret = sysMMapperAllocateMemory(1024 * 1024, flags, &mem_id);
+if (ret != 0) {
+    printf("Failed to allocate memory: %d\n", ret);
+    return ret;
+}
+
+// Allocate virtual address
+ret = sysMMapperAllocateAddress(1024 * 1024, flags, 
+                                1024 * 1024, &vaddr);
+if (ret != 0) {
+    sysMMapperFreeMemory(mem_id);
+    return ret;
+}
+
+// Map physical memory to virtual address
+ret = sysMMapperMapMemory(vaddr, mem_id, flags);
+if (ret == 0) {
+    printf("Mapped memory at virtual address: 0x%08X\n", vaddr);
+    
+    // Use the mapped memory...
+    void *ptr = (void*)(uintptr_t)vaddr;
+    
+    // Cleanup
+    sys_mem_id_t unmapped_id;
+    sysMMapperUnmapMemory(vaddr, &unmapped_id);
+    sysMMapperFreeMemory(mem_id);
+    sysMMapperFreeAddress(vaddr);
+}
+```
+</CodeGroup>
+
+### Search and Map
+
+<CodeGroup>
+```c sysMMapperSearchAndMap
+LV2_SYSCALL sysMMapperSearchAndMap(sys_mem_addr_t start_addr,
+                                   sys_mem_id_t mem_id,
+                                   u64 flags,
+                                   sys_mem_addr_t *alloc_addr);
+```
+
+```c Example
+// Automatically find and map memory
+sys_mem_addr_t mapped_addr;
+ret = sysMMapperSearchAndMap(0, mem_id, flags, &mapped_addr);
+if (ret == 0) {
+    printf("Automatically mapped at: 0x%08X\n", mapped_addr);
+}
+```
+</CodeGroup>
+
+## Heap Management
+
+PSL1GHT provides a custom heap implementation for fine-grained memory control.
+
+### Heap Structure
+
+<CodeGroup>
+```c Heap Types
+typedef struct _heap_cntrl_t heap_cntrl;
+
+struct _heap_cntrl_t {
+    s32 lock;
+    heap_block free_list;
+    uintptr_t page_size;
+    uintptr_t min_block_size;
+    uintptr_t heap_begin;
+    uintptr_t heap_end;
+    heap_block *first_block;
+    heap_block *last_block;
+};
+```
+</CodeGroup>
+
+### Heap Initialization
+
+<CodeGroup>
+```c heapInit
+uintptr_t heapInit(heap_cntrl *theheap, void *start_addr, 
+                   uintptr_t size);
+```
+
+```c Example
+#include <sys/heap.h>
+#include <sys/memory.h>
+
+heap_cntrl my_heap;
+sys_mem_addr_t heap_mem;
+s32 ret;
+
+// Allocate memory for heap
+u64 flags = SYS_MEMORY_PAGE_SIZE_64K | SYS_MEMORY_ACCESS_RIGHT_ANY;
+ret = sysMemoryAllocate(2 * 1024 * 1024, flags, &heap_mem);
+if (ret != 0) {
+    printf("Failed to allocate heap memory\n");
+    return ret;
+}
+
+// Initialize heap
+void *heap_start = (void*)(uintptr_t)heap_mem;
+uintptr_t usable = heapInit(&my_heap, heap_start, 2 * 1024 * 1024);
+printf("Heap initialized with %lu bytes usable\n", usable);
+```
+</CodeGroup>
+
+### Heap Allocation
+
+<CodeGroup>
+```c Heap Allocation Functions
+void* heapAllocate(heap_cntrl *theheap, uintptr_t size);
+void* heapAllocateAligned(heap_cntrl *theheap, uintptr_t size,
+                          uintptr_t alignment);
+bool heapFree(heap_cntrl *theheap, void *ptr);
+```
+
+```c Example
+#include <sys/heap.h>
+
+// Allocate from heap
+void *buffer = heapAllocate(&my_heap, 4096);
+if (buffer == NULL) {
+    printf("Heap allocation failed\n");
+} else {
+    printf("Allocated buffer at %p\n", buffer);
+    
+    // Use buffer...
+    
+    // Free when done
+    heapFree(&my_heap, buffer);
+}
+
+// Aligned allocation (e.g., for DMA)
+void *aligned_buf = heapAllocateAligned(&my_heap, 8192, 128);
+if (aligned_buf != NULL) {
+    printf("Allocated aligned buffer at %p\n", aligned_buf);
+    heapFree(&my_heap, aligned_buf);
+}
+```
+</CodeGroup>
+
+## Alignment Requirements
+
+Many PS3 operations require specific memory alignment.
+
+<CodeGroup>
+```c Alignment Macros
+#include <ppu-types.h>
+
+// SPU requires 128-byte alignment
+#define SPU_ALIGNMENT      128
+#define SPU_ALIGNSIZE(x)   (((x) + 127) & ~127)
+
+// Stack alignment helper
+#define STACK_ALIGN(type, name, cnt, alignment) \
+    u8 _al__##name[((sizeof(type)*(cnt)) + (alignment) + \
+                    (((sizeof(type)*(cnt))%(alignment)) > 0 ? \
+                     ((alignment) - ((sizeof(type)*(cnt))%(alignment))) : 0))]; \
+    type *name = (type*)(((u64)(_al__##name)) + \
+                 ((alignment) - (((u64)(_al__##name))&((alignment)-1))))
+```
+
+```c Example
+// Allocate SPU-aligned buffer on stack
+STACK_ALIGN(u8, spu_buffer, 1024, SPU_ALIGNMENT);
+
+// Calculate aligned size
+size_t aligned_size = SPU_ALIGNSIZE(1000);  // Returns 1024
+
+// Heap aligned allocation
+void *aligned = heapAllocateAligned(&my_heap, 2048, SPU_ALIGNMENT);
+```
+</CodeGroup>
+
+<Warning>
+**Critical Alignment Requirements:**
+- SPU operations require 128-byte alignment
+- DMA transfers often require 16-byte alignment
+- Some syscalls require specific page alignment (64KB or 1MB)
+</Warning>
+
+## Complete Memory Example
+
+<CodeGroup>
+```c Comprehensive Memory Management
+#include <stdio.h>
+#include <string.h>
+#include <sys/memory.h>
+#include <sys/heap.h>
+
+typedef struct {
+    heap_cntrl heap;
+    sys_mem_addr_t base_addr;
+    size_t total_size;
+} memory_manager_t;
+
+int memory_init(memory_manager_t *mgr, size_t size) {
+    s32 ret;
+    u64 flags;
+    
+    // Allocate memory with 1MB pages
+    flags = SYS_MEMORY_PAGE_SIZE_1M | 
+            SYS_MEMORY_ACCESS_RIGHT_ANY |
+            SYS_MEMORY_PROT_READ_WRITE;
+    
+    ret = sysMemoryAllocate(size, flags, &mgr->base_addr);
+    if (ret != 0) {
+        printf("Failed to allocate memory: %d\n", ret);
+        return ret;
+    }
+    
+    // Initialize heap
+    void *heap_start = (void*)(uintptr_t)mgr->base_addr;
+    uintptr_t usable = heapInit(&mgr->heap, heap_start, size);
+    
+    mgr->total_size = size;
+    printf("Memory manager initialized: %zu bytes total, "
+           "%lu bytes usable\n", size, usable);
+    
+    return 0;
+}
+
+void* memory_allocate(memory_manager_t *mgr, size_t size) {
+    void *ptr = heapAllocate(&mgr->heap, size);
+    if (ptr) {
+        printf("Allocated %zu bytes at %p\n", size, ptr);
+    }
+    return ptr;
+}
+
+void* memory_allocate_aligned(memory_manager_t *mgr, 
+                              size_t size, size_t alignment) {
+    void *ptr = heapAllocateAligned(&mgr->heap, size, alignment);
+    if (ptr) {
+        printf("Allocated %zu bytes (aligned to %zu) at %p\n",
+               size, alignment, ptr);
+    }
+    return ptr;
+}
+
+void memory_free(memory_manager_t *mgr, void *ptr) {
+    if (heapFree(&mgr->heap, ptr)) {
+        printf("Freed memory at %p\n", ptr);
+    } else {
+        printf("Failed to free memory at %p\n", ptr);
+    }
+}
+
+void memory_shutdown(memory_manager_t *mgr) {
+    sysMemoryFree(mgr->base_addr);
+    printf("Memory manager shut down\n");
+}
+
+// Usage
+int main() {
+    memory_manager_t mgr;
+    
+    // Initialize with 4MB
+    if (memory_init(&mgr, 4 * 1024 * 1024) != 0) {
+        return 1;
+    }
+    
+    // Allocate some memory
+    void *buf1 = memory_allocate(&mgr, 1024);
+    void *buf2 = memory_allocate_aligned(&mgr, 2048, 128);
+    
+    // Use the memory...
+    memset(buf1, 0, 1024);
+    memset(buf2, 0, 2048);
+    
+    // Free memory
+    memory_free(&mgr, buf1);
+    memory_free(&mgr, buf2);
+    
+    // Cleanup
+    memory_shutdown(&mgr);
+    
+    return 0;
+}
+```
+</CodeGroup>
+
+## Memory Usage Tips
+
+<CardGroup cols={2}>
+<Card title="Choose Page Size Wisely" icon="table-cells">
+Use 1MB pages for large allocations, 64KB for smaller ones to reduce waste.
+</Card>
+
+<Card title="Always Free Memory" icon="trash">
+Prevent memory leaks by freeing all allocated memory when done.
+</Card>
+
+<Card title="Respect Alignment" icon="align-center">
+Ensure proper alignment for SPU and DMA operations.
+</Card>
+
+<Card title="Use Containers" icon="box">
+Isolate memory pools with containers for better resource management.
+</Card>
+</CardGroup>
+
+<Note>
+**Memory Limits:**
+
+The PS3 has limited RAM available to applications (typically around 256MB for games). Always be mindful of memory usage and implement proper cleanup.
+</Note>
+
+## Best Practices
+
+1. **Check all allocations** - Always verify memory allocation succeeded before use
+2. **Use appropriate page sizes** - Match page size to allocation size
+3. **Align for hardware** - Use required alignment for SPU and DMA
+4. **Free in reverse order** - Generally free memory in reverse of allocation order
+5. **Container isolation** - Use containers to limit resource usage
+6. **Avoid fragmentation** - Consider using custom heaps for many small allocations
+
+## See Also
+
+- [Threads](/system/threads) - Thread-safe memory access
+- [Processes](/system/processes) - Process memory configuration  
+- [Filesystem](/system/filesystem) - I/O buffer management

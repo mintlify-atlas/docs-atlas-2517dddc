@@ -1,0 +1,196 @@
+---
+title: 'LV2 System Calls'
+description: 'Low-level system call interface for PlayStation 3'
+---
+
+## Overview
+
+The LV2 system call interface provides direct access to PlayStation 3 kernel services. PSL1GHT defines syscall macros that handle register allocation and invoke the PowerPC `sc` (system call) instruction.
+
+## Syscall Macros
+
+PSL1GHT provides macros `lv2syscall0` through `lv2syscall8` for invoking system calls with 0-8 parameters.
+
+### lv2syscall0
+
+Invoke a system call with no parameters.
+
+```c
+lv2syscall0(syscall)
+```
+
+<ParamField path="syscall" type="u64" required>
+  System call number (e.g., `SYSCALL_PROCESS_GETPID`)
+</ParamField>
+
+**Example:**
+```c
+LV2_SYSCALL sysProcessGetPid(void)
+{
+    lv2syscall0(SYSCALL_PROCESS_GETPID);
+    return_to_user_prog(sys_pid_t);
+}
+```
+
+### lv2syscall1
+
+Invoke a system call with one parameter.
+
+```c
+lv2syscall1(syscall, a1)
+```
+
+<ParamField path="syscall" type="u64" required>
+  System call number
+</ParamField>
+
+<ParamField path="a1" type="u64" required>
+  First argument (cast to u64)
+</ParamField>
+
+**Example:**
+```c
+LV2_SYSCALL sysThreadDetach(sys_ppu_thread_t threadid)
+{
+    lv2syscall1(45, threadid);
+    return_to_user_prog(s32);
+}
+```
+
+### lv2syscall2
+
+Invoke a system call with two parameters.
+
+```c
+lv2syscall2(syscall, a1, a2)
+```
+
+<ParamField path="syscall" type="u64" required>
+  System call number
+</ParamField>
+
+<ParamField path="a1" type="u64" required>
+  First argument
+</ParamField>
+
+<ParamField path="a2" type="u64" required>
+  Second argument
+</ParamField>
+
+**Example:**
+```c
+LV2_SYSCALL sysThreadJoin(sys_ppu_thread_t threadid, u64 *retval)
+{
+    lv2syscall2(44, threadid, (u64)retval);
+    return_to_user_prog(s32);
+}
+```
+
+### lv2syscall3 through lv2syscall8
+
+Similar macros exist for 3-8 parameters:
+
+- `lv2syscall3(syscall, a1, a2, a3)`
+- `lv2syscall4(syscall, a1, a2, a3, a4)`
+- `lv2syscall5(syscall, a1, a2, a3, a4, a5)`
+- `lv2syscall6(syscall, a1, a2, a3, a4, a5, a6)`
+- `lv2syscall7(syscall, a1, a2, a3, a4, a5, a6, a7)`
+- `lv2syscall8(syscall, a1, a2, a3, a4, a5, a6, a7, a8)`
+
+## Syscall Conventions
+
+### Register Allocation
+
+The syscall macros use PowerPC registers according to the PS3 ABI:
+
+- `r3-r10`: Parameters p1-p8
+- `r11`: System call number
+- Return value in `r3` (p1)
+
+### Return Values
+
+Use `return_to_user_prog(type)` to cast the return value:
+
+```c
+return_to_user_prog(s32);  // Returns (s32)(p1)
+```
+
+### Register Passing
+
+For syscalls that return multiple values in registers:
+
+```c
+#define register_passing_1(type)  (type)(p2)
+#define register_passing_2(type)  (type)(p3)
+#define register_passing_3(type)  (type)(p4)
+// ... up to register_passing_7
+```
+
+**Example:**
+```c
+lv2syscall2(SYSCALL_EVENT_QUEUE_RECEIVE, queue, (u64)event);
+REG_PASS_SYS_EVENT_QUEUE_RECEIVE;  // Extract multiple return values
+return_to_user_prog(s32);
+```
+
+## Common Syscall Numbers
+
+<Accordion title="Process Syscalls">
+  | Syscall | Number | Description |
+  |---------|--------|-------------|
+  | `SYSCALL_PROCESS_GETPID` | 1 | Get process ID |
+  | `SYSCALL_PROCESS_GETPPID` | 18 | Get parent process ID |
+  | `SYSCALL_PROCESS_GET_NUMBER_OF_OBJECT` | 12 | Get object count |
+  | `SYSCALL_PROCESS_GET_PPU_GUID` | 31 | Get PPU GUID |
+</Accordion>
+
+<Accordion title="Thread Syscalls">
+  | Syscall | Number | Description |
+  |---------|--------|-------------|
+  | `SYSCALL_PPU_THREAD_YIELD` | 43 | Yield CPU |
+  | `SYSCALL_PPU_THREAD_JOIN` | 44 | Wait for thread |
+  | `SYSCALL_PPU_THREAD_DETACH` | 45 | Detach thread |
+  | `SYSCALL_PPU_THREAD_SET_PRIORITY` | 47 | Set priority |
+  | `SYSCALL_PPU_THREAD_GET_PRIORITY` | 48 | Get priority |
+  | `SYSCALL_PPU_THREAD_RENAME` | 56 | Rename thread |
+</Accordion>
+
+<Accordion title="Synchronization Syscalls">
+  | Syscall | Number | Description |
+  |---------|--------|-------------|
+  | `SYSCALL_MUTEX_CREATE` | 100 | Create mutex |
+  | `SYSCALL_MUTEX_DESTROY` | 101 | Destroy mutex |
+  | `SYSCALL_MUTEX_LOCK` | 102 | Lock mutex |
+  | `SYSCALL_MUTEX_TRYLOCK` | 103 | Try lock mutex |
+  | `SYSCALL_MUTEX_UNLOCK` | 104 | Unlock mutex |
+  | `SYSCALL_COND_CREATE` | 105 | Create condition variable |
+  | `SYSCALL_COND_DESTROY` | 106 | Destroy condition variable |
+  | `SYSCALL_COND_WAIT` | 107 | Wait on condition |
+  | `SYSCALL_COND_SIGNAL` | 108 | Signal one thread |
+  | `SYSCALL_COND_SIGNAL_ALL` | 109 | Broadcast to all threads |
+</Accordion>
+
+<Accordion title="Memory Syscalls">
+  | Syscall | Number | Description |
+  |---------|--------|-------------|
+  | `SYSCALL_MEMORY_ALLOCATE` | 348 | Allocate memory |
+  | `SYSCALL_MEMORY_FREE` | 349 | Free memory |
+  | `SYSCALL_MEMORY_CONTAINER_CREATE` | 324 | Create container |
+  | `SYSCALL_MEMORY_CONTAINER_DESTROY` | 325 | Destroy container |
+  | `SYSCALL_MMAPPER_ALLOCATE_ADDRESS` | 330 | Allocate virtual address |
+  | `SYSCALL_MMAPPER_FREE_ADDRESS` | 331 | Free virtual address |
+  | `SYSCALL_MMAPPER_SEARCH_AND_MAP` | 337 | Map memory region |
+</Accordion>
+
+## Header Files
+
+```c
+#include <ppu-lv2.h>      // Syscall macros
+#include <lv2/syscalls.h> // Syscall number definitions
+```
+
+## See Also
+
+- [Thread API](/api/thread)
+- [Memory API](/api/memory)
+- [Process API](/api/process)

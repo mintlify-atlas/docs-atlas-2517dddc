@@ -1,0 +1,315 @@
+---
+title: SPU Overview
+description: Understanding the Cell Broadband Engine SPU architecture and programming model in PSL1GHT
+---
+
+## Introduction to SPUs
+
+The **Synergistic Processing Units (SPUs)** are the computing workhorses of the PlayStation 3's Cell Broadband Engine processor. The PS3 provides **6 SPUs** available to user programs, each featuring:
+
+- A dedicated computing core (SPU)
+- 256 KB of local store (LS) memory
+- Memory Flow Controller (MFC) for DMA transfers
+- SIMD vector processing capabilities
+
+<Note>
+SPUs are specialized processors designed for compute-intensive parallel tasks. They cannot directly access main memory and must use DMA transfers to move data between local store and system RAM.
+</Note>
+
+## Cell Broadband Engine Architecture
+
+The Cell processor combines two types of processing elements:
+
+<CardGroup cols={2}>
+  <Card title="PPE (PowerPC Element)" icon="microchip">
+    Main dual-threaded PowerPC core that runs your application code and manages SPU execution
+  </Card>
+  <Card title="SPEs (Synergistic Processing Elements)" icon="bolt">
+    Six available SPUs for parallel computation, each with 256 KB local store
+  </Card>
+</CardGroup>
+
+### SPU Characteristics
+
+| Feature | Specification |
+|---------|---------------|
+| **Local Store** | 256 KB per SPU |
+| **Available SPUs** | 6 on PS3 |
+| **Architecture** | SIMD vector processor |
+| **Memory Access** | DMA-only (no direct RAM access) |
+| **Instruction Set** | SPU ISA with 128-bit vector operations |
+
+## SPU Programming Models
+
+PSL1GHT provides two approaches for utilizing SPUs:
+
+### 1. Raw SPU Mode
+
+Direct control over individual SPUs with manual management of execution and memory.
+
+```c Raw SPU Example
+#include <sys/spu.h>
+#include <lv2/spu.h>
+
+u32 spu_id = 0;
+sysSpuImage image;
+
+// Initialize SPU system (6 SPUs, 5 available as raw)
+sysSpuInitialize(6, 5);
+
+// Create raw SPU
+sysSpuRawCreate(&spu_id, NULL);
+
+// Load SPU program
+sysSpuImageImport(&image, spu_bin, SPU_IMAGE_PROTECT);
+sysSpuRawImageLoad(spu_id, &image);
+
+// Start SPU execution
+sysSpuRawWriteProblemStorage(spu_id, SPU_RunCtrl, 1);
+
+// Wait for completion
+while (!(sysSpuRawReadProblemStorage(spu_id, SPU_MBox_Status) & 1));
+
+// Read mailbox result
+u32 result = sysSpuRawReadProblemStorage(spu_id, SPU_Out_MBox);
+
+// Cleanup
+sysSpuRawDestroy(spu_id);
+sysSpuImageClose(&image);
+```
+
+### 2. SPU Thread Groups (Recommended)
+
+Higher-level abstraction that provides automatic scheduling and better resource management.
+
+```c SPU Thread Group Example
+#include <sys/spu.h>
+#include <lv2/spu.h>
+
+sysSpuImage image;
+u32 thread_id, group_id;
+sysSpuThreadGroupAttribute grpattr = { 8, "mygroup", 0, {0} };
+sysSpuThreadAttribute attr = { "mythread", 9, SPU_THREAD_ATTR_NONE };
+sysSpuThreadArgument arg = { 0, 0, 0, 0 };
+
+// Initialize SPU system
+sysSpuInitialize(6, 0);
+
+// Load SPU program
+sysSpuImageImport(&image, spu_bin, 0);
+
+// Create thread group (1 thread, priority 100)
+sysSpuThreadGroupCreate(&group_id, 1, 100, &grpattr);
+
+// Initialize thread in group
+sysSpuThreadInitialize(&thread_id, group_id, 0, &image, &attr, &arg);
+
+// Start execution
+sysSpuThreadGroupStart(group_id);
+
+// Wait for completion
+u32 cause, status;
+sysSpuThreadGroupJoin(group_id, &cause, &status);
+
+// Cleanup
+sysSpuThreadGroupDestroy(group_id);
+sysSpuImageClose(&image);
+```
+
+## When to Use SPUs
+
+SPUs excel at specific types of tasks:
+
+<AccordionGroup>
+  <Accordion title="Vector/SIMD Operations">
+    Processing multiple data elements simultaneously (4 floats, 4 ints, 16 bytes per operation)
+    
+    - Image/video processing
+    - Audio DSP
+    - Physics simulations
+    - Matrix operations
+  </Accordion>
+
+  <Accordion title="Compute-Intensive Algorithms">
+    Algorithms with high computation-to-memory ratios
+    
+    - Particle systems
+    - Collision detection
+    - Encryption/decryption
+    - Scientific computing
+  </Accordion>
+
+  <Accordion title="Parallel Workloads">
+    Tasks that can be divided into independent subtasks
+    
+    - Ray tracing
+    - Rendering pipelines
+    - Batch data processing
+    - Search algorithms
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+SPUs are **NOT** suitable for:
+- Code with frequent branches and conditional logic
+- Tasks requiring random memory access
+- Small workloads where DMA overhead exceeds computation time
+- Code that cannot fit in 256 KB local store
+</Warning>
+
+## SPU Program Structure
+
+SPU programs are separate binaries compiled with the SPU toolchain:
+
+```c SPU Program (spu/source/main.c)
+#include <spu_intrinsics.h>
+#include <spu_mfcio.h>
+#include <sys/spu_thread.h>
+
+int main(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3) {
+    // SPU code receives up to 4 64-bit arguments
+    
+    // Perform computation using local store
+    uint32_t result = arg0 * 2;
+    
+    // Send result via mailbox
+    spu_writech(SPU_WrOutMbox, result);
+    
+    // Exit cleanly
+    spu_thread_exit(0);
+    return 0;
+}
+```
+
+## PPU-SPU Communication
+
+Several mechanisms enable communication between PPU and SPU:
+
+<Steps>
+  <Step title="Arguments">
+    Pass up to 4 64-bit arguments when initializing the SPU thread
+    
+    ```c
+    sysSpuThreadArgument arg;
+    arg.arg0 = (u64)data_ptr;
+    arg.arg1 = size;
+    arg.arg2 = 0;
+    arg.arg3 = 0;
+    ```
+  </Step>
+
+  <Step title="Signal Notifications">
+    PPU can write 32-bit values to SPU signal notification registers
+    
+    ```c PPU Side
+    sysSpuThreadWriteSignal(thread_id, 0, signal_value);
+    ```
+    
+    ```c SPU Side
+    uint32_t signal = spu_read_signal1();
+    ```
+  </Step>
+
+  <Step title="Mailboxes">
+    Asynchronous message passing between PPU and SPU
+    
+    ```c SPU to PPU
+    spu_writech(SPU_WrOutMbox, message);
+    ```
+    
+    ```c PPU Read
+    u32 msg = sysSpuRawReadProblemStorage(spu_id, SPU_Out_MBox);
+    ```
+  </Step>
+
+  <Step title="DMA Transfers">
+    Bulk data transfer between main memory and local store (see [DMA Transfers](/spu/dma-transfers))
+  </Step>
+
+  <Step title="Event Queues">
+    Structured event-based communication (see [Thread Management](/spu/thread-management))
+  </Step>
+</Steps>
+
+## Memory Architecture
+
+Understanding SPU memory is critical for effective programming:
+
+```c Memory Layout
+// PPU side - main memory
+uint8_t *data = memalign(128, 16384);  // 128-byte aligned
+u64 ea = (u64)data;  // Effective address for DMA
+
+// SPU side - local store
+uint8_t buffer[16384] __attribute__((aligned(128)));
+
+// Transfer from main memory to local store
+mfc_get(buffer, ea, 16384, tag, 0, 0);
+```
+
+<Note>
+**Key Memory Rules:**
+- Local store addresses are always 16-byte aligned
+- DMA transfers require 16-byte alignment for both addresses
+- Maximum DMA transfer size is 16 KB per operation
+- SPUs cannot directly access main memory or other SPUs' local stores (must use DMA)
+</Note>
+
+## Performance Considerations
+
+<CardGroup cols={2}>
+  <Card title="Maximize Vector Operations" icon="forward-fast">
+    Use SPU SIMD intrinsics to process 4 elements per instruction
+  </Card>
+  <Card title="Minimize DMA Stalls" icon="arrows-rotate">
+    Use double-buffering to overlap computation with data transfer
+  </Card>
+  <Card title="Reduce Branches" icon="code-branch">
+    SPUs have no branch prediction; use select operations instead
+  </Card>
+  <Card title="Align Data" icon="align-center">
+    Proper alignment (16-byte minimum) is critical for performance
+  </Card>
+</CardGroup>
+
+## Header Files Reference
+
+<CodeGroup>
+```c PPU Side Headers
+#include <sys/spu.h>       // SPU thread management
+#include <lv2/spu.h>       // SPU image loading
+#include <spurs/spurs.h>   // SPURS framework
+```
+
+```c SPU Side Headers
+#include <spu_intrinsics.h>    // SPU intrinsic functions
+#include <spu_mfcio.h>         // MFC/DMA operations
+#include <sys/spu_thread.h>    // Thread control
+#include <sys/spu_event.h>     // Event handling
+#include <dma/spu_dma.h>       // High-level DMA helpers
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Thread Management" icon="users" href="/spu/thread-management">
+    Learn how to create and manage SPU thread groups
+  </Card>
+  <Card title="DMA Transfers" icon="right-left" href="/spu/dma-transfers">
+    Master data transfer between PPU and SPU
+  </Card>
+  <Card title="SPURS Framework" icon="network-wired" href="/spu/spurs">
+    Use the high-level task scheduling system
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/rsx">
+    Complete SPU function reference
+  </Card>
+</CardGroup>
+
+## Related Documentation
+
+- [sys/spu.h](/api/spu-thread) - SPU thread system calls (lv2/spu.h:1)
+- [lv2/spu.h](/api/spu-thread) - SPU image management (lv2/spu.h:1)
+- Cell Broadband Engine Programming Handbook
+- SPU Instruction Set Architecture

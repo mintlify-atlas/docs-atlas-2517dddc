@@ -1,0 +1,505 @@
+---
+title: Video Output
+description: Configure video resolution, aspect ratio, and display modes
+---
+
+The video output system allows you to query and configure the PS3's display settings, including resolution, aspect ratio, color format, and refresh rates.
+
+## Overview
+
+The video API (`sysutil/video.h`) provides:
+- Query available resolutions and display modes
+- Configure video output settings
+- Support for multiple aspect ratios (4:3, 16:9)
+- Different color formats (RGB, YUV)
+- Multiple output ports (HDMI, Component, etc.)
+- 3D display modes
+
+## Common Resolutions
+
+The PS3 supports various video resolutions:
+
+| Resolution | Constant | Typical Usage |
+|------------|----------|---------------|
+| 1920x1080 | `VIDEO_RESOLUTION_1080` | Full HD (1080p/1080i) |
+| 1280x720 | `VIDEO_RESOLUTION_720` | HD Ready (720p) |
+| 720x480 | `VIDEO_RESOLUTION_480` | NTSC SD |
+| 720x576 | `VIDEO_RESOLUTION_576` | PAL SD |
+| 1600x1080 | `VIDEO_RESOLUTION_1600x1080` | Special modes |
+| 1440x1080 | `VIDEO_RESOLUTION_1440x1080` | Special modes |
+| 1280x1080 | `VIDEO_RESOLUTION_1280x1080` | Special modes |
+| 960x1080 | `VIDEO_RESOLUTION_960x1080` | Special modes |
+
+<Note>
+Always check which resolutions are available on the user's display before configuring video output.
+</Note>
+
+## Quick Start
+
+<Steps>
+
+<Step title="Get Current Video State">
+
+Query the current display configuration:
+
+```c
+#include <sysutil/video.h>
+
+videoState state;
+videoGetState(VIDEO_PRIMARY, 0, &state);
+
+printf("Current resolution: %d\n", state.displayMode.resolution);
+printf("Aspect ratio: %d\n", state.displayMode.aspect);
+printf("State: %d\n", state.state);
+```
+
+</Step>
+
+<Step title="Get Resolution Dimensions">
+
+Convert resolution ID to actual width/height:
+
+```c
+videoResolution resolution;
+videoGetResolution(VIDEO_RESOLUTION_720, &resolution);
+
+printf("720p is %dx%d\n", resolution.width, resolution.height);
+// Output: 720p is 1280x720
+```
+
+</Step>
+
+<Step title="Configure Video Output">
+
+Set your desired video mode:
+
+```c
+videoConfiguration config;
+memset(&config, 0, sizeof(videoConfiguration));
+
+config.resolution = VIDEO_RESOLUTION_720;
+config.format = VIDEO_BUFFER_FORMAT_XRGB;
+config.aspect = VIDEO_ASPECT_16_9;
+config.pitch = resolution.width * 4; // 4 bytes per pixel
+
+s32 ret = videoConfigure(VIDEO_PRIMARY, &config, NULL, 0);
+if (ret != 0) {
+    printf("Failed to configure video: %d\n", ret);
+}
+```
+
+</Step>
+
+</Steps>
+
+## Aspect Ratios
+
+The PS3 supports three aspect ratio modes:
+
+<CodeGroup>
+
+```c Auto Aspect
+config.aspect = VIDEO_ASPECT_AUTO;
+// Use display's native aspect ratio
+```
+
+```c 4:3 Aspect
+config.aspect = VIDEO_ASPECT_4_3;
+// Force 4:3 display (standard TV)
+```
+
+```c 16:9 Aspect
+config.aspect = VIDEO_ASPECT_16_9;
+// Force 16:9 display (widescreen)
+```
+
+</CodeGroup>
+
+<Note>
+`VIDEO_ASPECT_AUTO` is recommended as it respects the user's display settings.
+</Note>
+
+## Buffer Formats
+
+Choose the color format for your frame buffer:
+
+| Format | Description |
+|--------|-------------|
+| `VIDEO_BUFFER_FORMAT_XRGB` | 32-bit RGB (XRGB8888) |
+| `VIDEO_BUFFER_FORMAT_XBGR` | 32-bit BGR (XBGR8888) |
+| `VIDEO_BUFFER_FORMAT_FLOAT` | Floating-point format |
+
+```c
+// Most common: XRGB format
+config.format = VIDEO_BUFFER_FORMAT_XRGB;
+```
+
+## Scan Modes
+
+Display modes can be interlaced or progressive:
+
+| Mode | Constant | Description |
+|------|----------|-------------|
+| Interlaced | `VIDEO_SCANMODE_INTERLACE` | 1080i, traditional TV |
+| Progressive | `VIDEO_SCANMODE_PROGRESSIVE` | 720p, 1080p |
+
+```c
+videoState state;
+videoGetState(VIDEO_PRIMARY, 0, &state);
+
+if (state.displayMode.scanMode == VIDEO_SCANMODE_PROGRESSIVE) {
+    printf("Progressive scan enabled\n");
+} else {
+    printf("Interlaced mode\n");
+}
+```
+
+## Checking Available Resolutions
+
+Before configuring, verify the resolution is supported:
+
+```c
+s32 availability = videoGetResolutionAvailability(
+    VIDEO_PRIMARY,
+    VIDEO_RESOLUTION_1080,
+    VIDEO_ASPECT_16_9,
+    0
+);
+
+if (availability == 0) {
+    printf("1080p is available\n");
+    // Safe to configure
+} else {
+    printf("1080p not supported, trying 720p\n");
+    // Fall back to lower resolution
+}
+```
+
+## Querying Display Devices
+
+Get information about connected displays:
+
+```c
+// Get number of connected displays
+u32 numDevices = videoGetNumberOfDevice(VIDEO_PRIMARY);
+printf("Connected displays: %d\n", numDevices);
+
+// Get detailed info for each device
+for (u32 i = 0; i < numDevices; i++) {
+    videoDeviceInfo info;
+    if (videoGetDeviceInfo(VIDEO_PRIMARY, i, &info) == 0) {
+        printf("Device %d:\n", i);
+        printf("  Port type: 0x%02x\n", info.portType);
+        printf("  Color space: %d\n", info.colorSpace);
+        printf("  State: %d\n", info.state);
+        printf("  Available modes: %d\n", info.availableModeCount);
+        
+        // List supported modes
+        for (int j = 0; j < info.availableModeCount; j++) {
+            videoDisplayMode *mode = &info.availableModes[j];
+            printf("    Mode %d: resolution=%d, aspect=%d\n",
+                   j, mode->resolution, mode->aspect);
+        }
+    }
+}
+```
+
+## Display Port Types
+
+The PS3 can output video through various ports:
+
+| Port | Constant | Description |
+|------|----------|-------------|
+| None | `VIDEO_PORT_NONE` | No output |
+| HDMI | `VIDEO_PORT_HDMI` | HDMI digital output |
+| Composite | `VIDEO_PORT_COMPOSITE` | Yellow RCA cable |
+| Component | `VIDEO_PORT_COMPONENT` | YPbPr cables |
+| RGB | `VIDEO_PORT_RGB` | RGB SCART |
+| D-Terminal | `VIDEO_PORT_D` | Japanese D-Terminal |
+
+```c
+videoDeviceInfo info;
+videoGetDeviceInfo(VIDEO_PRIMARY, 0, &info);
+
+switch (info.portType) {
+    case VIDEO_PORT_HDMI:
+        printf("HDMI connection\n");
+        break;
+    case VIDEO_PORT_COMPONENT:
+        printf("Component cables\n");
+        break;
+    case VIDEO_PORT_COMPOSITE:
+        printf("Composite cable\n");
+        break;
+    default:
+        printf("Other connection: 0x%02x\n", info.portType);
+}
+```
+
+## Refresh Rates
+
+Query supported refresh rates:
+
+```c
+videoState state;
+videoGetState(VIDEO_PRIMARY, 0, &state);
+
+u16 rates = state.displayMode.refreshRates;
+
+if (rates & VIDEO_REFRESH_60HZ) {
+    printf("60Hz supported\n");
+}
+if (rates & VIDEO_REFRESH_59_94HZ) {
+    printf("59.94Hz supported\n");
+}
+if (rates & VIDEO_REFRESH_50HZ) {
+    printf("50Hz supported (PAL)\n");
+}
+if (rates & VIDEO_REFRESH_30HZ) {
+    printf("30Hz supported\n");
+}
+```
+
+## 3D Display Modes
+
+The PS3 supports stereoscopic 3D output:
+
+| Mode | Constant |
+|------|----------|
+| 720p 3D | `VIDEO_RESOLUTION_720_3D_FRAME_PACKING` |
+| 1024x720 3D | `VIDEO_RESOLUTION_1024x720_3D_FRAME_PACKING` |
+| 960x720 3D | `VIDEO_RESOLUTION_960x720_3D_FRAME_PACKING` |
+| 800x720 3D | `VIDEO_RESOLUTION_800x720_3D_FRAME_PACKING` |
+| 640x720 3D | `VIDEO_RESOLUTION_640x720_3D_FRAME_PACKING` |
+
+```c
+// Check if 3D is available
+if (videoGetResolutionAvailability(
+        VIDEO_PRIMARY,
+        VIDEO_RESOLUTION_720_3D_FRAME_PACKING,
+        VIDEO_ASPECT_16_9,
+        0) == 0) {
+    printf("3D mode available\n");
+    // Configure for 3D output
+}
+```
+
+## Video State Values
+
+The video state indicates the current status:
+
+| State | Description |
+|-------|-------------|
+| `VIDEO_STATE_DISABLED` | Video output disabled |
+| `VIDEO_STATE_ENABLED` | Video output enabled |
+| `VIDEO_STATE_BUSY` | Video system busy |
+
+```c
+videoState state;
+videoGetState(VIDEO_PRIMARY, 0, &state);
+
+if (state.state == VIDEO_STATE_ENABLED) {
+    printf("Video is ready\n");
+}
+```
+
+## Practical Example
+
+Complete video configuration with fallback:
+
+```c
+#include <sysutil/video.h>
+
+int configure_video() {
+    videoState state;
+    videoResolution resolution;
+    videoConfiguration config;
+    
+    // Get current state
+    if (videoGetState(VIDEO_PRIMARY, 0, &state) != 0) {
+        printf("Failed to get video state\n");
+        return -1;
+    }
+    
+    // Try to use 1080p first
+    int res_id = VIDEO_RESOLUTION_1080;
+    if (videoGetResolutionAvailability(VIDEO_PRIMARY, res_id, 
+                                       VIDEO_ASPECT_16_9, 0) != 0) {
+        // Fall back to 720p
+        res_id = VIDEO_RESOLUTION_720;
+        if (videoGetResolutionAvailability(VIDEO_PRIMARY, res_id, 
+                                           VIDEO_ASPECT_16_9, 0) != 0) {
+            // Fall back to 480p
+            res_id = VIDEO_RESOLUTION_480;
+        }
+    }
+    
+    // Get actual dimensions
+    if (videoGetResolution(res_id, &resolution) != 0) {
+        printf("Failed to get resolution\n");
+        return -1;
+    }
+    
+    printf("Using resolution: %dx%d\n", resolution.width, resolution.height);
+    
+    // Configure video output
+    memset(&config, 0, sizeof(videoConfiguration));
+    config.resolution = res_id;
+    config.format = VIDEO_BUFFER_FORMAT_XRGB;
+    config.aspect = VIDEO_ASPECT_AUTO;
+    config.pitch = resolution.width * 4; // 4 bytes per pixel (XRGB)
+    
+    if (videoConfigure(VIDEO_PRIMARY, &config, NULL, 0) != 0) {
+        printf("Failed to configure video\n");
+        return -1;
+    }
+    
+    printf("Video configured successfully\n");
+    return 0;
+}
+```
+
+## Video Callbacks
+
+Register callbacks to handle display events:
+
+```c
+s32 video_callback(u32 slot, u32 videoOut, u32 deviceIndex, 
+                   u32 event, videoDeviceInfo *info, void *userData) {
+    printf("Video event: %d\n", event);
+    printf("Device %d on output %d\n", deviceIndex, videoOut);
+    return 0;
+}
+
+// Register callback
+videoRegisterCallback(0, video_callback, NULL);
+
+// Later, unregister
+videoUnregisterCallback(0);
+```
+
+<Warning>
+Video callbacks are called when displays are connected/disconnected or when settings change. Handle these events gracefully to avoid disrupting gameplay.
+</Warning>
+
+## API Reference
+
+### Query Functions
+
+<CodeGroup>
+
+```c videoGetState
+// Get current video state
+s32 videoGetState(
+    s32 videoOut,      // VIDEO_PRIMARY or VIDEO_SECONDARY
+    s32 deviceIndex,   // Usually 0
+    videoState *state  // Output state
+);
+```
+
+```c videoGetResolution
+// Convert resolution ID to dimensions
+s32 videoGetResolution(
+    s32 resolutionId,
+    videoResolution *resolution
+);
+```
+
+```c videoGetResolutionAvailability
+// Check if resolution is supported
+s32 videoGetResolutionAvailability(
+    u32 videoOut,
+    u32 resolutionId,
+    u32 aspect,
+    u32 option
+);
+// Returns 0 if available, non-zero otherwise
+```
+
+```c videoGetNumberOfDevice
+// Get number of connected displays
+s32 videoGetNumberOfDevice(u32 videoOut);
+```
+
+```c videoGetDeviceInfo
+// Get detailed device information
+s32 videoGetDeviceInfo(
+    u32 videoOut,
+    u32 deviceIndex,
+    videoDeviceInfo *info
+);
+```
+
+</CodeGroup>
+
+### Configuration Functions
+
+<CodeGroup>
+
+```c videoConfigure
+// Configure video output
+s32 videoConfigure(
+    s32 videoOut,
+    videoConfiguration *config,
+    void *option,      // Usually NULL
+    s32 blocking       // 0 for non-blocking, 1 for blocking
+);
+```
+
+```c videoGetConfiguration
+// Get current configuration
+s32 videoGetConfiguration(
+    u32 videoOut,
+    videoConfiguration *config,
+    void *option
+);
+```
+
+</CodeGroup>
+
+### Callback Functions
+
+<CodeGroup>
+
+```c videoRegisterCallback
+// Register video event callback
+s32 videoRegisterCallback(
+    u32 slot,
+    videoCallback cbVideo,
+    void *userData
+);
+```
+
+```c videoUnregisterCallback
+// Unregister callback
+s32 videoUnregisterCallback(u32 slot);
+```
+
+</CodeGroup>
+
+## Best Practices
+
+<Note>
+**Resolution Selection:**
+- Always check `videoGetResolutionAvailability()` before configuring
+- Provide fallback resolutions (1080p → 720p → 480p)
+- Use `VIDEO_ASPECT_AUTO` to respect user preferences
+- Calculate pitch correctly: `width * bytes_per_pixel`
+
+**Performance:**
+- Higher resolutions require more memory and bandwidth
+- Consider your rendering performance when choosing resolution
+- Test on various display configurations
+
+**Compatibility:**
+- Support both 4:3 and 16:9 displays
+- Handle both HDMI and analog connections
+- Respect user's display settings when possible
+</Note>
+
+<Warning>
+- Calling `videoConfigure()` may cause a brief screen flicker
+- Don't reconfigure video output frequently during gameplay
+- Always verify resolution availability before attempting to use it
+- The pitch must match your actual buffer stride
+</Warning>

@@ -1,0 +1,461 @@
+---
+title: 'File System'
+description: 'File I/O and directory operations'
+---
+
+## Overview
+
+The filesystem API provides functions for file and directory operations on the PlayStation 3. It includes both low-level LV2 syscalls and higher-level wrapper functions.
+
+## File Operations
+
+### sysFsOpen
+
+Open a file.
+
+```c
+s32 sysFsOpen(const char *path, s32 oflags, s32 *fd,
+              const void *arg, u64 argsize);
+```
+
+<ParamField path="path" type="const char*" required>
+  File path (e.g., `/dev_hdd0/game/data.bin`)
+</ParamField>
+
+<ParamField path="oflags" type="s32" required>
+  Open flags (OR combination):
+  - `SYS_O_RDONLY` - Read only
+  - `SYS_O_WRONLY` - Write only
+  - `SYS_O_RDWR` - Read and write
+  - `SYS_O_CREAT` - Create if doesn't exist
+  - `SYS_O_TRUNC` - Truncate to zero length
+  - `SYS_O_APPEND` - Append mode
+</ParamField>
+
+<ParamField path="fd" type="s32*" required>
+  Pointer to storage for file descriptor
+</ParamField>
+
+<ParamField path="arg" type="const void*">
+  Optional argument (usually NULL)
+</ParamField>
+
+<ParamField path="argsize" type="u64">
+  Size of optional argument (usually 0)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+s32 fd;
+s32 ret = sysFsOpen("/dev_hdd0/game/data.bin",
+                    SYS_O_RDWR | SYS_O_CREAT,
+                    &fd, NULL, 0);
+if (ret == 0) {
+    // Use file descriptor
+    sysFsClose(fd);
+}
+```
+
+### sysFsClose
+
+Close a file.
+
+```c
+s32 sysFsClose(s32 fd);
+```
+
+<ParamField path="fd" type="s32" required>
+  File descriptor from sysFsOpen
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysFsRead
+
+Read from a file.
+
+```c
+s32 sysFsRead(s32 fd, void *ptr, u64 len, u64 *read);
+```
+
+<ParamField path="fd" type="s32" required>
+  File descriptor
+</ParamField>
+
+<ParamField path="ptr" type="void*" required>
+  Buffer to read into
+</ParamField>
+
+<ParamField path="len" type="u64" required>
+  Number of bytes to read
+</ParamField>
+
+<ParamField path="read" type="u64*" required>
+  Pointer to storage for actual bytes read
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+char buffer[1024];
+u64 bytes_read;
+
+s32 ret = sysFsRead(fd, buffer, sizeof(buffer), &bytes_read);
+if (ret == 0) {
+    printf("Read %llu bytes\n", bytes_read);
+}
+```
+
+### sysFsWrite
+
+Write to a file.
+
+```c
+s32 sysFsWrite(s32 fd, const void *ptr, u64 size, u64 *written);
+```
+
+<ParamField path="fd" type="s32" required>
+  File descriptor
+</ParamField>
+
+<ParamField path="ptr" type="const void*" required>
+  Buffer to write from
+</ParamField>
+
+<ParamField path="size" type="u64" required>
+  Number of bytes to write
+</ParamField>
+
+<ParamField path="written" type="u64*" required>
+  Pointer to storage for actual bytes written
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysFsLseek
+
+Seek to a position in a file.
+
+```c
+s32 sysFsLseek(s32 fd, s64 offset, s32 whence, u64 *position);
+```
+
+<ParamField path="fd" type="s32" required>
+  File descriptor
+</ParamField>
+
+<ParamField path="offset" type="s64" required>
+  Offset in bytes
+</ParamField>
+
+<ParamField path="whence" type="s32" required>
+  Seek origin: `SEEK_SET`, `SEEK_CUR`, or `SEEK_END`
+</ParamField>
+
+<ParamField path="position" type="u64*">
+  Pointer to storage for new file position
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysFsFsync
+
+Flush file buffers to disk.
+
+```c
+s32 sysFsFsync(s32 fd);
+```
+
+<ParamField path="fd" type="s32" required>
+  File descriptor
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## File Information
+
+### sysFsStat
+
+Get file information by path.
+
+```c
+s32 sysFsStat(const char *path, sysFSStat *stat);
+```
+
+<ParamField path="path" type="const char*" required>
+  File path
+</ParamField>
+
+<ParamField path="stat" type="sysFSStat*" required>
+  Pointer to stat structure to fill
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+sysFSStat stat;
+s32 ret = sysFsStat("/dev_hdd0/game/data.bin", &stat);
+if (ret == 0) {
+    printf("File size: %llu bytes\n", stat.st_size);
+    printf("Mode: 0x%x\n", stat.st_mode);
+}
+```
+
+### sysFsFstat
+
+Get file information by descriptor.
+
+```c
+s32 sysFsFstat(s32 fd, sysFSStat *stat);
+```
+
+<ParamField path="fd" type="s32" required>
+  File descriptor
+</ParamField>
+
+<ParamField path="stat" type="sysFSStat*" required>
+  Pointer to stat structure to fill
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## File Manipulation
+
+### sysFsUnlink
+
+Delete a file.
+
+```c
+s32 sysFsUnlink(const char *path);
+```
+
+<ParamField path="path" type="const char*" required>
+  Path to file to delete
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysFsChmod
+
+Change file permissions.
+
+```c
+s32 sysFsChmod(const char *path, s32 mode);
+```
+
+<ParamField path="path" type="const char*" required>
+  File path
+</ParamField>
+
+<ParamField path="mode" type="s32" required>
+  New permission mode
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Directory Operations
+
+### sysFsMkdir
+
+Create a directory.
+
+```c
+s32 sysFsMkdir(const char *path, s32 mode);
+```
+
+<ParamField path="path" type="const char*" required>
+  Directory path to create
+</ParamField>
+
+<ParamField path="mode" type="s32" required>
+  Directory permissions
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysFsRmdir
+
+Remove an empty directory.
+
+```c
+s32 sysFsRmdir(const char *path);
+```
+
+<ParamField path="path" type="const char*" required>
+  Directory path to remove
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysFsOpendir
+
+Open a directory for reading.
+
+```c
+s32 sysFsOpendir(const char *path, s32 *fd);
+```
+
+<ParamField path="path" type="const char*" required>
+  Directory path
+</ParamField>
+
+<ParamField path="fd" type="s32*" required>
+  Pointer to storage for directory descriptor
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+s32 fd;
+s32 ret = sysFsOpendir("/dev_hdd0/game", &fd);
+if (ret == 0) {
+    sysFSDirent entry;
+    u64 read;
+    
+    while (sysFsReaddir(fd, &entry, &read) == 0 && read > 0) {
+        printf("%s\n", entry.d_name);
+    }
+    
+    sysFsClosedir(fd);
+}
+```
+
+### sysFsReaddir
+
+Read a directory entry.
+
+```c
+s32 sysFsReaddir(s32 fd, sysFSDirent *entry, u64 *read);
+```
+
+<ParamField path="fd" type="s32" required>
+  Directory descriptor from sysFsOpendir
+</ParamField>
+
+<ParamField path="entry" type="sysFSDirent*" required>
+  Pointer to directory entry structure to fill
+</ParamField>
+
+<ParamField path="read" type="u64*" required>
+  Pointer to storage for read status (0 = end of directory)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysFsClosedir
+
+Close a directory.
+
+```c
+s32 sysFsClosedir(s32 fd);
+```
+
+<ParamField path="fd" type="s32" required>
+  Directory descriptor
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Data Structures
+
+### sysFSStat
+
+File status information.
+
+```c
+typedef struct _sys_fs_stat {
+    s32 st_mode;      // File mode/permissions
+    s32 st_uid;       // User ID
+    s32 st_gid;       // Group ID
+    time_t st_atime;  // Access time
+    time_t st_mtime;  // Modification time
+    time_t st_ctime;  // Creation time
+    u64 st_size;      // File size in bytes
+    u64 st_blksize;   // Block size
+} sysFSStat;
+```
+
+### sysFSDirent
+
+Directory entry.
+
+```c
+typedef struct _sys_fs_dirent {
+    u8 d_type;                  // Entry type
+    u8 d_namlen;                // Name length
+    char d_name[MAXPATHLEN + 1]; // Entry name
+} sysFSDirent;
+```
+
+## Constants
+
+### Open Flags
+
+- `SYS_O_RDONLY` (000000) - Read only
+- `SYS_O_WRONLY` (000001) - Write only
+- `SYS_O_RDWR` (000002) - Read and write
+- `SYS_O_CREAT` (000100) - Create file if it doesn't exist
+- `SYS_O_EXCL` (000200) - Exclusive create (fail if exists)
+- `SYS_O_TRUNC` (001000) - Truncate to zero length
+- `SYS_O_APPEND` (002000) - Append mode
+- `SYS_O_MSELF` (010000) - MSELF file
+
+## Low-Level LV2 Functions
+
+The following functions provide direct access to LV2 syscalls:
+
+- `sysLv2FsOpen()` - Syscall 801
+- `sysLv2FsRead()` - Syscall 802
+- `sysLv2FsWrite()` - Syscall 803
+- `sysLv2FsClose()` - Syscall 804
+- `sysLv2FsOpenDir()` - Syscall 805
+- `sysLv2FsReadDir()` - Syscall 806
+- `sysLv2FsCloseDir()` - Syscall 807
+- `sysLv2FsStat()` - Syscall 808
+- `sysLv2FsFStat()` - Syscall 809
+- `sysLv2FsMkdir()` - Syscall 811
+- `sysLv2FsRename()` - Syscall 812
+- `sysLv2FsRmdir()` - Syscall 813
+- `sysLv2FsUnlink()` - Syscall 814
+
+## Header Files
+
+```c
+#include <sys/file.h>   // File I/O functions (LV2 syscalls)
+#include <lv2/sysfs.h>  // Filesystem types and wrapper functions
+```

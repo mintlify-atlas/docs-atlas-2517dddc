@@ -1,0 +1,595 @@
+---
+title: Project Structure
+description: Understanding the PSL1GHT SDK directory layout and build system
+---
+
+## SDK Directory Layout
+
+The PSL1GHT SDK is organized into several main directories:
+
+```
+PSL1GHT/
+├── ppu/              # PowerPC (PPU) libraries and headers
+├── spu/              # Synergistic Processing Unit (SPU) libraries
+├── common/           # Shared libraries (PPU and SPU)
+├── tools/            # Build utilities and scripts
+├── samples/          # Example applications
+├── templates/        # Project templates
+├── base_rules        # Common build rules
+├── ppu_rules         # PPU-specific build rules
+├── spu_rules         # SPU-specific build rules
+└── data_rules        # Binary data embedding rules
+```
+
+## PPU Directory Structure
+
+The `ppu/` directory contains PowerPC libraries and development files:
+
+```
+ppu/
+├── include/          # C/C++ header files
+│   ├── audio/        # Audio library headers
+│   ├── io/           # I/O headers (pad, keyboard, mouse)
+│   ├── rsx/          # RSX graphics headers
+│   ├── sysutil/      # System utility headers
+│   ├── net/          # Network headers
+│   └── lv2/          # LV2 system call headers
+├── lib/              # Compiled libraries
+│   ├── liblv2.a      # LV2 system calls
+│   ├── librsx.a      # RSX graphics library
+│   ├── librt.a       # Runtime support
+│   └── *.a           # Other static libraries
+├── sprx/             # SPRX stub libraries
+│   ├── libaudio/
+│   ├── libgcm_sys/
+│   ├── libio/
+│   ├── libsysutil/
+│   └── ...
+├── crt/              # C runtime startup files
+└── librsx/           # RSX graphics implementation
+```
+
+### SPRX Libraries
+
+SPRX (Signed PRX) libraries are dynamic libraries provided by the PS3 firmware. PSL1GHT provides stub libraries to link against them:
+
+<AccordionGroup>
+  <Accordion title="System Libraries">
+    - **liblv2** - Core LV2 system calls (memory, threads, semaphores)
+    - **libsysutil** - System utilities (video, events, callbacks)
+    - **libsysmodule** - Dynamic module loading
+    - **libsysfs** - Filesystem operations
+  </Accordion>
+
+  <Accordion title="I/O Libraries">
+    - **libio** - Base I/O library
+    - **libpad** - PlayStation controller input
+    - **libmouse** - USB mouse support
+    - **libkb** - USB keyboard support
+    - **libcamera** - PlayStation Eye camera
+  </Accordion>
+
+  <Accordion title="Graphics Libraries">
+    - **libgcm_sys** - Graphics Command Manager
+    - **librsx** - PSL1GHT's RSX wrapper library
+    - **libresc** - Resolution scaling
+  </Accordion>
+
+  <Accordion title="Media Libraries">
+    - **libaudio** - Audio output
+    - **libpngdec** - PNG image decoder
+    - **libjpgdec** - JPEG image decoder
+    - **libvdec** - Video decoder
+  </Accordion>
+
+  <Accordion title="Network Libraries">
+    - **libnet** - Network sockets
+    - **libnetctl** - Network control
+    - **libhttp** - HTTP client
+    - **libhttputil** - HTTP utilities
+    - **libssl** - SSL/TLS support
+  </Accordion>
+
+  <Accordion title="Other Libraries">
+    - **libfont** - Font rendering
+    - **libfontFT** - FreeType font support
+    - **libgem** - PlayStation Move support
+    - **libspurs** - SPURS task manager
+    - **libusb** - USB device access
+  </Accordion>
+</AccordionGroup>
+
+### Creating SPRX Stubs
+
+Each SPRX stub library consists of:
+
+```
+ppu/sprx/libaudio/
+├── Makefile      # Build configuration
+├── config.h      # Library configuration
+└── exports.h     # Function exports
+```
+
+Example `exports.h`:
+
+```c
+EXPORT(audioInit, 0x0b168f92);
+EXPORT(audioQuit, 0x9e711aaa);
+EXPORT(audioPortOpen, 0x5b1e2c73);
+EXPORT(audioPortClose, 0x4129fe2d);
+EXPORT(audioPortStart, 0x74a66af0);
+EXPORT(audioPortStop, 0x8251f71f);
+```
+
+Each export maps a function name to its firmware PRX identifier (NID).
+
+## SPU Directory Structure
+
+The `spu/` directory contains libraries for the Cell's Synergistic Processing Units:
+
+```
+spu/
+├── include/          # SPU headers
+│   ├── simdmath/     # SIMD math functions
+│   ├── spu/          # SPU intrinsics
+│   └── pthread.h     # SPU threading
+├── lib/              # SPU libraries
+│   ├── libsputhread.a    # SPU threading
+│   ├── libspudma.a       # SPU DMA helpers
+│   ├── libspuatomic.a    # Atomic operations
+│   └── libspumars.a      # MARS task library
+└── libsputhread/     # Threading implementation
+```
+
+### SPU Build Targets
+
+The SPU rules support three types of executables:
+
+<CardGroup cols={3}>
+  <Card title=".task" icon="microchip">
+    **Task Programs**
+    
+    SPURS task executables loaded at runtime
+    
+    ```makefile
+    LDFLAGS = $(TASK_LDFLAGS)
+    target.task: $(OFILES)
+    ```
+  </Card>
+
+  <Card title=".jq" icon="gear">
+    **Job Queue**
+    
+    Position-independent job queue programs
+    
+    ```makefile
+    LDFLAGS = $(JOB_LDFLAGS)
+    target.jq: $(OFILES)
+    ```
+  </Card>
+
+  <Card title=".wm" icon="window">
+    **Workload Manager**
+    
+    MARS workload manager modules
+    
+    ```makefile
+    LDFLAGS = $(WM_LDFLAGS)
+    target.wm: $(OFILES)
+    ```
+  </Card>
+</CardGroup>
+
+## Common Libraries
+
+Shared libraries used by both PPU and SPU:
+
+```
+common/
+├── vectormath/       # Vector and matrix math
+│   ├── ppu/          # PPU implementation
+│   └── spu/          # SPU implementation
+├── libsimdmath/      # SIMD math library
+│   ├── ppu/          # PPU version
+│   └── spu/          # SPU version
+└── libspumars/       # MARS framework
+    ├── ppu/          # PPU host library
+    └── spu/          # SPU task library
+```
+
+## Build System
+
+PSL1GHT uses a hierarchical makefile system:
+
+### Build Rules Files
+
+<Steps>
+  <Step title="base_rules">
+    Common rules for all platforms:
+
+    ```makefile
+    # Compiler configuration
+    export CC  := $(PREFIX)gcc
+    export CXX := $(PREFIX)g++
+    export AR  := $(PREFIX)ar
+    export LD  := $(PREFIX)gcc
+
+    # Pattern rules
+    %.o: %.c
+        $(CC) $(CFLAGS) -c $< -o $@
+
+    %.o: %.cpp
+        $(CXX) $(CXXFLAGS) -c $< -o $@
+
+    %.elf: $(OFILES)
+        $(LD) $^ $(LDFLAGS) $(LIBS) -o $@
+    ```
+
+    Defines compilation rules for C, C++, and assembly files.
+  </Step>
+
+  <Step title="ppu_rules">
+    PowerPC-specific rules:
+
+    ```makefile
+    PREFIX := ppu-
+    MACHDEP := -mhard-float -fmodulo-sched \
+               -ffunction-sections -fdata-sections
+
+    # PSL1GHT paths
+    export LIBPSL1GHT_INC := -I$(PSL1GHT)/ppu/include
+    export LIBPSL1GHT_LIB := -L$(PSL1GHT)/ppu/lib
+
+    # Packaging tools
+    SPRX := sprxlinker
+    FSELF := fself
+    PKG := pkg.py
+    SFO := sfo.py
+    ```
+
+    Includes rules for creating `.self` and `.pkg` files.
+  </Step>
+
+  <Step title="spu_rules">
+    SPU-specific rules:
+
+    ```makefile
+    PREFIX := spu-
+    MACHDEP := -mdual-nops -fmodulo-sched \
+               -ffunction-sections -fdata-sections
+
+    # Task linking
+    export TASK_LDFLAGS := -Wl,-Ttext-segment=0x3a00 \
+                           -lspumarstask -lspumars -lsputhread
+
+    # Job queue linking  
+    export JOB_LDFLAGS := -fpic -Wl,-r -Wl,-q \
+                          -lspumarsjq -lspumars
+    ```
+
+    Provides linking rules for SPU tasks and jobs.
+  </Step>
+
+  <Step title="data_rules">
+    Binary data embedding:
+
+    ```makefile
+    # Image files
+    %.png.o: %.png
+        $(bin2o)
+
+    %.jpg.o: %.jpg
+        $(bin2o)
+
+    # Shader files
+    %.vpo.o: %.vpo
+        $(bin2o)
+
+    # Raw binary
+    %.bin.o: %.bin
+        $(bin2o)
+    ```
+
+    Converts binary files (images, shaders, audio) to object files that can be linked into your executable.
+  </Step>
+</Steps>
+
+### bin2o Process
+
+The `bin2o` macro embeds binary data:
+
+```makefile
+define bin2o
+    bin2s -a 64 $< | $(AS) -o $(@)
+    echo "extern const u8" `echo $(<F) | tr . _`"[];"
+    echo "extern const u8" `echo $(<F) | tr . _`"_end[];"
+    echo "extern const u32" `echo $(<F) | tr . _`_size";"
+endef
+```
+
+For `data/logo.png`, this generates:
+
+```c
+extern const u8 logo_png[];
+extern const u8 logo_png_end[];
+extern const u32 logo_png_size;
+```
+
+You can then access the data in your code:
+
+```c
+#include "logo_png.h"
+
+void load_logo() {
+    decode_png(logo_png, logo_png_size);
+}
+```
+
+## Tools Directory
+
+Build utilities and helper scripts:
+
+```
+tools/
+├── sprxlinker/       # SPRX stub linker
+├── ps3load/          # Network loader client
+├── cgcomp/           # Cg shader compiler
+├── fself/            # Fake SELF creator
+├── ps3py/            # Python tools
+│   ├── pkg.py        # Package creator
+│   ├── sfo.py        # PARAM.SFO creator
+│   └── fself.py      # Python SELF tool
+├── raw2h/            # Binary to header converter
+└── generic/          # Generic signing tools
+    ├── make_self
+    ├── make_self_npdrm
+    └── package_finalize
+```
+
+### Key Tools
+
+<AccordionGroup>
+  <Accordion title="sprxlinker">
+    Links SPRX stub libraries into your ELF:
+
+    ```bash
+    sprxlinker myapp.elf
+    ```
+
+    Resolves all SPRX imports and prepares the ELF for signing.
+  </Accordion>
+
+  <Accordion title="make_self / fself">
+    Creates signed SELF executables:
+
+    ```bash
+    # Real signing (requires keys)
+    make_self myapp.elf myapp.self
+
+    # Fake signing (for CFW)
+    fself myapp.elf myapp.self
+    ```
+  </Accordion>
+
+  <Accordion title="sfo.py">
+    Creates PARAM.SFO metadata files:
+
+    ```bash
+    sfo.py --title "My Game" --appid "GAME00001" \
+           -f sfo.xml output.sfo
+    ```
+  </Accordion>
+
+  <Accordion title="pkg.py">
+    Packages applications for installation:
+
+    ```bash
+    pkg.py --contentid "UP0001-GAME00001_00-0000000000000000" \
+           pkg_dir/ output.pkg
+    ```
+  </Accordion>
+
+  <Accordion title="ps3load">
+    Network loading for rapid testing:
+
+    ```bash
+    ps3load myapp.self
+    ```
+
+    Requires ps3load homebrew running on the PS3.
+  </Accordion>
+
+  <Accordion title="cgcomp">
+    Compiles Cg shaders to binary:
+
+    ```bash
+    # Vertex shader
+    cgcomp -v shader.vcg shader.vpo
+
+    # Fragment shader
+    cgcomp -f shader.fcg shader.fpo
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Samples Directory
+
+Example applications demonstrating SDK features:
+
+```
+samples/
+├── graphics/         # Graphics examples
+│   ├── rsxtest/      # Basic RSX rendering
+│   ├── rsxtest_spu/  # RSX with SPU assistance
+│   ├── cairo/        # Cairo 2D graphics
+│   └── blitting/     # Image blitting
+├── audio/            # Audio examples
+│   ├── audiotest/    # Basic audio output
+│   └── audiosync/    # Audio synchronization
+├── input/            # Input examples
+│   ├── padtest/      # Controller input
+│   ├── kbtest/       # Keyboard input
+│   ├── camera/       # PlayStation Eye
+│   └── gemtest/      # PlayStation Move
+├── network/          # Networking examples
+│   ├── networktest/  # Socket basics
+│   ├── httptest/     # HTTP client
+│   └── echoserv/     # Echo server
+├── spu/              # SPU examples
+│   ├── sputest/      # Basic SPU usage
+│   ├── sputhread/    # SPU threading
+│   └── spurs/        # SPURS tasks
+└── sys/              # System examples
+    ├── msgdialog/    # Message dialogs
+    ├── osk/          # On-screen keyboard
+    └── save/         # Save data
+```
+
+### Building Samples
+
+Build all samples:
+
+```bash
+cd $PSL1GHT
+make samples
+```
+
+Build a specific sample:
+
+```bash
+cd samples/graphics/rsxtest
+make
+make pkg
+```
+
+## Templates Directory
+
+Project templates for quick starts:
+
+### Trivial Template
+
+Minimal "Hello World" project:
+
+```
+templates/trivial/
+├── Makefile
+└── source/
+    └── main.c
+```
+
+### Simple Template
+
+Standalone Makefile without PSL1GHT rules:
+
+```
+templates/simple/
+└── Makefile          # Self-contained build
+```
+
+Use as starting points:
+
+```bash
+cp -r $PSL1GHT/templates/trivial ~/my-project
+cd ~/my-project
+make
+```
+
+## Environment Variables
+
+Required variables for building:
+
+```bash
+# Toolchain location
+export PS3DEV=/usr/local/ps3dev
+
+# PSL1GHT SDK location
+export PSL1GHT=$PS3DEV/psl1ght
+
+# Add tools to PATH
+export PATH=$PATH:$PS3DEV/bin:$PS3DEV/ppu/bin:$PS3DEV/spu/bin
+
+# Port libraries (optional)
+export PORTLIBS=$PS3DEV/portlibs/ppu
+```
+
+<Warning>
+  The build system requires `$PSL1GHT` to be set. Makefiles will fail immediately if this variable is undefined.
+</Warning>
+
+## Project Makefile Structure
+
+Typical PSL1GHT project Makefile:
+
+```makefile
+#---------------------------------------------------------------------------------
+# Project Configuration
+#---------------------------------------------------------------------------------
+TARGET    := myapp
+SOURCES   := source
+DATA      := data
+SHADERS   := shaders
+INCLUDES  := include
+BUILD     := build
+
+TITLE     := My Application
+APPID     := MYAP00001
+CONTENTID := UP0001-$(APPID)_00-0000000000000000
+
+#---------------------------------------------------------------------------------
+# Compiler Flags
+#---------------------------------------------------------------------------------
+CFLAGS    := -Wall -mcpu=cell $(MACHDEP) $(INCLUDE)
+CXXFLAGS  := $(CFLAGS)
+LDFLAGS   := $(MACHDEP) -Wl,-Map,$(notdir $@).map
+
+#---------------------------------------------------------------------------------
+# Libraries
+#---------------------------------------------------------------------------------
+LIBS      := -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm
+LIBDIRS   :=
+
+#---------------------------------------------------------------------------------
+# Include PSL1GHT build system
+#---------------------------------------------------------------------------------
+include $(PSL1GHT)/ppu_rules
+
+#---------------------------------------------------------------------------------
+# Build everything
+#---------------------------------------------------------------------------------
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+
+# Auto-detect source files
+CFILES    := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
+CPPFILES  := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.cpp))
+VCGFILES  := $(foreach dir,$(SHADERS),$(wildcard $(dir)/*.vcg))
+
+export OFILES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
+                 $(VCGFILES:.vcg=.vpo.o)
+
+$(BUILD):
+	@[ -d $@ ] || mkdir -p $@
+	@$(MAKE) -C $(BUILD) -f $(CURDIR)/Makefile
+
+clean:
+	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).self $(TARGET).pkg
+
+else
+
+$(OUTPUT).self: $(OUTPUT).elf
+$(OUTPUT).elf: $(OFILES)
+
+-include $(OFILES:.o=.d)
+
+endif
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="/api/rsx">
+    Explore available libraries and functions
+  </Card>
+  <Card title="Graphics Guide" icon="palette" href="/graphics/rsx-overview">
+    Learn RSX graphics programming
+  </Card>
+</CardGroup>

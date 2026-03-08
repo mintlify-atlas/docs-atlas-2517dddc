@@ -1,0 +1,300 @@
+---
+title: 'SPRX Libraries'
+description: 'Understanding and creating SPRX stub libraries for PlayStation 3 dynamic linking'
+---
+
+## Overview
+
+PSL1GHT supports dynamic linking with PlayStation 3 system libraries through SPRX (PlayStation 3 PRX) stub libraries. Any dynamic library available to normal PS3 applications can be used with PSL1GHT by creating a stub library and defining the exports.
+
+<Note>
+SPRX libraries allow you to access Sony's official PS3 system libraries, giving you access to hardware features and system services that would otherwise be unavailable.
+</Note>
+
+## SPRX Library Architecture
+
+SPRX stub libraries act as a bridge between your application and the PS3's dynamic libraries loaded by the system.
+
+### How SPRX Linking Works
+
+1. **Stub Creation**: Define function stubs that match the PS3 system library exports
+2. **Symbol Export**: Map function names to their Function IDs (FNIDs)
+3. **Runtime Linking**: The sprxlinker tool processes your ELF to set up dynamic linking
+4. **Execution**: The PS3 resolves symbols to actual system library functions at runtime
+
+## Supported Libraries
+
+PSL1GHT currently provides stub libraries for the following PS3 system libraries (source:~/workspace/source/README.md:107-118):
+
+<AccordionGroup>
+  <Accordion title="I/O Libraries">
+    - **libio** - Core I/O operations
+      - libpad - Controller input
+      - libmouse - Mouse input  
+      - libkb - Keyboard input
+    - **liblv2** - Low-level system calls
+  </Accordion>
+
+  <Accordion title="Graphics & Media">
+    - **libgcm_sys** - Graphics Command Manager
+    - **libpngdec** - PNG image decoding
+    - **libjpgdec** - JPEG image decoding
+    - **libresc** - Resolution conversion
+    - **libfont** - Font rendering
+    - **libfontFT** - FreeType font support
+  </Accordion>
+
+  <Accordion title="System Utilities">
+    - **libsysutil** - System utility functions
+    - **libsysmodule** - Dynamic module loading
+    - **libsysfs** - System filesystem access
+    - **liblv2dbg** - Debug utilities
+  </Accordion>
+
+  <Accordion title="Networking">
+    - **libnet** - Network operations
+    - **libnetctl** - Network control
+    - **libhttp** - HTTP client
+    - **libhttputil** - HTTP utilities
+    - **libssl** - SSL/TLS support
+  </Accordion>
+
+  <Accordion title="Advanced Features">
+    - **libgem** - PlayStation Move support
+    - **libcamera** - Camera/EyeToy support
+    - **libaudio** - Audio system
+    - **libspurs** - SPU Runtime System
+    - **libvdec** - Video decoding
+    - **libusb** - USB device access
+  </Accordion>
+</AccordionGroup>
+
+## Creating a SPRX Stub Library
+
+### Directory Structure
+
+All SPRX libraries are located in `ppu/sprx/` with the following structure:
+
+```
+ppu/sprx/libio/
+├── Makefile        # Build configuration
+├── config.h        # Library metadata
+└── exports.h       # Function export definitions
+```
+
+### Step 1: Define Library Configuration
+
+Create a `config.h` file with your library metadata (source:~/workspace/source/ppu/sprx/libio/config.h:1-6):
+
+```c config.h
+#define LIBRARY_NAME        "sys_io"
+#define LIBRARY_SYMBOL      sys_io
+
+#define LIBRARY_HEADER_1    0x2c000001
+#define LIBRARY_HEADER_2    0x0009
+```
+
+<Tip>
+The `LIBRARY_NAME` must match the actual PS3 system library name. The header values can typically be found through reverse engineering or Sony's SDK documentation.
+</Tip>
+
+### Step 2: Define Function Exports
+
+Create an `exports.h` file mapping function names to their FNIDs (source:~/workspace/source/ppu/sprx/libio/exports.h:1-60):
+
+```c exports.h
+#ifndef __EXPORTS_H__
+#define __EXPORTS_H__
+
+/* Pad Controller Functions */
+EXPORT(ioPadInit, 0x1cf98800);
+EXPORT(ioPadEnd, 0x4d9b75d5);
+EXPORT(ioPadGetData, 0x8b72cda1);
+EXPORT(ioPadGetInfo, 0x3aaad464);
+EXPORT(ioPadClearBuf, 0x0d5f2c14);
+EXPORT(ioPadSetActDirect, 0xf65544ee);
+
+/* Mouse Functions */
+EXPORT(ioMouseInit, 0xc9030138);
+EXPORT(ioMouseEnd, 0xe10183ce);
+EXPORT(ioMouseGetData, 0x3138e632);
+EXPORT(ioMouseGetInfo, 0x5baf30fb);
+
+/* Keyboard Functions */
+EXPORT(ioKbInit, 0x433f6ec0);
+EXPORT(ioKbEnd, 0xbfce3285);
+EXPORT(ioKbRead, 0xff0a21b7);
+EXPORT(ioKbGetInfo, 0x2f1774d5);
+
+#endif
+```
+
+<Warning>
+FNIDs (Function IDs) must be exact. Incorrect FNIDs will cause crashes or undefined behavior. These are typically obtained from reverse engineering PS3 system libraries.
+</Warning>
+
+### Step 3: Export Mechanism
+
+The export mechanism uses PowerPC assembly to create trampolines (source:~/workspace/source/ppu/sprx/common/exports.S:13-37):
+
+```asm exports.S
+#define EXPORT(name,fnid)               \
+    .align 2;                           \
+    .section ".sceStub.text","ax";      \
+    .globl __##name;                    \
+__##name:                               \
+    mflr    r0;                         \
+    std     r0,16(r1);                  \
+    std     r2,40(r1);                  \
+    stdu    r1,-128(r1);                \
+    lis     r12,name##_stub@ha;         \
+    lwz     r12,name##_stub@l(r12);     \
+    lwz     r0,0(r12);                  \
+    lwz     r2,4(r12);                  \
+    mtctr   r0;                         \
+    bctrl;                              \
+    addi    r1,r1,128;                  \
+    ld      r2,40(r1);                  \
+    ld      r0,16(r1);                  \
+    mtlr    r0;                         \
+    blr;                                \
+    .align 3;                           \
+    .section ".opd","aw";               \
+    .globl name;                        \
+name:                                   \
+    .quad __##name,.TOC.@tocbase,0
+```
+
+This macro:
+1. Saves the link register and TOC pointer
+2. Loads the function stub pointer
+3. Calls the actual system library function
+4. Restores registers and returns
+
+### Step 4: Build Configuration
+
+Create a Makefile following the SPRX pattern (source:~/workspace/source/ppu/sprx/libio/Makefile:79-94):
+
+```makefile Makefile
+LIBRARY := $(LIBDIR)/libio
+
+sprx.o: exports.o libexport.o
+	@$(LD) -r exports.o libexport.o -o $@
+
+libexport.o: libexport.c
+	@$(CC) $(DEPSOPT) -S -m32 $(INCLUDE) $< -o libexport.S
+	@$(CC) $(DEPSOPT) -c libexport.S -o $@
+
+$(LIBRARY).a: sprx.o
+	@echo $(notdir $@)
+	@rm -f $@
+	@$(AR) -rc $@ $^
+
+install: all
+	@cp -frv $(CURDIR)/lib/ppu/*.a $(PSL1GHT)/ppu/lib
+```
+
+## Using SPRX Libraries
+
+### Linking Against SPRX Libraries
+
+In your application's Makefile:
+
+```makefile
+LIBS := -lio -lsysutil -lgcm_sys
+```
+
+### Example: Using libio
+
+```c
+#include <io/pad.h>
+
+int main() {
+    padInfo padinfo;
+    padData paddata;
+    
+    // Initialize pad library
+    ioPadInit(7);
+    
+    // Get controller info
+    ioPadGetInfo(&padinfo);
+    
+    if (padinfo.status[0]) {
+        // Read controller data
+        ioPadGetData(0, &paddata);
+        
+        if (paddata.BTN_CROSS) {
+            // Handle Cross button press
+        }
+    }
+    
+    ioPadEnd();
+    return 0;
+}
+```
+
+## The sprxlinker Tool
+
+The `sprxlinker` tool processes your compiled ELF to set up SPRX imports (source:~/workspace/source/ppu_rules:29-61):
+
+```bash
+# Automatically called during build process
+sprxlinker input.elf
+make_self input.elf output.self
+```
+
+The tool:
+1. Scans for SPRX stub sections
+2. Creates import tables
+3. Sets up runtime linking information
+4. Prepares the ELF for SELF conversion
+
+<Note>
+The sprxlinker is automatically invoked during the standard PSL1GHT build process. You typically don't need to call it manually.
+</Note>
+
+## Advanced: Variadic Function Exports
+
+For functions with variable arguments, use the `EXPORT_VA` macro (source:~/workspace/source/ppu/sprx/common/exports.S:39-81):
+
+```c
+EXPORT_VA(printf, 0x12345678, 1);  // 1 fixed argument
+```
+
+This handles the PowerPC calling convention for variadic functions, properly managing the parameter save area.
+
+## Best Practices
+
+<Warning>
+**Never guess FNIDs!** Always obtain them from:
+- Reverse engineering actual PS3 system libraries
+- Sony's official SDK documentation (if you have access)
+- Verified community sources
+</Warning>
+
+<Tip>
+When creating new SPRX stubs:
+1. Start with a minimal set of exports
+2. Test each function thoroughly
+3. Document the expected behavior
+4. Add error handling for unsupported firmware versions
+</Tip>
+
+## Debugging SPRX Issues
+
+If your SPRX library isn't working:
+
+1. **Verify FNIDs**: Double-check all function IDs
+2. **Check Library Name**: Ensure `LIBRARY_NAME` matches exactly
+3. **Inspect Linking**: Use `ppu-objdump -x` to verify stub sections
+4. **Test Incrementally**: Add one function at a time
+
+```bash
+# Examine SPRX stub sections
+ppu-objdump -x your_app.elf | grep sceStub
+```
+
+## See Also
+
+- [Optimization](/advanced/optimization) - Optimize SPRX library calls
+- [Debugging](/advanced/debugging) - Debug dynamic linking issues

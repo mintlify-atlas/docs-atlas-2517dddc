@@ -1,0 +1,1023 @@
+---
+title: 'Move (Gem)'
+description: 'PlayStation Move motion controller support'
+---
+
+The Move API (also known as Gem or libgem) provides functions for using PlayStation Move motion controllers, including motion tracking, button input, LED control, and rumble feedback.
+
+<Note>
+  PlayStation Move requires a PlayStation Eye camera for motion tracking. Minimum firmware version: 3.41
+</Note>
+
+## Initialization
+
+### gemInit
+
+Initialize the PlayStation Move library.
+
+```c
+s32 gemInit(const gemAttribute* attr);
+```
+
+<ParamField path="attr" type="gemAttribute*" required>
+  Pointer to gemAttribute structure with initialization parameters
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+**gemAttribute Structure:**
+```c
+typedef struct _gem_attribute {
+    u32 version;                        // Set to MOVE_VERSION (2)
+    u32 max;                            // Max controllers (1-4)
+    void* memory ATTRIBUTE_PRXPTR;      // Memory pointer (NULL for auto)
+    Spurs* spurs ATTRIBUTE_PRXPTR;      // SPURS instance
+    u8 spu_priorities[8];               // SPU priority levels
+} gemAttribute;
+```
+
+<Expandable title="gemAttribute Configuration">
+  <ParamField path="version" type="u32">
+    Must be set to `MOVE_VERSION` (2)
+  </ParamField>
+  <ParamField path="max" type="u32">
+    Maximum number of Move controllers to support (1-4)
+  </ParamField>
+  <ParamField path="memory" type="void*">
+    Pointer to memory for Move library. Set to NULL for automatic allocation.
+  </ParamField>
+  <ParamField path="spurs" type="Spurs*">
+    Pointer to SPURS (SPU Runtime System) instance for parallel processing
+  </ParamField>
+  <ParamField path="spu_priorities" type="u8[8]">
+    Priority levels for SPU tasks
+  </ParamField>
+</Expandable>
+
+**Example:**
+```c
+#include <io/move.h>
+#include <sysmodule/sysmodule.h>
+#include <spurs/spurs.h>
+
+// Load required modules
+SysLoadModule(SYSMODULE_CAM);
+SysLoadModule(SYSMODULE_GEM);
+
+// Initialize SPURS (required for Move)
+Spurs spurs;
+// ... SPURS initialization code ...
+
+// Configure Move
+gemAttribute gem_attr;
+memset(&gem_attr, 0, sizeof(gemAttribute));
+gem_attr.version = MOVE_VERSION;
+gem_attr.max = 4;  // Support up to 4 controllers
+gem_attr.spurs = &spurs;
+gem_attr.memory = NULL;  // Auto-allocate
+
+// Initialize Move
+if (gemInit(&gem_attr) != 0) {
+    printf("Failed to initialize Move\n");
+    return -1;
+}
+```
+
+### gemEnd
+
+End PlayStation Move operations and cleanup resources.
+
+```c
+s32 gemEnd();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+### gemGetMemorySize
+
+Get the required memory size for Move library.
+
+```c
+s32 gemGetMemorySize(s32 max);
+```
+
+<ParamField path="max" type="s32" required>
+  Maximum number of controllers
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Required memory size in bytes
+</ResponseField>
+
+## Camera Setup
+
+### gemPrepareCamera
+
+Prepare the PlayStation Eye camera for Move tracking.
+
+```c
+s32 gemPrepareCamera(s32 maxexposure, f32 quality);
+```
+
+<ParamField path="maxexposure" type="s32" required>
+  Maximum exposure time
+</ParamField>
+
+<ParamField path="quality" type="f32" required>
+  Image quality (0.0 to 1.0)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+**Example:**
+```c
+// Prepare camera with auto exposure and high quality
+gemPrepareCamera(500, 0.9f);
+```
+
+### gemGetCameraState
+
+Get the current camera state.
+
+```c
+s32 gemGetCameraState(gemCameraState* state);
+```
+
+**gemCameraState Structure:**
+```c
+typedef struct _gem_cam_state {
+    s32 exposure;               // Current exposure value
+    f32 exposure_time;          // Exposure time in seconds
+    f32 gain;                   // Camera gain
+    f32 pitch_angle;            // Camera pitch angle
+    f32 pitch_angle_estimate;   // Estimated pitch angle
+} gemCameraState;
+```
+
+### gemEnableCameraPitchAngleCorrection
+
+Enable or disable camera pitch angle correction.
+
+```c
+s32 gemEnableCameraPitchAngleCorrection(s32 enable);
+```
+
+<ParamField path="enable" type="s32" required>
+  1 to enable, 0 to disable
+</ParamField>
+
+## Controller Information
+
+### gemGetInfo
+
+Get information about connected Move controllers.
+
+```c
+s32 gemGetInfo(gemInfo* info);
+```
+
+<ParamField path="info" type="gemInfo*" required>
+  Pointer to gemInfo structure
+</ParamField>
+
+**gemInfo Structure:**
+```c
+typedef struct _gem_info {
+    u32 max;                // Maximum controllers supported
+    u32 connected;          // Number of connected controllers
+    u32 status[MAX_MOVES];  // Status for each controller
+    u32 port[MAX_MOVES];    // Port number for each controller
+} gemInfo;
+```
+
+**Example:**
+```c
+gemInfo info;
+gemGetInfo(&info);
+
+printf("Max controllers: %d, Connected: %d\n", info.max, info.connected);
+
+for (int i = 0; i < MAX_MOVES; i++) {
+    if (info.status[i]) {
+        printf("Move %d connected on port %d\n", i, info.port[i]);
+    }
+}
+```
+
+## Color Tracking
+
+PlayStation Move uses colored spheres for tracking. Each controller must be assigned a unique color.
+
+### gemTrackHues
+
+Request tracking for specific hue values.
+
+```c
+s32 gemTrackHues(const u32* req_hues, u32* res_hues);
+```
+
+<ParamField path="req_hues" type="u32*" required>
+  Array of requested hue values (one per controller)
+</ParamField>
+
+<ParamField path="res_hues" type="u32*" required>
+  Array to receive assigned hue values
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+### gemGetTrackerHue
+
+Get the currently tracked hue for a controller.
+
+```c
+s32 gemGetTrackerHue(u32 num, u32* hue);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number (0-3)
+</ParamField>
+
+<ParamField path="hue" type="u32*" required>
+  Pointer to receive hue value (0-359)
+</ParamField>
+
+### gemIsTrackableHue
+
+Check if a hue value can be tracked.
+
+```c
+s32 gemIsTrackableHue(u32 hue);
+```
+
+<ParamField path="hue" type="u32" required>
+  Hue value to check (0-359)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns non-zero if trackable, 0 otherwise
+</ResponseField>
+
+### gemGetAllTrackableHues
+
+Get all trackable hue values.
+
+```c
+s32 gemGetAllTrackableHues(u8* hues);
+```
+
+<ParamField path="hues" type="u8*" required>
+  Array of 360 bytes to receive trackable hue flags (1 = trackable, 0 = not trackable)
+</ParamField>
+
+## LED Control
+
+### gemSetRGB
+
+Set the color of the Move controller's sphere LED.
+
+```c
+s32 gemSetRGB(u32 num, f32 r, f32 g, f32 b);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number (0-3)
+</ParamField>
+
+<ParamField path="r" type="f32" required>
+  Red component (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="g" type="f32" required>
+  Green component (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="b" type="f32" required>
+  Blue component (0.0 to 1.0)
+</ParamField>
+
+### gemGetRGB
+
+Get the current LED color.
+
+```c
+s32 gemGetRGB(u32 num, f32* r, f32* g, f32* b);
+```
+
+### gemForceRGB
+
+Force set LED color (bypasses tracking color).
+
+```c
+s32 gemForceRGB(u32 num, f32 r, f32 g, f32 b);
+```
+
+**Example - LED Control:**
+```c
+// Set to red
+gemForceRGB(0, 1.0f, 0.0f, 0.0f);
+
+// Set to green
+gemForceRGB(0, 0.0f, 1.0f, 0.0f);
+
+// Set to blue
+gemForceRGB(0, 0.0f, 0.0f, 1.0f);
+
+// Set to purple
+gemForceRGB(0, 0.5f, 0.0f, 0.5f);
+
+// Get current color
+f32 r, g, b;
+gemGetRGB(0, &r, &g, &b);
+printf("Current color: R=%.2f G=%.2f B=%.2f\n", r, g, b);
+```
+
+### gemHSVtoRGB
+
+Convert HSV color to RGB.
+
+```c
+s32 gemHSVtoRGB(f32 h, f32 s, f32 v, f32* r, f32* g, f32* b);
+```
+
+<ParamField path="h" type="f32" required>
+  Hue (0.0 to 360.0)
+</ParamField>
+
+<ParamField path="s" type="f32" required>
+  Saturation (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="v" type="f32" required>
+  Value/Brightness (0.0 to 1.0)
+</ParamField>
+
+## Rumble Control
+
+### gemSetRumble
+
+Set controller rumble intensity.
+
+```c
+s32 gemSetRumble(u32 num, u8 intensity);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number (0-3)
+</ParamField>
+
+<ParamField path="intensity" type="u8" required>
+  Rumble intensity (0-255, where 0 is off and 255 is maximum)
+</ParamField>
+
+### gemGetRumble
+
+Get current rumble intensity.
+
+```c
+s32 gemGetRumble(u32 num, u8* intensity);
+```
+
+**Example:**
+```c
+// Strong rumble
+gemSetRumble(0, 255);
+usleep(500000);  // 0.5 seconds
+
+// Medium rumble
+gemSetRumble(0, 128);
+usleep(500000);
+
+// Turn off rumble
+gemSetRumble(0, 0);
+```
+
+## Updating Tracking
+
+### gemUpdateStart
+
+Start a tracking update cycle with camera frame data.
+
+```c
+s32 gemUpdateStart(const void* camera_frame, system_time_t timestamp);
+```
+
+<ParamField path="camera_frame" type="void*" required>
+  Pointer to camera frame data
+</ParamField>
+
+<ParamField path="timestamp" type="system_time_t" required>
+  Frame timestamp
+</ParamField>
+
+### gemUpdateFinish
+
+Finish the tracking update cycle.
+
+```c
+s32 gemUpdateFinish();
+```
+
+<Note>
+  Call `gemUpdateStart()` with a camera frame, then `gemUpdateFinish()` to complete the tracking update. This should be done every frame.
+</Note>
+
+## Reading Controller State
+
+### gemGetState
+
+Get the full state of a Move controller including position, orientation, and button input.
+
+```c
+s32 gemGetState(u32 num, u32 timeflag, system_time_t time, gemState* state);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number (0-3)
+</ParamField>
+
+<ParamField path="timeflag" type="u32" required>
+  Time flag:
+  - `STATE_CURRENT_TIME` (0): Current state
+  - `STATE_LATEST_IMAGE_TIME` (1): Latest image time
+  - `STATE_SPECIFY_TIME` (2): Specific timestamp
+</ParamField>
+
+<ParamField path="time" type="system_time_t" required>
+  Timestamp (used with STATE_SPECIFY_TIME)
+</ParamField>
+
+<ParamField path="state" type="gemState*" required>
+  Pointer to gemState structure
+</ParamField>
+
+**gemState Structure:**
+```c
+typedef struct _gem_state {
+    vec_float4 pos;             // Position (X, Y, Z, W)
+    vec_float4 vel;             // Velocity
+    vec_float4 accel;           // Acceleration
+    vec_float4 quat;            // Orientation quaternion
+    vec_float4 angvel;          // Angular velocity
+    vec_float4 angaccel;        // Angular acceleration
+    vec_float4 handle_pos;      // Handle position
+    vec_float4 handle_vel;      // Handle velocity
+    vec_float4 handle_accel;    // Handle acceleration
+    gemPadData paddata;         // Button data
+    gemExtPortData extportdata; // Extension port data (Navigation controller)
+    system_time_t time;         // Timestamp
+    f32 temperature;            // Controller temperature
+    f32 camera_pitch_angle;     // Camera pitch angle
+    u32 tracking;               // Tracking flags
+} gemState;
+```
+
+<Expandable title="gemState Fields">
+  <ParamField path="pos" type="vec_float4">
+    3D position in camera space (X, Y, Z in meters)
+  </ParamField>
+  <ParamField path="quat" type="vec_float4">
+    Orientation as quaternion (X, Y, Z, W)
+  </ParamField>
+  <ParamField path="paddata" type="gemPadData">
+    Button state (Move button, Start, Select, trigger)
+  </ParamField>
+  <ParamField path="tracking" type="u32">
+    Tracking status:
+    - Bit 0 (`GEM_TRACKING_POSITION_TRACKED`): Position is tracked
+    - Bit 1 (`GEM_TRACKING_VISIBLE`): Controller is visible to camera
+  </ParamField>
+  <ParamField path="temperature" type="f32">
+    Internal temperature sensor reading in degrees Celsius
+  </ParamField>
+</Expandable>
+
+**gemPadData Structure:**
+```c
+typedef struct _gem_pad_data {
+    u16 buttons;    // Button bitfield
+    u16 ANA_T;      // Trigger analog value (0-65535)
+} gemPadData;
+```
+
+**Button Flags:**
+```c
+// buttons bitfield values (same as pad buttons)
+BTN_CROSS       // Cross button
+BTN_CIRCLE      // Circle button  
+BTN_SQUARE      // Square button
+BTN_TRIANGLE    // Triangle button
+BTN_START       // Start button
+BTN_SELECT      // Select button
+// Move-specific:
+// Bit 8: Move button
+// Bit 9: T button (trigger digital)
+```
+
+**Example - Reading Move State:**
+```c
+gemState state;
+
+while (running) {
+    // Update tracking
+    gemUpdateStart(camera_frame, timestamp);
+    gemUpdateFinish();
+    
+    // Get controller state
+    gemGetState(0, STATE_CURRENT_TIME, 0, &state);
+    
+    // Check if tracking is active
+    if (state.tracking & GEM_TRACKING_POSITION_TRACKED) {
+        // Position is valid
+        printf("Position: X=%.2f Y=%.2f Z=%.2f\n",
+               state.pos[0], state.pos[1], state.pos[2]);
+    }
+    
+    if (state.tracking & GEM_TRACKING_VISIBLE) {
+        printf("Controller is visible\n");
+    }
+    
+    // Check buttons
+    if (state.paddata.buttons & (1 << 8)) {  // Move button
+        printf("Move button pressed\n");
+    }
+    
+    if (state.paddata.buttons & (1 << 9)) {  // Trigger
+        printf("Trigger pressed\n");
+    }
+    
+    // Read trigger analog value
+    f32 trigger = state.paddata.ANA_T / 65535.0f;
+    printf("Trigger: %.2f%%\n", trigger * 100.0f);
+    
+    // Read orientation
+    printf("Orientation: X=%.2f Y=%.2f Z=%.2f W=%.2f\n",
+           state.quat[0], state.quat[1], state.quat[2], state.quat[3]);
+    
+    // Temperature
+    printf("Temperature: %.1f°C\n", state.temperature);
+}
+```
+
+### gemGetInertialState
+
+Get inertial sensor data (accelerometer and gyroscope).
+
+```c
+s32 gemGetInertialState(u32 num, u32 flag, system_time_t time, 
+                        gemInertialState* inertial);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number (0-3)
+</ParamField>
+
+<ParamField path="flag" type="u32" required>
+  Time flag:
+  - `GEM_INERTIAL_LATEST` (0): Latest reading
+  - `GEM_INERTIAL_PREVIOUS` (1): Previous reading
+  - `GEM_INERTIAL_NEXT` (2): Next reading
+</ParamField>
+
+<ParamField path="time" type="system_time_t" required>
+  Timestamp
+</ParamField>
+
+<ParamField path="inertial" type="gemInertialState*" required>
+  Pointer to gemInertialState structure
+</ParamField>
+
+**gemInertialState Structure:**
+```c
+typedef struct _gem_inertial_state {
+    vec_float4 accelerometer;       // Accelerometer data (X, Y, Z in G)
+    vec_float4 gyro;                // Gyroscope data (X, Y, Z in rad/s)
+    vec_float4 accelerometer_bias;  // Accelerometer bias
+    vec_float4 gyro_bias;           // Gyroscope bias
+    gemPadData pad;                 // Button data
+    gemExtPortData ext;             // Extension port data
+    system_time_t time;             // Timestamp
+    s32 counter;                    // Sample counter
+    f32 temperature;                // Temperature
+} gemInertialState;
+```
+
+**Example - Reading Sensors:**
+```c
+gemInertialState inertial;
+gemGetInertialState(0, GEM_INERTIAL_LATEST, 0, &inertial);
+
+// Read accelerometer (in G units)
+printf("Accel: X=%.2f Y=%.2f Z=%.2f G\n",
+       inertial.accelerometer[0],
+       inertial.accelerometer[1],
+       inertial.accelerometer[2]);
+
+// Read gyroscope (in radians/second)
+printf("Gyro: X=%.2f Y=%.2f Z=%.2f rad/s\n",
+       inertial.gyro[0],
+       inertial.gyro[1],
+       inertial.gyro[2]);
+```
+
+### gemGetImageState
+
+Get the controller's position in the camera image.
+
+```c
+s32 gemGetImageState(u32 num, gemImageState* state);
+```
+
+**gemImageState Structure:**
+```c
+typedef struct _gem_img_state {
+    system_time_t frame_time;   // Frame timestamp
+    system_time_t time;         // State timestamp
+    f32 u;                      // Image U coordinate (0-1)
+    f32 v;                      // Image V coordinate (0-1)
+    f32 r;                      // Sphere radius in image
+    f32 projectionx;            // X projection
+    f32 projectiony;            // Y projection
+    f32 distance;               // Distance from camera
+    u8 visible;                 // Visibility flag
+    u8 r_valid;                 // Radius valid flag
+} gemImageState;
+```
+
+## Calibration
+
+### gemCalibrate
+
+Calibrate a Move controller.
+
+```c
+s32 gemCalibrate(u32 num);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number (0-3)
+</ParamField>
+
+<Note>
+  User should hold the controller still during calibration
+</Note>
+
+### gemInvalidateCalibration
+
+Invalidate calibration for a controller.
+
+```c
+s32 gemInvalidateCalibration(u32 num);
+```
+
+### gemReset
+
+Reset a Move controller.
+
+```c
+s32 gemReset(u32 num);
+```
+
+## Advanced Features
+
+### gemEnableMagnetometer
+
+Enable or disable the magnetometer.
+
+```c
+s32 gemEnableMagnetometer(u32 num, s32 enable);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number
+</ParamField>
+
+<ParamField path="enable" type="s32" required>
+  1 to enable, 0 to disable
+</ParamField>
+
+### gemFilterState
+
+Enable or disable state filtering.
+
+```c
+s32 gemFilterState(u32 num, u32 enable);
+```
+
+### gemSetYaw
+
+Set the yaw orientation.
+
+```c
+s32 gemSetYaw(u32 num, vec_float4 zdir);
+```
+
+<ParamField path="num" type="u32" required>
+  Controller number
+</ParamField>
+
+<ParamField path="zdir" type="vec_float4" required>
+  Z direction vector
+</ParamField>
+
+### gemGetAccelerometerPositionInDevice
+
+Get accelerometer position within the device.
+
+```c
+s32 gemGetAccelerometerPositionInDevice(u32 num, vec_float4* pos);
+```
+
+### gemGetStatusFlags
+
+Get status flags for a controller.
+
+```c
+s32 gemGetStatusFlags(u32 num, u64* flags);
+```
+
+### gemClearStatusFlags
+
+Clear status flags.
+
+```c
+s32 gemClearStatusFlags(u32 num, u64 mask);
+```
+
+## Extension Port (Navigation Controller)
+
+**gemExtPortData Structure:**
+```c
+typedef struct _gem_ext_port_data {
+    u16 isconnected;            // Navigation controller connected
+    
+    // Digital buttons (same layout as DualShock)
+    unsigned int BTN_LEFT : 1;
+    unsigned int BTN_DOWN : 1;
+    unsigned int BTN_RIGHT : 1;
+    unsigned int BTN_UP : 1;
+    unsigned int BTN_START : 1;
+    unsigned int BTN_R3 : 1;
+    unsigned int BTN_L3 : 1;
+    unsigned int BTN_SELECT : 1;
+    
+    unsigned int BTN_SQUARE : 1;
+    unsigned int BTN_CROSS : 1;
+    unsigned int BTN_CIRCLE : 1;
+    unsigned int BTN_TRIANGLE : 1;
+    unsigned int BTN_R1 : 1;
+    unsigned int BTN_L1 : 1;
+    unsigned int BTN_R2 : 1;
+    unsigned int BTN_L2 : 1;
+    
+    // Analog stick
+    unsigned int ANA_R_H : 16;  // Right analog horizontal
+    unsigned int ANA_R_V : 16;  // Right analog vertical
+    unsigned int ANA_L_H : 16;  // Left analog horizontal
+    unsigned int ANA_L_V : 16;  // Left analog vertical
+    
+    u8 data[5];                 // Additional data
+} gemExtPortData;
+```
+
+### gemWriteExternalPort
+
+Write data to the extension port.
+
+```c
+s32 gemWriteExternalPort(u32 num, u8 data[EXTERNAL_PORT_DATA_SIZE]);
+```
+
+## Video Conversion
+
+### gemPrepareVideoConvert
+
+Prepare video conversion for debug display.
+
+```c
+s32 gemPrepareVideoConvert(const gemVideoConvertAttribute* attr);
+```
+
+### gemConvertVideoStart
+
+Start video conversion.
+
+```c
+s32 gemConvertVideoStart(const void* frame);
+```
+
+### gemConvertVideoFinish
+
+Finish video conversion.
+
+```c
+s32 gemConvertVideoFinish();
+```
+
+### gemGetHuePixels
+
+Get pixels matching a specific hue.
+
+```c
+s32 gemGetHuePixels(const void* frame, u32 hue, u8* pixels);
+```
+
+## Environment Lighting
+
+### gemGetEnvironmentLightingColor
+
+Get the ambient lighting color from the camera.
+
+```c
+s32 gemGetEnvironmentLightingColor(f32* r, f32* g, f32* b);
+```
+
+<ParamField path="r" type="f32*" required>
+  Pointer to receive red component
+</ParamField>
+
+<ParamField path="g" type="f32*" required>
+  Pointer to receive green component
+</ParamField>
+
+<ParamField path="b" type="f32*" required>
+  Pointer to receive blue component
+</ParamField>
+
+## Constants
+
+```c
+#define MOVE_VERSION                    2       // API version
+#define MAX_MOVES                       4       // Maximum controllers
+#define EXTERNAL_PORT_DATA_SIZE         32      // Extension port data size
+
+// Tracking flags
+#define GEM_TRACKING_POSITION_TRACKED   1       // Position is tracked
+#define GEM_TRACKING_VISIBLE            2       // Controller is visible
+
+// Time flags
+#define STATE_CURRENT_TIME              0       // Current state
+#define STATE_LATEST_IMAGE_TIME         1       // Latest image time
+#define STATE_SPECIFY_TIME              2       // Specific time
+
+// Camera flags
+#define GEM_AUTO_WHITE_BALANCE          1       // Auto white balance
+#define GEM_GAMMA_BOOST                 2       // Gamma boost
+#define GEM_COMBINE_PREVIOUS_INPUT_FRAME 4      // Combine previous frame
+#define GEM_FILTER_OUTLIER_PIXELS       8       // Filter outliers
+
+// Inertial flags
+#define GEM_INERTIAL_LATEST             0       // Latest reading
+#define GEM_INERTIAL_PREVIOUS           1       // Previous reading
+#define GEM_INERTIAL_NEXT               2       // Next reading
+```
+
+## Complete Example
+
+```c
+#include <io/move.h>
+#include <io/camera.h>
+#include <sysmodule/sysmodule.h>
+#include <spurs/spurs.h>
+#include <stdio.h>
+
+int main() {
+    // Load modules
+    SysLoadModule(SYSMODULE_CAM);
+    SysLoadModule(SYSMODULE_GEM);
+    
+    // Initialize SPURS
+    Spurs spurs;
+    // ... SPURS initialization ...
+    
+    // Initialize Move
+    gemAttribute gem_attr;
+    memset(&gem_attr, 0, sizeof(gemAttribute));
+    gem_attr.version = MOVE_VERSION;
+    gem_attr.max = 4;
+    gem_attr.spurs = &spurs;
+    gem_attr.memory = NULL;
+    
+    if (gemInit(&gem_attr) != 0) {
+        printf("Failed to initialize Move\n");
+        return -1;
+    }
+    
+    // Prepare camera
+    gemPrepareCamera(500, 0.9f);
+    
+    // Get Move info
+    gemInfo info;
+    gemGetInfo(&info);
+    printf("Connected controllers: %d\n", info.connected);
+    
+    if (info.connected == 0) {
+        printf("No Move controllers connected\n");
+        gemEnd();
+        return -1;
+    }
+    
+    // Track hues for connected controllers
+    u32 req_hues[MAX_MOVES] = {0};
+    u32 res_hues[MAX_MOVES] = {0};
+    
+    // Request automatic hue assignment
+    for (int i = 0; i < info.connected; i++) {
+        req_hues[i] = 0;  // 0 = auto-assign
+    }
+    
+    gemTrackHues(req_hues, res_hues);
+    
+    // Set LED colors based on assigned hues
+    for (int i = 0; i < info.connected; i++) {
+        f32 r, g, b;
+        gemHSVtoRGB(res_hues[i], 1.0f, 1.0f, &r, &g, &b);
+        gemForceRGB(i, r, g, b);
+        printf("Move %d: Hue=%d, RGB=(%.2f, %.2f, %.2f)\n",
+               i, res_hues[i], r, g, b);
+    }
+    
+    // Main loop
+    gemState state;
+    int frame = 0;
+    
+    while (frame < 1000) {  // Run for 1000 frames
+        // Update tracking (assumes camera frame available)
+        // gemUpdateStart(camera_frame, timestamp);
+        gemUpdateFinish();
+        
+        // Read first controller
+        gemGetState(0, STATE_CURRENT_TIME, 0, &state);
+        
+        // Check tracking
+        if (state.tracking & GEM_TRACKING_POSITION_TRACKED) {
+            // Position is tracked
+            printf("Frame %d: Pos=(%.2f, %.2f, %.2f) ",
+                   frame, state.pos[0], state.pos[1], state.pos[2]);
+            
+            // Check Move button
+            if (state.paddata.buttons & (1 << 8)) {
+                printf("MOVE ");
+                // Vibrate on button press
+                gemSetRumble(0, 255);
+            } else {
+                gemSetRumble(0, 0);
+            }
+            
+            // Check trigger
+            if (state.paddata.buttons & (1 << 9)) {
+                printf("TRIGGER ");
+            }
+            
+            // Trigger analog
+            f32 trigger = state.paddata.ANA_T / 65535.0f;
+            if (trigger > 0.1f) {
+                printf("T=%.0f%% ", trigger * 100.0f);
+            }
+            
+            printf("\n");
+        } else {
+            printf("Frame %d: Not tracking\n", frame);
+        }
+        
+        // Check extension port (Navigation controller)
+        if (state.extportdata.isconnected) {
+            if (state.extportdata.BTN_L3) {
+                printf("Navigation L3 pressed\n");
+            }
+        }
+        
+        frame++;
+        usleep(16667);  // ~60 FPS
+    }
+    
+    // Cleanup
+    gemEnd();
+    SysUnloadModule(SYSMODULE_GEM);
+    SysUnloadModule(SYSMODULE_CAM);
+    
+    return 0;
+}
+```
+
+## Tips
+
+<Tip>
+  - Always call `gemUpdateStart()` and `gemUpdateFinish()` every frame with camera data for accurate tracking
+  - Ensure good lighting conditions for optimal tracking
+  - Keep the Move sphere visible to the camera
+  - Use distinct colors for multiple controllers to avoid tracking conflicts
+  - Calibrate controllers regularly for best accuracy
+</Tip>
+
+<Warning>
+  The Move API requires the PlayStation Eye camera to be properly initialized and providing frame data. Make sure to set up the camera API before using Move tracking features.
+</Warning>

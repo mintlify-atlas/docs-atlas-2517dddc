@@ -1,0 +1,612 @@
+---
+title: SPU Thread Management
+description: Creating and managing SPU thread groups for parallel computation in PSL1GHT
+---
+
+## Overview
+
+SPU threads provide a flexible way to run SPU programs with automatic scheduling and resource management. Unlike raw SPUs, thread groups can exceed the number of physical SPUs (6), with the system handling context switching automatically.
+
+<Note>
+For most applications, **SPU thread groups** are the recommended approach over raw SPU management. They provide better abstraction and easier multi-threading support.
+</Note>
+
+## Thread Group Workflow
+
+The complete lifecycle of SPU thread execution:
+
+<Steps>
+  <Step title="Initialize SPU System">
+    Reserve SPUs for thread-based execution
+    
+    ```c
+    // Initialize 6 SPUs, 0 reserved for raw SPU mode
+    s32 ret = sysSpuInitialize(6, 0);
+    if (ret != 0) {
+        printf("Failed to initialize SPU system: %08x\n", ret);
+        return ret;
+    }
+    ```
+  </Step>
+
+  <Step title="Load SPU Image">
+    Import the SPU program binary into a reusable image structure
+    
+    ```c
+    sysSpuImage image;
+    
+    // From embedded binary
+    ret = sysSpuImageImport(&image, spu_bin, 0);
+    
+    // Or from file
+    ret = sysSpuImageOpen(&image, "/app_home/spu.elf");
+    ```
+  </Step>
+
+  <Step title="Create Thread Group">
+    Establish a group that will contain one or more SPU threads
+    
+    ```c
+    sys_spu_group_t group_id;
+    sysSpuThreadGroupAttribute grpattr = {
+        .nsize = 8,
+        .name = "mygroup",
+        .type = SPU_THREAD_GROUP_TYPE_NORMAL,
+        .option = {0}
+    };
+    
+    // Create group with 1 thread, priority 100
+    ret = sysSpuThreadGroupCreate(&group_id, 1, 100, &grpattr);
+    ```
+  </Step>
+
+  <Step title="Initialize Threads">
+    Create individual SPU threads within the group
+    
+    ```c
+    sys_spu_thread_t thread_id;
+    sysSpuThreadAttribute attr = {
+        .name = "mythread",
+        .nsize = 9,
+        .option = SPU_THREAD_ATTR_NONE
+    };
+    sysSpuThreadArgument arg = {
+        .arg0 = (u64)data_ptr,
+        .arg1 = data_size,
+        .arg2 = 0,
+        .arg3 = 0
+    };
+    
+    ret = sysSpuThreadInitialize(&thread_id, group_id, 0, 
+                                   &image, &attr, &arg);
+    ```
+  </Step>
+
+  <Step title="Configure Thread">
+    Set signal notification mode and other options
+    
+    ```c
+    // Configure signal registers to overwrite mode
+    ret = sysSpuThreadSetConfiguration(thread_id,
+        SPU_SIGNAL1_OVERWRITE | SPU_SIGNAL2_OVERWRITE);
+    ```
+  </Step>
+
+  <Step title="Start Execution">
+    Launch all threads in the group simultaneously
+    
+    ```c
+    ret = sysSpuThreadGroupStart(group_id);
+    ```
+  </Step>
+
+  <Step title="Wait for Completion">
+    Block until all threads finish execution
+    
+    ```c
+    u32 cause, status;
+    ret = sysSpuThreadGroupJoin(group_id, &cause, &status);
+    
+    printf("Thread group completed: cause=%08x status=%08x\n", 
+           cause, status);
+    ```
+  </Step>
+
+  <Step title="Cleanup">
+    Release resources
+    
+    ```c
+    sysSpuThreadGroupDestroy(group_id);
+    sysSpuImageClose(&image);
+    ```
+  </Step>
+</Steps>
+
+## Complete Example
+
+Here's a full working example demonstrating SPU thread creation and signal-based communication:
+
+<CodeGroup>
+```c PPU Side (main.c)
+#include <stdio.h>
+#include <sys/spu.h>
+#include <sys/event_queue.h>
+
+#include "spu_bin.h"
+
+#define SPUP 10
+#define ptr2ea(x) ((u64)((void*)(x)))
+
+int main(int argc, char *argv[]) {
+    sysSpuImage image;
+    u32 thread_id, group_id;
+    sys_event_queue_t evQ;
+    sys_event_t event;
+    
+    // Event queue attributes
+    sys_event_queue_attr_t evQAttr = {
+        SYS_EVENT_QUEUE_FIFO,
+        SYS_EVENT_QUEUE_PPU,
+        "myEvQ"
+    };
+    
+    // Thread group and thread attributes
+    sysSpuThreadGroupAttribute grpattr = {
+        .nsize = 8,
+        .name = ptr2ea("mygroup"),
+        .type = SPU_THREAD_GROUP_TYPE_NORMAL,
+        .option = {0}
+    };
+    
+    sysSpuThreadAttribute attr = {
+        .name = ptr2ea("mythread"),
+        .nsize = 9,
+        .option = SPU_THREAD_ATTR_NONE
+    };
+    
+    sysSpuThreadArgument arg = { 0, 0, 0, 0 };
+    
+    // Initialize SPU system
+    sysSpuInitialize(6, 0);
+    sysSpuImageImport(&image, spu_bin, 0);
+    
+    // Create thread group with 1 thread
+    sysSpuThreadGroupCreate(&group_id, 1, 100, &grpattr);
+    
+    // Create event queue for communication
+    sysEventQueueCreate(&evQ, &evQAttr, 0x4242, 16);
+    
+    // Initialize thread
+    sysSpuThreadInitialize(&thread_id, group_id, 0, 
+                          &image, &attr, &arg);
+    
+    // Configure signal notifications
+    sysSpuThreadSetConfiguration(thread_id,
+        SPU_SIGNAL1_OVERWRITE | SPU_SIGNAL2_OVERWRITE);
+    
+    // Connect event queue for user events
+    sysSpuThreadConnectEvent(thread_id, evQ, 
+                            SPU_THREAD_EVENT_USER, SPUP);
+    
+    printf("Starting SPU thread group...\n");
+    sysSpuThreadGroupStart(group_id);
+    
+    // Send input value via signal
+    printf("Input value: 11\n");
+    sysSpuThreadWriteSignal(thread_id, 0, 11);
+    
+    // Wait for SPU response via event
+    printf("Waiting for SPU to return...\n");
+    sysEventQueueReceive(evQ, &event, 0);
+    
+    if (event.source == SPU_THREAD_EVENT_USER_KEY
+        && event.data_1 == thread_id
+        && (event.data_2 >> 32) == SPUP)
+    {
+        int data0 = event.data_2 & 0xffffff;
+        int data1 = event.data_3;
+        printf("Output values: %d %d\n", data0, data1);
+    } else {
+        printf("Error: unexpected event value!\n");
+    }
+    
+    // Cleanup
+    u32 cause, status;
+    sysSpuThreadGroupJoin(group_id, &cause, &status);
+    sysSpuThreadDisconnectEvent(thread_id, SPU_THREAD_EVENT_USER, SPUP);
+    sysSpuThreadGroupDestroy(group_id);
+    sysSpuImageClose(&image);
+    
+    return 0;
+}
+```
+
+```c SPU Side (spu/source/main.c)
+#include <spu_intrinsics.h>
+#include <spu_mfcio.h>
+#include <sys/spu_thread.h>
+#include <sys/spu_event.h>
+
+#define SPUP 10
+
+int main(uint64_t arg1, uint64_t arg2, 
+         uint64_t arg3, uint64_t arg4) {
+    
+    // Get input value from PPU via signal notification
+    // This is a blocking read
+    uint32_t x = spu_read_signal1();
+    
+    // Perform computation
+    uint32_t result1 = x * 3;
+    uint32_t result2 = x * 5;
+    
+    // Send results back via event queue
+    spu_thread_send_event(SPUP, result1, result2);
+    
+    // Exit cleanly
+    spu_thread_exit(0);
+    return 0;
+}
+```
+</CodeGroup>
+
+## Multiple Thread Groups
+
+Running multiple SPU threads in parallel for maximum performance:
+
+```c Parallel Execution Example
+#include <stdio.h>
+#include <stdlib.h>
+#include <malloc.h>
+#include <sys/spu.h>
+
+#include "spu_bin.h"
+
+#define NUM_THREADS 6
+#define ptr2ea(x) ((u64)(void *)(x))
+
+typedef struct {
+    u32 id;           // Thread ID
+    u32 rank;         // Thread rank (0-5)
+    u32 count;        // Total thread count
+    volatile u32 sync;// Completion flag
+    u64 array_ea;     // Effective address of shared array
+} spu_data_t;
+
+int main(int argc, const char* argv[]) {
+    sysSpuImage image;
+    u32 group_id;
+    sysSpuThreadAttribute attr = { "mythread", 9, SPU_THREAD_ATTR_NONE };
+    sysSpuThreadGroupAttribute grpattr = { 8, "mygroup", 0, {0} };
+    sysSpuThreadArgument arg[NUM_THREADS];
+    u32 cause, status;
+    int i;
+    
+    // Allocate aligned data structures
+    spu_data_t *spu = memalign(16, NUM_THREADS * sizeof(spu_data_t));
+    uint32_t *array = memalign(16, 24 * sizeof(uint32_t));
+    
+    // Initialize SPU system
+    sysSpuInitialize(6, 0);
+    sysSpuImageImport(&image, spu_bin, 0);
+    
+    // Create thread group with 6 threads
+    sysSpuThreadGroupCreate(&group_id, NUM_THREADS, 100, &grpattr);
+    
+    // Initialize each thread
+    for (i = 0; i < NUM_THREADS; i++) {
+        spu[i].rank = i;
+        spu[i].count = NUM_THREADS;
+        spu[i].sync = 0;
+        spu[i].array_ea = ptr2ea(array);
+        
+        arg[i].arg0 = ptr2ea(&spu[i]);
+        
+        sysSpuThreadInitialize(&spu[i].id, group_id, i, 
+                              &image, &attr, &arg[i]);
+        
+        sysSpuThreadSetConfiguration(spu[i].id,
+            SPU_SIGNAL1_OVERWRITE | SPU_SIGNAL2_OVERWRITE);
+    }
+    
+    // Start all threads
+    sysSpuThreadGroupStart(group_id);
+    
+    // Initialize shared array
+    for (i = 0; i < 24; i++) {
+        array[i] = i + 1;
+    }
+    
+    // Signal all threads to begin processing
+    for (i = 0; i < NUM_THREADS; i++) {
+        sysSpuThreadWriteSignal(spu[i].id, 0, 1);
+    }
+    
+    // Wait for all threads to complete
+    for (i = 0; i < NUM_THREADS; i++) {
+        while (spu[i].sync == 0);
+    }
+    
+    printf("All threads completed\n");
+    
+    // Cleanup
+    sysSpuThreadGroupJoin(group_id, &cause, &status);
+    sysSpuThreadGroupDestroy(group_id);
+    sysSpuImageClose(&image);
+    
+    free(array);
+    free(spu);
+    
+    return 0;
+}
+```
+
+## Thread Group Control
+
+### Priority Management
+
+```c Thread Priority
+// Set thread group priority (0-255)
+sysSpuThreadGroupSetPriority(group_id, 150);
+
+// Get current priority
+u32 prio;
+sysSpuThreadGroupGetPriority(group_id, &prio);
+printf("Current priority: %u\n", prio);
+```
+
+### Suspend and Resume
+
+```c Thread Control
+// Temporarily pause thread group execution
+sysSpuThreadGroupSuspend(group_id);
+
+// Perform some operation...
+
+// Resume execution
+sysSpuThreadGroupResume(group_id);
+```
+
+### Forced Termination
+
+<Warning>
+Forcibly terminating a thread group may leave resources in an inconsistent state. Use only when necessary.
+</Warning>
+
+```c Termination
+// Terminate thread group with exit value
+sysSpuThreadGroupTerminate(group_id, 0xDEAD);
+
+// Join will return immediately after termination
+u32 cause, status;
+sysSpuThreadGroupJoin(group_id, &cause, &status);
+
+if (cause & SPU_THREAD_GROUP_JOIN_TERMINATED) {
+    printf("Thread group was terminated\n");
+}
+```
+
+## Signal Notification
+
+SPU threads have two signal notification registers for fast PPU-to-SPU communication:
+
+<Accordion title="Signal Register Modes">
+  **Overwrite Mode**: New signal value replaces the old value
+  
+  **OR Mode**: New signal value is OR'ed with the existing value
+</Accordion>
+
+```c Signal Communication
+// Configure signal registers
+sysSpuThreadSetConfiguration(thread_id,
+    SPU_SIGNAL1_OVERWRITE |  // Signal 1: overwrite mode
+    SPU_SIGNAL2_OR);         // Signal 2: OR mode
+
+// PPU: Send signal to SPU
+sysSpuThreadWriteSignal(thread_id, 0, 0x1234);  // Register 0
+sysSpuThreadWriteSignal(thread_id, 1, 0x5678);  // Register 1
+```
+
+```c SPU: Read Signals
+// Blocking read (waits until signal available)
+uint32_t sig1 = spu_read_signal1();
+uint32_t sig2 = spu_read_signal2();
+
+// Non-blocking read
+uint32_t sig = spu_stat_signal1();  // Returns 0 if no signal
+```
+
+## Event-Based Communication
+
+Event queues provide structured message passing between PPU and SPU:
+
+### PPU Side: Event Setup
+
+```c Event Queue Creation
+#include <sys/event_queue.h>
+
+sys_event_queue_t evQ;
+sys_event_queue_attr_t evQAttr = {
+    .protocol = SYS_EVENT_QUEUE_FIFO,
+    .type = SYS_EVENT_QUEUE_PPU,
+    .name = "spu_events"
+};
+
+// Create queue (key=0x4242, depth=16)
+sysEventQueueCreate(&evQ, &evQAttr, 0x4242, 16);
+
+// Connect to SPU thread (port 10)
+sysSpuThreadConnectEvent(thread_id, evQ, 
+                        SPU_THREAD_EVENT_USER, 10);
+
+// Start thread group...
+
+// Receive event
+sys_event_t event;
+sysEventQueueReceive(evQ, &event, 0);  // Blocking receive
+
+if (event.source == SPU_THREAD_EVENT_USER_KEY) {
+    u32 port = (event.data_2 >> 32);
+    u32 data0 = event.data_2 & 0xffffff;
+    u32 data1 = event.data_3;
+    printf("Event from port %u: %u, %u\n", port, data0, data1);
+}
+
+// Cleanup
+sysSpuThreadDisconnectEvent(thread_id, SPU_THREAD_EVENT_USER, 10);
+sysEventQueueDestroy(evQ, 0);
+```
+
+### SPU Side: Send Events
+
+```c SPU Event Sending
+#include <sys/spu_event.h>
+
+#define MY_PORT 10
+
+// Send event (blocking - waits for queue space)
+int ret = spu_thread_send_event(MY_PORT, result1, result2);
+
+// Send event (non-blocking - may fail if queue full)
+ret = spu_thread_throw_event(MY_PORT, result1, result2);
+```
+
+## Local Store Access
+
+PPU can directly read/write SPU local store memory:
+
+```c Direct Local Store Access
+// Write to SPU local store
+u32 value = 0x12345678;
+sysSpuThreadWriteLocalStorage(thread_id, 0x1000, value, 4);
+
+// Read from SPU local store
+u64 read_value;
+sysSpuThreadReadLocalStorage(thread_id, 0x1000, &read_value, 4);
+
+printf("Read from LS: %08llx\n", read_value);
+```
+
+<Warning>
+Direct local store access should be used sparingly. Prefer DMA transfers and signal/event communication for better performance.
+</Warning>
+
+## Thread Attributes
+
+### Thread Group Attributes
+
+```c Thread Group Configuration
+sysSpuThreadGroupAttribute grpattr;
+
+// Initialize with defaults
+sysSpuThreadGroupAttributeInitialize(grpattr);
+
+// Set name
+sysSpuThreadGroupAttributeName(grpattr, "compute_group");
+
+// Set type
+grpattr.type = SPU_THREAD_GROUP_TYPE_NORMAL;
+// Other types:
+// - SPU_THREAD_GROUP_TYPE_SEQUENTIAL
+// - SPU_THREAD_GROUP_TYPE_SYSTEM
+// - SPU_THREAD_GROUP_TYPE_MEMORY_FROM_CONTAINER
+
+// Use memory container (optional)
+sys_mem_container_t container;
+// ... create container ...
+sysSpuThreadGroupAttributeMemoryContainer(grpattr, container);
+```
+
+### Thread Attributes
+
+```c Thread Configuration
+sysSpuThreadAttribute attr;
+
+// Initialize with defaults
+sysSpuThreadAttributeInitialize(attr);
+
+// Set thread name
+sysSpuThreadAttributeName(attr, "worker_thread");
+
+// Set options
+attr.option = SPU_THREAD_ATTR_NONE;
+// Or combine flags:
+attr.option = SPU_THREAD_ATTR_ASYNC_INT_ENABLE |  // Enable interrupts
+              SPU_THREAD_ATTR_DEC_SYNC_TB_ENABLE; // Sync decrementer
+```
+
+## Thread Exit Status
+
+```c Exit Status Handling
+// SPU side: exit with status
+spu_thread_exit(42);
+
+// PPU side: retrieve exit status
+s32 exit_status;
+sysSpuThreadGetExitStatus(thread_id, &exit_status);
+printf("SPU thread exited with status: %d\n", exit_status);
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Appropriate Thread Count" icon="users">
+    Run at most 6 SPU threads simultaneously to avoid context switching overhead
+  </Card>
+  <Card title="Align Data Structures" icon="align-center">
+    Ensure all shared data is 16-byte (or better, 128-byte) aligned
+  </Card>
+  <Card title="Prefer Events Over Polling" icon="bell">
+    Use event queues instead of polling memory locations
+  </Card>
+  <Card title="Set Appropriate Priorities" icon="layer-group">
+    Higher priorities (larger numbers) for time-critical tasks
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### Fire-and-Forget Pattern
+
+```c Quick Task Execution
+// Start SPU thread for a quick task
+sysSpuThreadGroupStart(group_id);
+
+// Don't wait - continue PPU work
+do_other_work();
+
+// Join later when result needed
+sysSpuThreadGroupJoin(group_id, &cause, &status);
+```
+
+### Producer-Consumer Pattern
+
+```c Work Queue Processing
+// PPU produces work items, SPU consumes
+for (int i = 0; i < work_count; i++) {
+    // Send work descriptor via signal
+    sysSpuThreadWriteSignal(thread_id, 0, work_items[i]);
+    
+    // Wait for completion event
+    sysEventQueueReceive(evQ, &event, 0);
+}
+```
+
+## Related Functions
+
+- [sysSpuThreadGroupCreate](/api/spu-thread) (sys/spu.h:791)
+- [sysSpuThreadInitialize](/api/spu-thread) (sys/spu.h:549)
+- [sysSpuThreadWriteSignal](/api/spu-thread) (sys/spu.h:705)
+- [spu_thread_send_event](/api/spu-thread) (sys/spu_event.h:39)
+- [spu_thread_exit](/api/spu-thread) (sys/spu_thread.h:39)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="DMA Transfers" icon="right-left" href="/spu/dma-transfers">
+    Learn efficient data transfer between PPU and SPU
+  </Card>
+  <Card title="SPURS Framework" icon="network-wired" href="/spu/spurs">
+    High-level task scheduling for complex workloads
+  </Card>
+</CardGroup>

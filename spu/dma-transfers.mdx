@@ -1,0 +1,659 @@
+---
+title: DMA Transfers
+description: Efficient data transfer between PPU main memory and SPU local store using the Memory Flow Controller
+---
+
+## Overview
+
+SPUs cannot directly access main memory. All data transfer between main memory and SPU local store must be performed via **DMA (Direct Memory Access)** using the **Memory Flow Controller (MFC)**.
+
+<Note>
+The PSL1GHT `spu_dma.h` library provides high-level wrappers with automatic alignment checking and error detection over the raw MFC intrinsics.
+</Note>
+
+## DMA Fundamentals
+
+### Memory Flow Controller (MFC)
+
+Each SPU has a dedicated MFC that handles:
+
+- DMA transfers between local store and main memory
+- DMA transfers between SPUs
+- Atomic operations
+- Synchronization primitives
+
+<CardGroup cols={2}>
+  <Card title="Maximum Transfer Size" icon="arrows-up-down">
+    16 KB (16,384 bytes) per single DMA command
+  </Card>
+  <Card title="Alignment Requirement" icon="align-center">
+    Both source and destination must be 16-byte aligned
+  </Card>
+  <Card title="DMA Tags" icon="tag">
+    32 tags (0-31) for tracking multiple concurrent transfers
+  </Card>
+  <Card title="Queue Depth" icon="list">
+    16 outstanding DMA commands per SPU
+  </Card>
+</CardGroup>
+
+### DMA Transfer Types
+
+<Tabs>
+  <Tab title="GET">
+    Transfer data **from main memory to local store**
+    
+    ```c
+    mfc_get(ls_addr, ea, size, tag, tid, rid);
+    ```
+  </Tab>
+  
+  <Tab title="PUT">
+    Transfer data **from local store to main memory**
+    
+    ```c
+    mfc_put(ls_addr, ea, size, tag, tid, rid);
+    ```
+  </Tab>
+  
+  <Tab title="GETB">
+    GET with **barrier** - waits for all previous commands to complete
+    
+    ```c
+    mfc_getb(ls_addr, ea, size, tag, tid, rid);
+    ```
+  </Tab>
+  
+  <Tab title="PUTF">
+    PUT with **fence** - waits for all previous commands on same tag
+    
+    ```c
+    mfc_putf(ls_addr, ea, size, tag, tid, rid);
+    ```
+  </Tab>
+</Tabs>
+
+## Basic DMA Operations
+
+### Simple GET Transfer
+
+<CodeGroup>
+```c SPU Side
+#include <spu_intrinsics.h>
+#include <spu_mfcio.h>
+#include <dma/spu_dma.h>
+
+#define TAG 1
+
+int main(uint64_t ea, uint64_t outptr, 
+         uint64_t arg3, uint64_t arg4) {
+    
+    // Aligned local store buffer
+    vec_uchar16 buffer __attribute__((aligned(16)));
+    
+    // Fetch 16 bytes from main memory
+    mfc_get(&buffer, ea, 16, TAG, 0, 0);
+    
+    // Wait for DMA completion
+    mfc_write_tag_mask(1 << TAG);
+    mfc_read_tag_status_all();
+    
+    // Now buffer contains the data
+    // Process it...
+    
+    return 0;
+}
+```
+
+```c PPU Side
+#include <sys/spu.h>
+#include <malloc.h>
+
+// Allocate aligned buffer in main memory
+vec_uchar16 *data = memalign(128, sizeof(vec_uchar16));
+*data = (vec_uchar16){ 'H','e','l','l','o',' ','W','o',
+                       'r','l','d','!','\\0',0,0,0 };
+
+// Pass effective address to SPU
+sysSpuThreadArgument arg;
+arg.arg0 = (u64)data;
+arg.arg1 = 0;
+arg.arg2 = 0;
+arg.arg3 = 0;
+
+sysSpuThreadInitialize(&thread_id, group_id, 0, 
+                      &image, &attr, &arg);
+```
+</CodeGroup>
+
+### Simple PUT Transfer
+
+```c SPU Side - Write Results Back
+vec_uint4 result __attribute__((aligned(16)));
+
+// Compute result
+result = (vec_uint4){ 1, 2, 3, 4 };
+
+// Send back to main memory
+mfc_put(&result, outptr, 16, TAG, 0, 0);
+
+// Wait for completion
+mfc_write_tag_mask(1 << TAG);
+mfc_read_tag_status_all();
+```
+
+## High-Level DMA Wrappers
+
+The `dma/spu_dma.h` header provides safe wrappers with automatic checking:
+
+```c Safe DMA Functions
+#include <dma/spu_dma.h>
+
+// Normal transfers (16-byte aligned, size multiple of 16)
+spu_dma_get(ls, ea, size, tag, 0, 0);
+spu_dma_put(ls, ea, size, tag, 0, 0);
+
+// Barrier/fence variants
+spu_dma_getb(ls, ea, size, tag, 0, 0);  // GET with barrier
+spu_dma_putf(ls, ea, size, tag, 0, 0);  // PUT with fence
+
+// Small transfers (1, 2, 4, or 8 bytes)
+spu_dma_small_get(ls, ea, 4, tag, 0, 0);
+spu_dma_small_put(ls, ea, 4, tag, 0, 0);
+
+// Large transfers (> 16 KB, automatically chunked)
+spu_dma_large_get(ls, ea, 32768, tag, 0, 0);
+spu_dma_large_put(ls, ea, 32768, tag, 0, 0);
+```
+
+<Warning>
+The high-level wrappers include assertions that will halt the SPU if alignment or size constraints are violated. In production, define `NO_SPU_DMA_ASSERT` to disable checks.
+</Warning>
+
+## Complete DMA Example
+
+String processing with DMA transfers:
+
+<CodeGroup>
+```c PPU Side (main.c)
+#include <stdio.h>
+#include <string.h>
+#include <sys/spu.h>
+
+#include "spu_bin.h"
+
+#define ptr2ea(x) ((u64)((void*)(x)))
+
+static volatile u32 spu_result __attribute__((aligned(128))) = 0;
+static char spu_text[] __attribute__((aligned(128))) = "abCdefGhIJklMnOP";
+
+int main(int argc, char *argv[]) {
+    sysSpuImage image;
+    u32 thread_id, group_id;
+    sysSpuThreadAttribute attr = { ptr2ea("mythread"), 9, SPU_THREAD_ATTR_NONE };
+    sysSpuThreadGroupAttribute grpattr = { 8, ptr2ea("mygroup"), 0, {0} };
+    sysSpuThreadArgument arg;
+    
+    printf("Input text: %s\n", spu_text);
+    
+    // Initialize SPU
+    sysSpuInitialize(6, 0);
+    sysSpuImageImport(&image, spu_bin, 0);
+    sysSpuThreadGroupCreate(&group_id, 1, 100, &grpattr);
+    
+    // Pass addresses to SPU
+    arg.arg0 = ptr2ea(spu_text);
+    arg.arg1 = ptr2ea(&spu_result);
+    arg.arg2 = 0;
+    arg.arg3 = 0;
+    
+    sysSpuThreadInitialize(&thread_id, group_id, 0, 
+                          &image, &attr, &arg);
+    
+    // Start execution
+    sysSpuThreadGroupStart(group_id);
+    
+    // Wait for completion (busy wait on result flag)
+    while (spu_result == 0);
+    
+    u32 cause, status;
+    sysSpuThreadGroupJoin(group_id, &cause, &status);
+    sysSpuImageClose(&image);
+    
+    printf("Output text: %s\n", spu_text);
+    
+    return 0;
+}
+```
+
+```c SPU Side (spu/source/main.c)
+#include <spu_intrinsics.h>
+#include <spu_mfcio.h>
+#include <sys/spu_thread.h>
+
+#define TAG 1
+
+// Wait for DMA completion
+static void wait_for_completion(void) {
+    mfc_write_tag_mask(1 << TAG);
+    spu_mfcstat(MFC_TAG_UPDATE_ALL);
+}
+
+int main(uint64_t ea, uint64_t outptr, 
+         uint64_t arg3, uint64_t arg4) {
+    
+    // Aligned buffer in local store
+    volatile vec_uchar16 v;
+    
+    // Fetch 16 bytes from main memory
+    mfc_get(&v, ea, 16, TAG, 0, 0);
+    wait_for_completion();
+    
+    // Convert lowercase to uppercase using SIMD
+    // Compare all characters with 'a'-1
+    vec_uchar16 cmp = spu_cmpgt(v, spu_splats((unsigned char)('a'-1)));
+    
+    // For small letters, subtract 0x20 to get uppercase
+    vec_uchar16 sub = spu_splats((unsigned char)0x20) & cmp;
+    v = v - sub;
+    
+    // Send updated vector back to main memory
+    mfc_put(&v, ea, 16, TAG, 0, 0);
+    wait_for_completion();
+    
+    // Signal completion
+    uint32_t ok __attribute__((aligned(16))) = 1;
+    mfc_put(&ok, outptr, 4, TAG, 0, 0);
+    wait_for_completion();
+    
+    spu_thread_exit(0);
+    return 0;
+}
+```
+</CodeGroup>
+
+## DMA Tag Management
+
+Tags allow tracking multiple concurrent DMA transfers:
+
+```c Multiple Concurrent Transfers
+#define TAG_INPUT  1
+#define TAG_OUTPUT 2
+#define TAG_TEMP   3
+
+// Issue multiple DMA operations
+mfc_get(input_buffer, input_ea, 1024, TAG_INPUT, 0, 0);
+mfc_get(temp_buffer, temp_ea, 512, TAG_TEMP, 0, 0);
+
+// Wait for specific tag
+mfc_write_tag_mask(1 << TAG_INPUT);
+mfc_read_tag_status_all();  // Wait for TAG_INPUT only
+
+// Process input_buffer while temp_buffer loads...
+
+// Wait for all tags
+mfc_write_tag_mask((1 << TAG_INPUT) | (1 << TAG_TEMP) | (1 << TAG_OUTPUT));
+mfc_read_tag_status_all();
+```
+
+### Tag Wait Modes
+
+<Tabs>
+  <Tab title="ALL">
+    Wait for **all** specified tags to complete
+    
+    ```c
+    mfc_write_tag_mask(0x07);  // Tags 0, 1, 2
+    mfc_read_tag_status_all(); // Waits for all 3
+    ```
+  </Tab>
+  
+  <Tab title="ANY">
+    Wait for **any one** of the specified tags
+    
+    ```c
+    mfc_write_tag_mask(0x07);
+    uint32_t completed = mfc_read_tag_status_any();
+    // Returns mask of completed tags
+    ```
+  </Tab>
+  
+  <Tab title="IMMEDIATE">
+    Check status **without waiting**
+    
+    ```c
+    mfc_write_tag_mask(0x01);
+    uint32_t status = mfc_read_tag_status_immediate();
+    if (status & 0x01) {
+        // Tag 0 is complete
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Double Buffering
+
+Overlap computation with data transfer for maximum performance:
+
+```c Double Buffer Pattern
+#define TAG_A 1
+#define TAG_B 2
+#define BLOCK_SIZE 4096
+
+uint8_t buffer_a[BLOCK_SIZE] __attribute__((aligned(128)));
+uint8_t buffer_b[BLOCK_SIZE] __attribute__((aligned(128)));
+
+uint64_t ea_offset = 0;
+int current = 0;
+
+// Initial load into buffer A
+mfc_get(buffer_a, input_ea, BLOCK_SIZE, TAG_A, 0, 0);
+mfc_write_tag_mask(1 << TAG_A);
+mfc_read_tag_status_all();
+
+for (int i = 1; i < num_blocks; i++) {
+    if (current == 0) {
+        // Start loading next block into B while processing A
+        mfc_get(buffer_b, input_ea + i * BLOCK_SIZE, 
+                BLOCK_SIZE, TAG_B, 0, 0);
+        
+        // Process buffer A
+        process_data(buffer_a, BLOCK_SIZE);
+        
+        // Wait for B to finish loading
+        mfc_write_tag_mask(1 << TAG_B);
+        mfc_read_tag_status_all();
+        
+        current = 1;
+    } else {
+        // Start loading next block into A while processing B
+        mfc_get(buffer_a, input_ea + i * BLOCK_SIZE, 
+                BLOCK_SIZE, TAG_A, 0, 0);
+        
+        // Process buffer B
+        process_data(buffer_b, BLOCK_SIZE);
+        
+        // Wait for A to finish loading
+        mfc_write_tag_mask(1 << TAG_A);
+        mfc_read_tag_status_all();
+        
+        current = 0;
+    }
+}
+
+// Process final buffer
+if (current == 1) {
+    process_data(buffer_b, BLOCK_SIZE);
+}
+```
+
+## List DMA
+
+Transfer multiple non-contiguous memory regions in a single operation:
+
+```c DMA List Transfer
+#include <dma/spu_dma.h>
+
+// List element structure
+typedef struct {
+    uint32_t size;     // Transfer size
+    uint32_t ea_low;   // Low 32 bits of effective address
+} __attribute__((aligned(8))) dma_list_element;
+
+dma_list_element list[8] __attribute__((aligned(8)));
+uint8_t buffer[16384] __attribute__((aligned(16)));
+
+// Setup list to transfer 8 scattered regions
+uint64_t base_ea = input_ea;
+for (int i = 0; i < 8; i++) {
+    list[i].size = 1024;
+    list[i].ea_low = (base_ea + i * 2048) & 0xFFFFFFFF;
+}
+
+// Perform list DMA (transfers all 8 regions)
+spu_dma_list_get(buffer, base_ea >> 32, list, 
+                 sizeof(list), TAG, 0, 0);
+
+mfc_write_tag_mask(1 << TAG);
+mfc_read_tag_status_all();
+```
+
+## Atomic Operations
+
+Safe read-modify-write operations on shared memory:
+
+```c Atomic Compare and Swap
+uint8_t ls_buffer[128] __attribute__((aligned(128)));
+uint64_t ea = shared_counter_ea;  // Must be 128-byte aligned
+
+// Get lock line atomically
+mfc_getllar(ls_buffer, ea, 0, 0);
+mfc_read_atomic_status();
+
+// Modify value
+uint32_t *counter = (uint32_t*)ls_buffer;
+(*counter)++;
+
+// Conditionally put back (fails if another SPU modified it)
+mfc_putllc(ls_buffer, ea, 0, 0);
+if (mfc_read_atomic_status() == 0) {
+    // Another SPU modified it, retry...
+} else {
+    // Success!
+}
+```
+
+## Small Data Transfers
+
+For transferring individual values (1, 2, 4, or 8 bytes):
+
+```c Typed DMA Transfers
+#include <dma/spu_dma.h>
+
+#define TAG 1
+
+// Write single values
+spu_dma_put_uint32(0x12345678, counter_ea, TAG, 0, 0);
+spu_dma_put_uint64(0xDEADBEEFCAFEBABE, timestamp_ea, TAG, 0, 0);
+
+// Read single values
+uint32_t value32 = spu_dma_get_uint32(status_ea, TAG, 0, 0);
+uint64_t value64 = spu_dma_get_uint64(result_ea, TAG, 0, 0);
+```
+
+<Note>
+Small transfers have alignment requirements based on size:
+- 1-byte: no alignment required
+- 2-byte: 2-byte aligned
+- 4-byte: 4-byte aligned  
+- 8-byte: 8-byte aligned
+
+Local store and effective addresses must have the same low 4 bits.
+</Note>
+
+## Large Transfers
+
+Automatically chunk transfers larger than 16 KB:
+
+```c Large Transfer Example
+#include <dma/spu_dma.h>
+
+#define TAG 1
+
+uint8_t large_buffer[65536] __attribute__((aligned(128)));
+
+// Transfer 64 KB (automatically split into multiple 16KB DMAs)
+spu_dma_large_get(large_buffer, input_ea, 65536, TAG, 0, 0);
+
+// Wait for all chunks to complete
+mfc_write_tag_mask(1 << TAG);
+mfc_read_tag_status_all();
+```
+
+## DMA and Cache Coherency
+
+<Warning>
+**Important**: DMA transfers bypass the PPU cache. Always use aligned buffers and ensure proper memory barriers.
+</Warning>
+
+```c PPU Side - Proper Alignment
+#include <malloc.h>
+
+// Always use memalign for DMA buffers
+// Prefer 128-byte alignment for best performance
+uint8_t *buffer = memalign(128, data_size);
+
+if (!buffer) {
+    printf("Allocation failed\n");
+    return -1;
+}
+
+// Ensure data is written before SPU accesses it
+__sync_synchronize();  // Memory barrier
+
+// Start SPU thread...
+
+// Wait for SPU completion...
+
+// Ensure SPU writes are visible
+__sync_synchronize();
+
+free(buffer);
+```
+
+## Common DMA Patterns
+
+### Scatter-Gather
+
+```c Process Multiple Regions
+// SPU processes multiple scattered input regions
+for (int i = 0; i < num_regions; i++) {
+    uint64_t ea = base_ea + regions[i].offset;
+    uint32_t size = regions[i].size;
+    
+    mfc_get(buffer, ea, size, TAG, 0, 0);
+    mfc_write_tag_mask(1 << TAG);
+    mfc_read_tag_status_all();
+    
+    process_data(buffer, size);
+    
+    mfc_put(buffer, output_ea + i * size, size, TAG, 0, 0);
+}
+```
+
+### Pipeline Pattern
+
+```c Three-Stage Pipeline
+#define TAG_LOAD   1
+#define TAG_STORE  2
+
+uint8_t buf_in[BLOCK_SIZE]  __attribute__((aligned(128)));
+uint8_t buf_out[BLOCK_SIZE] __attribute__((aligned(128)));
+
+for (int i = 0; i < num_blocks; i++) {
+    // Stage 1: Load next block
+    mfc_get(buf_in, input_ea + i * BLOCK_SIZE, 
+            BLOCK_SIZE, TAG_LOAD, 0, 0);
+    
+    // Stage 2: Wait for load
+    mfc_write_tag_mask(1 << TAG_LOAD);
+    mfc_read_tag_status_all();
+    
+    // Stage 3: Process
+    process_block(buf_in, buf_out, BLOCK_SIZE);
+    
+    // Stage 4: Store result
+    mfc_put(buf_out, output_ea + i * BLOCK_SIZE, 
+            BLOCK_SIZE, TAG_STORE, 0, 0);
+}
+
+// Wait for final store
+mfc_write_tag_mask(1 << TAG_STORE);
+mfc_read_tag_status_all();
+```
+
+## Debugging DMA Issues
+
+<AccordionGroup>
+  <Accordion title="DMA Alignment Errors">
+    **Symptoms**: SPU stops or hangs
+    
+    **Causes**:
+    - Local store or effective address not 16-byte aligned
+    - Transfer size not multiple of 16 bytes
+    
+    **Solution**:
+    ```c
+    // Enable verbose assertions during development
+    #define SPU_DMA_ASSERT_VERBOSE
+    #include <dma/spu_dma.h>
+    
+    // Use aligned attribute
+    uint8_t buffer[1024] __attribute__((aligned(128)));
+    ```
+  </Accordion>
+
+  <Accordion title="DMA Queue Overflow">
+    **Symptoms**: DMA commands appear to be ignored
+    
+    **Cause**: More than 16 outstanding DMA commands
+    
+    **Solution**:
+    ```c
+    // Wait for some DMAs before issuing more
+    mfc_write_tag_mask(0xFFFF);  // All tags
+    mfc_read_tag_status_any();   // Wait for any to complete
+    ```
+  </Accordion>
+
+  <Accordion title="Cache Coherency Issues">
+    **Symptoms**: Stale or corrupted data
+    
+    **Cause**: PPU cache not synchronized with DMA
+    
+    **Solution**:
+    ```c
+    // PPU side - use memory barriers
+    __sync_synchronize();
+    
+    // Or use memalign which returns uncached memory
+    void *buffer = memalign(128, size);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Tips
+
+<CardGroup cols={2}>
+  <Card title="Maximize Transfer Size" icon="maximize">
+    Use the full 16 KB per DMA command when possible
+  </Card>
+  <Card title="Double Buffer" icon="clone">
+    Overlap DMA transfers with computation
+  </Card>
+  <Card title="Minimize Waits" icon="clock">
+    Issue multiple DMAs before waiting
+  </Card>
+  <Card title="128-byte Alignment" icon="ruler">
+    Use 128-byte alignment for best cache performance
+  </Card>
+</CardGroup>
+
+## Related Functions
+
+- [mfc_get](/api/spu-dma) - Basic DMA get (spu_mfcio.h)
+- [mfc_put](/api/spu-dma) - Basic DMA put (spu_mfcio.h)
+- [spu_dma_get](/api/spu-dma) - Safe DMA get wrapper (dma/spu_dma.h:99)
+- [spu_dma_put](/api/spu-dma) - Safe DMA put wrapper (dma/spu_dma.h:78)
+- [spu_dma_large_get](/api/spu-dma) - Large transfer get (dma/spu_dma.h:316)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Thread Management" icon="users" href="/spu/thread-management">
+    Learn SPU thread creation and control
+  </Card>
+  <Card title="SPURS Framework" icon="network-wired" href="/spu/spurs">
+    High-level task scheduling system
+  </Card>
+</CardGroup>

@@ -1,0 +1,366 @@
+---
+title: Audio API
+description: Audio library for PS3 PCM audio playback
+---
+
+The Audio library manages communications between your application and the PS3 system audio server. It allows you to play raw PCM audio by filling a circular buffer.
+
+## Overview
+
+The audio subsystem uses a block-based circular buffer system where:
+- Audio data is 32-bit floating point PCM format
+- Sample values range from -1.0 to 1.0
+- Samples are interlaced (stereo: even=left, odd=right)
+- Each block contains 256 samples (AUDIO_BLOCK_SAMPLES)
+
+## Typical Usage Flow
+
+1. Initialize audio system (`audioInit`)
+2. Open an audio port (`audioPortOpen`)
+3. Get port configuration (`audioGetPortConfig`)
+4. Create notify event queue (`audioCreateNotifyEventQueue`)
+5. Set event queue (`audioSetNotifyEventQueue`)
+6. Start audio port (`audioPortStart`)
+7. Write audio blocks as events arrive
+8. Stop port, close port, and quit when done
+
+## Data Structures
+
+### audioPortParam
+
+Audio port parameters for initialization.
+
+<ResponseField name="numChannels" type="u64" required>
+  Number of audio channels:
+  - `AUDIO_PORT_2CH` (2) - Stereo output
+  - `AUDIO_PORT_8CH` (8) - 8-channel output
+</ResponseField>
+
+<ResponseField name="numBlocks" type="u64" required>
+  Number of blocks in audio buffer:
+  - `AUDIO_BLOCK_8` (8) - 8 blocks
+  - `AUDIO_BLOCK_16` (16) - 16 blocks
+  - `AUDIO_BLOCK_32` (32) - 32 blocks
+</ResponseField>
+
+<ResponseField name="attrib" type="u64">
+  Special attributes. Set to 0 or `AUDIO_PORT_INITLEVEL` (0x1000) to set initial volume.
+</ResponseField>
+
+<ResponseField name="level" type="f32">
+  Initial volume level (0.0 to 1.0). Only valid when `attrib` is set to `AUDIO_PORT_INITLEVEL`.
+</ResponseField>
+
+### audioPortConfig
+
+Audio port configuration returned by the system.
+
+<ResponseField name="readIndex" type="u32">
+  Index of currently read block in audio port buffer.
+</ResponseField>
+
+<ResponseField name="status" type="u32">
+  Audio port status:
+  - `AUDIO_STATUS_READY` (1) - Port is ready to play
+  - `AUDIO_STATUS_RUN` (2) - Port is playing
+  - `AUDIO_STATUS_CLOSE` (0x1010) - Port has been closed
+</ResponseField>
+
+<ResponseField name="channelCount" type="u64">
+  Number of channels configured.
+</ResponseField>
+
+<ResponseField name="numBlocks" type="u64">
+  Number of blocks in the buffer.
+</ResponseField>
+
+<ResponseField name="portSize" type="u32">
+  Total size of the audio port buffer.
+</ResponseField>
+
+<ResponseField name="audioDataStart" type="u32">
+  Start address of audio port buffer. Cast to `float*` for writing audio data.
+</ResponseField>
+
+## Functions
+
+### audioInit
+
+```c
+s32 audioInit(void);
+```
+
+Initialize the audio subsystem.
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioQuit
+
+```c
+s32 audioQuit(void);
+```
+
+Shutdown the audio subsystem.
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioPortOpen
+
+```c
+s32 audioPortOpen(audioPortParam *param, u32 *portNum);
+```
+
+Open an audio port with the specified parameters.
+
+<ParamField path="param" type="audioPortParam*" required>
+  Pointer to audio port parameter structure.
+</ParamField>
+
+<ParamField path="portNum" type="u32*" required>
+  Pointer to storage for the returned port ID.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioPortClose
+
+```c
+s32 audioPortClose(u32 portNum);
+```
+
+Close an opened audio port.
+
+<ParamField path="portNum" type="u32" required>
+  Port ID as returned by `audioPortOpen`.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioPortStart
+
+```c
+s32 audioPortStart(u32 portNum);
+```
+
+Start playing on an audio port.
+
+<ParamField path="portNum" type="u32" required>
+  Port ID as returned by `audioPortOpen`.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioPortStop
+
+```c
+s32 audioPortStop(u32 portNum);
+```
+
+Stop playing on an audio port.
+
+<ParamField path="portNum" type="u32" required>
+  Port ID as returned by `audioPortOpen`.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioGetPortConfig
+
+```c
+s32 audioGetPortConfig(u32 portNum, audioPortConfig *config);
+```
+
+Get configuration of an opened audio port.
+
+<ParamField path="portNum" type="u32" required>
+  Port ID as returned by `audioPortOpen`.
+</ParamField>
+
+<ParamField path="config" type="audioPortConfig*" required>
+  Pointer to port config structure to be filled.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioCreateNotifyEventQueue
+
+```c
+s32 audioCreateNotifyEventQueue(sys_event_queue_t *eventQ, sys_ipc_key_t *queueKey);
+```
+
+Create a notify event queue for audio events.
+
+<ParamField path="eventQ" type="sys_event_queue_t*" required>
+  Pointer to event queue object to be updated.
+</ParamField>
+
+<ParamField path="queueKey" type="sys_ipc_key_t*" required>
+  Pointer to storage for the returned queue key.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioSetNotifyEventQueue
+
+```c
+s32 audioSetNotifyEventQueue(sys_ipc_key_t queueKey);
+```
+
+Set the current event queue for audio events.
+
+<ParamField path="queueKey" type="sys_ipc_key_t" required>
+  Queue key value (must have been created using `audioCreateNotifyEventQueue`).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+### audioRemoveNotifyEventQueue
+
+```c
+s32 audioRemoveNotifyEventQueue(sys_ipc_key_t queueKey);
+```
+
+Disconnect the current event queue from the audio subsystem.
+
+<ParamField path="queueKey" type="sys_ipc_key_t" required>
+  Queue key value (must have been created using `audioCreateNotifyEventQueue`).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, non-zero on error.
+</ResponseField>
+
+## Example
+
+```c
+#include <audio/audio.h>
+#include <sys/event_queue.h>
+#include <math.h>
+
+#define PI 3.14159265f
+
+// Fill buffer with sine wave
+void fillAudioBuffer(float *buf, int numChannels) {
+    static float pos = 0;
+    
+    for (unsigned int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+        float sample = sin(pos);
+        // Write to all channels
+        for (int ch = 0; ch < numChannels; ch++) {
+            buf[i * numChannels + ch] = sample;
+        }
+        pos += 0.01f;
+        if (pos > PI)
+            pos -= 2 * PI;
+    }
+}
+
+int main() {
+    audioPortParam params;
+    audioPortConfig config;
+    u32 portNum;
+    sys_event_queue_t eventQ;
+    sys_ipc_key_t queueKey;
+    
+    // Initialize audio
+    audioInit();
+    
+    // Configure audio port
+    params.numChannels = AUDIO_PORT_2CH;
+    params.numBlocks = AUDIO_BLOCK_8;
+    params.attrib = 0;
+    params.level = 1.0f;
+    
+    // Open port
+    audioPortOpen(&params, &portNum);
+    
+    // Get port config
+    audioGetPortConfig(portNum, &config);
+    
+    // Create event queue
+    audioCreateNotifyEventQueue(&eventQ, &queueKey);
+    audioSetNotifyEventQueue(queueKey);
+    
+    // Start playback
+    audioPortStart(portNum);
+    
+    // Main audio loop
+    u32 blockIndex = 0;
+    for (int i = 0; i < 1000; i++) {
+        // Wait for event
+        sys_event_t event;
+        sysEventQueueReceive(eventQ, &event, 0);
+        
+        // Calculate buffer position
+        float *buf = (float*)(u64)config.audioDataStart + 
+                     params.numChannels * AUDIO_BLOCK_SAMPLES * blockIndex;
+        
+        // Fill buffer
+        fillAudioBuffer(buf, params.numChannels);
+        
+        // Move to next block
+        blockIndex = (blockIndex + 1) % params.numBlocks;
+    }
+    
+    // Cleanup
+    audioPortStop(portNum);
+    audioRemoveNotifyEventQueue(queueKey);
+    audioPortClose(portNum);
+    sysEventQueueDestroy(eventQ, 0);
+    audioQuit();
+    
+    return 0;
+}
+```
+
+## Audio Data Format
+
+The audio buffer expects 32-bit floating-point PCM data:
+
+- **Sample format**: 32-bit float
+- **Sample range**: -1.0 to 1.0
+- **Samples per block**: 256 (AUDIO_BLOCK_SAMPLES)
+- **Interleaving**: Samples are interlaced by channel
+
+### Buffer Layout
+
+For stereo (2-channel) audio:
+```
+[L0][R0][L1][R1][L2][R2]...[L255][R255]
+```
+
+For 8-channel audio:
+```
+[C0_0][C1_0][C2_0]...[C7_0][C0_1][C1_1]...[C7_255]
+```
+
+### Block Address Calculation
+
+```c
+float *blockAddress = audioDataStart + 
+                      blockNumber * numChannels * AUDIO_BLOCK_SAMPLES;
+```
+
+### Block Size Calculation
+
+```c
+size_t blockSize = numChannels * AUDIO_BLOCK_SAMPLES * sizeof(float);
+```

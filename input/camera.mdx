@@ -1,0 +1,542 @@
+---
+title: Camera
+description: PlayStation Eye and EyeToy camera support for video capture
+---
+
+## Overview
+
+The PSL1GHT SDK supports PlayStation Eye and EyeToy USB cameras through the `io/camera.h` API. You can capture video frames in various formats including YUV422, JPEG, and RAW formats at different resolutions and frame rates.
+
+<Note>
+PlayStation Eye supports YUV422 format at VGA (640x480) resolution. EyeToy only supports JPEG format.
+</Note>
+
+## Camera Types
+
+Supported camera devices:
+
+<Card title="CAM_TYPE_PLAYSTATION_EYE" icon="camera">
+  PlayStation Eye - VGA/QVGA, YUV422/RAW formats, 30/60 FPS
+</Card>
+
+<Card title="CAM_TYPE_EYETOY" icon="video">
+  EyeToy - VGA/QVGA, JPEG format only
+</Card>
+
+<Card title="CAM_TYPE_USBVIDEO_CLASS" icon="webcam">
+  Generic USB video class cameras
+</Card>
+
+## Initialization
+
+Initialize the camera system:
+
+```c
+#include <io/camera.h>
+#include <sys/memory.h>
+#include <sysmodule/sysmodule.h>
+
+// Load camera module
+SysLoadModule(SYSMODULE_CAM);
+
+// Initialize camera library
+s32 ret = cameraInit();
+if (ret != 0) {
+    printf("Failed to initialize camera: %08X\n", ret);
+}
+```
+
+## Memory Container
+
+Create a memory container for camera buffers:
+
+```c
+sys_mem_container_t container;
+s32 ret = lv2MemContinerCreate(&container, 0x200000);  // 2MB
+if (ret != 0) {
+    printf("Failed to create container: %d\n", ret);
+}
+```
+
+## Detecting Camera Type
+
+Check what type of camera is connected:
+
+```c
+cameraType type;
+ret = cameraGetType(0, &type);  // Camera 0
+
+switch (type) {
+    case CAM_TYPE_PLAYSTATION_EYE:
+        printf("PlayStation Eye detected\n");
+        break;
+    case CAM_TYPE_EYETOY:
+        printf("EyeToy detected\n");
+        break;
+    case CAM_TYPE_USBVIDEO_CLASS:
+        printf("USB video class camera detected\n");
+        break;
+    default:
+        printf("Unknown camera type\n");
+        break;
+}
+```
+
+## Opening Camera
+
+### PlayStation Eye (YUV422)
+
+```c
+cameraInfoEx cameraInfo;
+
+// Configure for PlayStation Eye
+cameraInfo.format = CAM_FORM_YUV422;
+cameraInfo.framerate = 30;
+cameraInfo.resolution = CAM_RESO_VGA;
+cameraInfo.info_ver = 0x0200;  // Version for extended mode
+cameraInfo.container = container;
+
+ret = cameraOpenEx(0, &cameraInfo);
+if (ret == 0) {
+    printf("Camera opened successfully\n");
+    printf("Video dimensions: %dx%d\n", 
+           cameraInfo.width, cameraInfo.height);
+    printf("Buffer at: %08X\n", cameraInfo.buffer);
+} else if (ret == CAMERA_ERRO_DOUBLE_OPEN) {
+    printf("Camera already open\n");
+    cameraClose(0);
+} else if (ret == CAMERA_ERRO_NO_DEVICE_FOUND) {
+    printf("No camera device found\n");
+}
+```
+
+### EyeToy (JPEG)
+
+```c
+cameraInfoEx cameraInfo;
+
+// Configure for EyeToy
+cameraInfo.format = CAM_FORM_JPG;  // JPEG only for EyeToy
+cameraInfo.framerate = 30;
+cameraInfo.resolution = CAM_RESO_VGA;
+cameraInfo.info_ver = 0x0101;
+cameraInfo.container = container;
+
+ret = cameraOpenEx(0, &cameraInfo);
+if (ret == 0) {
+    printf("EyeToy opened successfully\n");
+}
+```
+
+### cameraInfoEx Structure
+
+<ParamField path="format" type="cameraFormat">
+  Video format (YUV422, JPEG, RAW8, etc.)
+</ParamField>
+
+<ParamField path="resolution" type="cameraResolution">
+  Resolution (VGA, QVGA, WGA, SPECIFIED)
+</ParamField>
+
+<ParamField path="framerate" type="s32">
+  Frame rate (30 or 60 FPS)
+</ParamField>
+
+<ParamField path="buffer" type="u32">
+  Buffer address (output)
+</ParamField>
+
+<ParamField path="bytesize" type="s32">
+  Buffer byte size (output)
+</ParamField>
+
+<ParamField path="width" type="s32">
+  Frame width in pixels (output)
+</ParamField>
+
+<ParamField path="height" type="s32">
+  Frame height in pixels (output)
+</ParamField>
+
+<ParamField path="container" type="sys_mem_container_t">
+  Memory container for buffers
+</ParamField>
+
+<ParamField path="info_ver" type="s32">
+  Info structure version (0x0101, 0x0200)
+</ParamField>
+
+## Camera Formats
+
+| Constant | Format | Description |
+|----------|--------|-------------|
+| `CAM_FORM_JPG` | JPEG | Compressed JPEG (EyeToy only) |
+| `CAM_FORM_YUV422` | YUV422 | YUV 4:2:2 uncompressed |
+| `CAM_FORM_RAW8` | RAW8 | 8-bit raw Bayer |
+| `CAM_FORM_RAW10` | RAW10 | 10-bit raw Bayer |
+| `CAM_FORM_RGBA` | RGBA | 32-bit RGBA |
+| `CAM_FORM_YUV420` | YUV420 | YUV 4:2:0 |
+
+## Camera Resolutions
+
+| Constant | Resolution | Dimensions |
+|----------|-----------|------------|
+| `CAM_RESO_VGA` | VGA | 640x480 |
+| `CAM_RESO_QVGA` | QVGA | 320x240 |
+| `CAM_RESO_WGA` | WGA | Wide |
+| `CAM_RESO_SPECIFIED` | Custom | User-specified |
+
+## Starting Camera
+
+Start capturing frames:
+
+```c
+ret = cameraReset(0);
+if (ret != 0) {
+    printf("Camera reset failed: %08X\n", ret);
+}
+
+ret = cameraStart(0);
+if (ret != 0) {
+    printf("Camera start failed: %08X\n", ret);
+}
+```
+
+## Reading Frames
+
+### Basic Frame Reading
+
+```c
+u32 frame;
+u32 readcount;
+
+ret = cameraRead(0, &frame, &readcount);
+
+if (ret == CAMERA_ERRO_NEED_START) {
+    // Camera needs to be started
+    cameraReset(0);
+    cameraStart(0);
+} else if (ret == 0 && readcount != 0) {
+    // Frame available
+    u8 *buf = (u8*)(u64)cameraInfo.buffer;
+    printf("Frame %u captured, %u bytes\n", frame, readcount);
+    
+    // Process frame data
+    // ...
+}
+```
+
+### Extended Frame Reading
+
+```c
+cameraReadInfo readex;
+
+ret = cameraReadEx(0, &readex);
+
+if (ret == 0 && readex.readcount != 0) {
+    printf("Frame: %u\n", readex.frame);
+    printf("Bytes: %u\n", readex.readcount);
+    printf("Timestamp: %lld\n", readex.timestamp);
+    printf("Buffer: %08X\n", readex.buffer);
+    
+    u8 *frameData = (u8*)(u64)readex.buffer;
+    // Process frame...
+}
+```
+
+<ParamField path="version" type="s32">
+  Structure version
+</ParamField>
+
+<ParamField path="frame" type="u32">
+  Frame number
+</ParamField>
+
+<ParamField path="readcount" type="u32">
+  Bytes read
+</ParamField>
+
+<ParamField path="timestamp" type="s64">
+  Frame timestamp
+</ParamField>
+
+<ParamField path="buffer" type="u32">
+  Buffer address
+</ParamField>
+
+## Processing Video Frames
+
+### YUV422 to RGB Conversion
+
+Convert YUV422 format to RGB for display:
+
+```c
+u32 YUV_to_RGB(int y, int u, int v) {
+    int r, g, b;
+    v -= 128;
+    u -= 128;
+    
+    // Conversion
+    r = y + u;
+    g = y - u/2 - v/8;
+    b = y + v;
+    
+    // Clamp to 0-255
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+    
+    return (r << 16) | (g << 8) | b;
+}
+
+void Convert422(u8* yuv, u32 *rgb1, u32 *rgb2) {
+    int y1, y2, u, v;
+    
+    // Extract YUV components
+    y1 = yuv[0];
+    v  = yuv[1];
+    y2 = yuv[2];
+    u  = yuv[3];
+    
+    // Convert to RGB
+    *rgb1 = YUV_to_RGB(y1, u, v);
+    *rgb2 = YUV_to_RGB(y2, u, v);
+}
+
+// Convert full frame
+u8 *buf = (u8*)(u64)cameraInfo.buffer;
+for (int i = 0; i < cameraInfo.height; i++) {
+    for (int j = 0; j < cameraInfo.width; j += 2) {
+        u32 pixel1, pixel2;
+        Convert422(buf, &pixel1, &pixel2);
+        buf += 4;
+        
+        // Write pixels to display buffer
+        framebuffer[i * width + j] = pixel1;
+        framebuffer[i * width + j + 1] = pixel2;
+    }
+}
+```
+
+### JPEG Decoding (EyeToy)
+
+For EyeToy JPEG frames, use the JPGDEC module:
+
+```c
+#include <jpgdec/jpgdec.h>
+
+// Load JPEG decoder module
+SysLoadModule(SYSMODULE_JPGDEC);
+
+// Decode JPEG frame
+int decode_jpg(u8 *buf, s32 size) {
+    int mHandle, sHandle;
+    JpgDecThreadInParam InThdParam;
+    JpgDecThreadOutParam OutThdParam;
+    JpgDecSrc src;
+    JpgDecInfo DecInfo;
+    
+    // Setup decoder (see sample for full code)
+    // ...
+    
+    return 0;
+}
+
+// Use it
+if (type == CAM_TYPE_EYETOY) {
+    u8 *buf = (u8*)(u64)cameraInfo.buffer;
+    decode_jpg(buf, readcount);
+}
+```
+
+## Camera Attributes
+
+Control camera settings:
+
+```c
+u32 value, value2;
+
+// Get exposure
+cameraGetAttribute(0, CAM_ATTR_EXPOSURE, &value, &value2);
+printf("Exposure: %u\n", value);
+
+// Set exposure
+cameraSetAttribute(0, CAM_ATTR_EXPOSURE, 128, 0);
+
+// Get gain
+cameraGetAttribute(0, CAM_ATTR_GAIN, &value, &value2);
+
+// Set gain
+cameraSetAttribute(0, CAM_ATTR_GAIN, 100, 0);
+
+// Enable auto exposure
+cameraSetAttribute(0, CAM_ATTR_AUTO_EXPOSURE, 1, 0);
+
+// Enable auto white balance
+cameraSetAttribute(0, CAM_ATTR_AUTO_WHITE_BALANCE, 1, 0);
+
+// Set LED (PlayStation Eye)
+cameraSetAttribute(0, CAM_ATTR_LED, 1, 0);  // 1 = ON
+```
+
+### Common Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `CAM_ATTR_GAIN` | Camera gain |
+| `CAM_ATTR_EXPOSURE` | Exposure level |
+| `CAM_ATTR_BRIGHTNESS` | Brightness |
+| `CAM_ATTR_SATURATION` | Color saturation |
+| `CAM_ATTR_AUTO_EXPOSURE` | Auto exposure (0/1) |
+| `CAM_ATTR_AUTO_GAIN_CONTROL` | Auto gain (0/1) |
+| `CAM_ATTR_AUTO_WHITE_BALANCE` | Auto white balance (0/1) |
+| `CAM_ATTR_LED` | LED control (PlayStation Eye) |
+| `CAM_ATTR_MIRROR_FLAG` | Mirror image (0/1) |
+
+## Camera Status
+
+Check camera state:
+
+```c
+if (cameraIsAvailable(0)) {
+    printf("Camera is available\n");
+}
+
+if (cameraIsAttached(0)) {
+    printf("Camera is attached\n");
+}
+
+if (cameraIsOpen(0)) {
+    printf("Camera is open\n");
+}
+
+if (cameraIsStarted(0)) {
+    printf("Camera is started\n");
+}
+```
+
+## Stopping and Closing
+
+Clean up camera resources:
+
+```c
+cameraStop(0);
+cameraClose(0);
+cameraEnd();
+
+lv2MemContinerDestroy(container);
+
+SysUnloadModule(SYSMODULE_CAM);
+```
+
+## Error Codes
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `CAMERA_ERRO_DOUBLE_INIT` | 0x80140801 | Already initialized |
+| `CAMERA_ERRO_NEED_INIT` | 0x80140803 | Need to initialize |
+| `CAMERA_ERRO_BAD_PARAM` | 0x80140804 | Bad parameter |
+| `CAMERA_ERRO_DOUBLE_OPEN` | 0x80140805 | Already open |
+| `CAMERA_ERRO_NEED_OPEN` | 0x80140806 | Need to open camera |
+| `CAMERA_ERRO_NO_DEVICE_FOUND` | 0x80140807 | No device found |
+| `CAMERA_ERRO_DEVICE_DEACTIVATED` | 0x80140808 | Device deactivated |
+| `CAMERA_ERRO_NEED_START` | 0x80140809 | Need to start camera |
+| `CAMERA_ERRO_UNKNOWN_FORMAT` | 0x8014080a | Unknown format |
+| `CAMERA_ERRO_UNKNOWN_RESOLUTION` | 0x8014080b | Unknown resolution |
+| `CAMERA_ERRO_BAD_FRAMERATE` | 0x8014080c | Bad frame rate |
+| `CAMERA_ERRO_TIMEOUT` | 0x8014080d | Timeout |
+
+## Complete Example
+
+From `samples/input/camera/`:
+
+```c
+#include <io/camera.h>
+#include <io/pad.h>
+#include <sys/memory.h>
+#include <sysmodule/sysmodule.h>
+
+int main() {
+    padInfo padinfo;
+    padData paddata;
+    sys_mem_container_t container;
+    cameraType type;
+    cameraInfoEx cameraInfo;
+    int running = 1;
+    int cameraSetup = 0;
+    
+    // Load modules
+    SysLoadModule(SYSMODULE_CAM);
+    
+    // Create memory container
+    lv2MemContinerCreate(&container, 0x200000);
+    
+    // Initialize
+    cameraInit();
+    ioPadInit(7);
+    
+    // Main loop
+    while (running) {
+        // Check for exit
+        ioPadGetInfo(&padinfo);
+        for (int i = 0; i < MAX_PADS; i++) {
+            if (padinfo.status[i]) {
+                ioPadGetData(i, &paddata);
+                if (paddata.BTN_CROSS) {
+                    running = 0;
+                }
+            }
+        }
+        
+        // Setup camera
+        if (!cameraSetup) {
+            cameraGetType(0, &type);
+            
+            if (type == CAM_TYPE_PLAYSTATION_EYE) {
+                cameraSetup = 1;
+                cameraInfo.format = CAM_FORM_YUV422;
+                cameraInfo.framerate = 30;
+                cameraInfo.resolution = CAM_RESO_VGA;
+                cameraInfo.info_ver = 0x101;
+                cameraInfo.container = container;
+                
+                if (cameraOpenEx(0, &cameraInfo) == 0) {
+                    printf("PlayStation Eye opened\n");
+                    printf("Resolution: %dx%d\n",
+                           cameraInfo.width, cameraInfo.height);
+                }
+            }
+        } else {
+            // Read frames
+            u32 frame, readcount;
+            s32 ret = cameraRead(0, &frame, &readcount);
+            
+            if (ret == CAMERA_ERRO_NEED_START) {
+                cameraReset(0);
+                cameraStart(0);
+            } else if (ret == 0 && readcount != 0) {
+                u8 *buf = (u8*)(u64)cameraInfo.buffer;
+                // Process frame data
+                // ...
+            }
+        }
+    }
+    
+    // Cleanup
+    cameraStop(0);
+    cameraClose(0);
+    cameraEnd();
+    lv2MemContinerDestroy(container);
+    
+    return 0;
+}
+```
+
+## See Also
+
+- [Controllers](/input/controllers) - DualShock 3 controller
+- [PlayStation Move](/input/playstation-move) - Motion controller with camera tracking
+- [Keyboard & Mouse](/input/keyboard-mouse) - USB input devices

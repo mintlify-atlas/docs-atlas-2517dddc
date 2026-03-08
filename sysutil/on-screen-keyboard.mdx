@@ -1,0 +1,539 @@
+---
+title: On-Screen Keyboard
+description: Accept text input from users using the PS3's on-screen keyboard (OSK)
+---
+
+The On-Screen Keyboard (OSK) provides a system-level interface for text input, supporting multiple languages, keyboard layouts, and input modes.
+
+## Overview
+
+The OSK system (`sysutil/osk.h`) supports:
+- Single-line and multi-line text input
+- Multiple keyboard layouts (full keyboard, 10-key panel)
+- Various languages and character sets
+- URL and password input modes
+- UTF-16 text encoding
+
+## Quick Start
+
+<Steps>
+
+<Step title="Create Memory Container">
+
+Allocate memory for the OSK (typically 4MB):
+
+```c
+#include <sys/memory.h>
+#include <sysutil/osk.h>
+
+sys_mem_container_t container;
+s32 ret = sysMemContainerCreate(&container, 4 * 1024 * 1024);
+if (ret != 0) {
+    printf("Failed to create memory container: %08x\n", ret);
+    return -1;
+}
+```
+
+</Step>
+
+<Step title="Register System Callback">
+
+Handle OSK events through the system callback:
+
+```c
+void sysutil_callback(u64 status, u64 param, void *usrdata) {
+    switch(status) {
+        case SYSUTIL_OSK_LOADED:
+            printf("OSK loaded\n");
+            break;
+        case SYSUTIL_OSK_DONE:
+            printf("OSK input complete\n");
+            oskUnloadAsync(&outputParam);
+            break;
+        case SYSUTIL_OSK_INPUT_CANCELED:
+            printf("OSK canceled\n");
+            oskAbort();
+            oskUnloadAsync(&outputParam);
+            break;
+        case SYSUTIL_OSK_UNLOADED:
+            printf("OSK unloaded\n");
+            isRunning = 0;
+            break;
+    }
+}
+
+sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, sysutil_callback, NULL);
+```
+
+</Step>
+
+<Step title="Configure OSK Parameters">
+
+Set up the keyboard appearance and behavior:
+
+```c
+oskParam parameters;
+parameters.allowedPanels = OSK_PANEL_TYPE_DEFAULT;
+parameters.firstViewPanel = OSK_PANEL_TYPE_DEFAULT;
+parameters.controlPoint = (oskPoint){ 0, 0 };
+parameters.prohibitFlags = OSK_PROHIBIT_RETURN; // Disable newlines
+```
+
+</Step>
+
+<Step title="Configure Input Field">
+
+Define the prompt message and initial text:
+
+```c
+#define TEXT_BUFFER_LENGTH 256
+
+static uint16_t title_utf16[TEXT_BUFFER_LENGTH];
+static uint16_t initial_utf16[TEXT_BUFFER_LENGTH];
+static uint16_t input_utf16[TEXT_BUFFER_LENGTH];
+
+// Convert UTF-8 to UTF-16 (see helper functions below)
+utf8_to_utf16((uint8_t *)"Enter your name:", title_utf16);
+utf8_to_utf16((uint8_t *)"Player", initial_utf16);
+
+oskInputFieldInfo inputInfo;
+inputInfo.message = title_utf16;
+inputInfo.startText = initial_utf16;
+inputInfo.maxLength = TEXT_BUFFER_LENGTH - 1;
+```
+
+</Step>
+
+<Step title="Set Output Buffer">
+
+Specify where the OSK should write results:
+
+```c
+oskCallbackReturnParam outputParam;
+outputParam.res = OSK_OK;
+outputParam.len = TEXT_BUFFER_LENGTH - 1;
+outputParam.str = input_utf16;
+```
+
+</Step>
+
+<Step title="Load and Display OSK">
+
+Open the keyboard and wait for input:
+
+```c
+oskSetInitialInputDevice(OSK_DEVICE_PAD);
+oskSetKeyLayoutOption(OSK_FULLKEY_PANEL);
+oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER | 
+                 OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER);
+
+ret = oskLoadAsync(container, &parameters, &inputInfo);
+if (ret != 0) {
+    printf("Failed to load OSK: %08x\n", ret);
+    return -1;
+}
+
+uint8_t isRunning = 1;
+while (isRunning) {
+    sysUtilCheckCallback();
+    flip(); // Your render function
+}
+
+// Check result
+if (outputParam.res == OSK_OK) {
+    uint8_t text_utf8[TEXT_BUFFER_LENGTH];
+    utf16_to_utf8(outputParam.str, text_utf8);
+    printf("Input: %s\n", text_utf8);
+}
+```
+
+</Step>
+
+<Step title="Cleanup">
+
+```c
+sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+sysMemContainerDestroy(container);
+```
+
+</Step>
+
+</Steps>
+
+## Panel Types
+
+The OSK supports different keyboard layouts for various input types:
+
+<CodeGroup>
+
+```c Default Keyboard
+parameters.allowedPanels = OSK_PANEL_TYPE_DEFAULT;
+parameters.firstViewPanel = OSK_PANEL_TYPE_DEFAULT;
+```
+
+```c English Only
+parameters.allowedPanels = OSK_PANEL_TYPE_ENGLISH;
+parameters.firstViewPanel = OSK_PANEL_TYPE_ENGLISH;
+```
+
+```c Numeric Input
+parameters.allowedPanels = OSK_PANEL_TYPE_NUMERAL;
+parameters.firstViewPanel = OSK_PANEL_TYPE_NUMERAL;
+```
+
+```c URL Input
+parameters.allowedPanels = OSK_PANEL_TYPE_URL;
+parameters.firstViewPanel = OSK_PANEL_TYPE_URL;
+```
+
+```c Password Input
+parameters.allowedPanels = OSK_PANEL_TYPE_PASSWORD;
+parameters.firstViewPanel = OSK_PANEL_TYPE_PASSWORD;
+```
+
+```c Multiple Languages
+// Allow user to switch between languages
+parameters.allowedPanels = OSK_PANEL_TYPE_ENGLISH | 
+                          OSK_PANEL_TYPE_FRENCH | 
+                          OSK_PANEL_TYPE_GERMAN;
+parameters.firstViewPanel = OSK_PANEL_TYPE_ENGLISH;
+```
+
+</CodeGroup>
+
+### Available Panel Types
+
+| Panel Type | Description |
+|------------|-------------|
+| `OSK_PANEL_TYPE_DEFAULT` | System default keyboard |
+| `OSK_PANEL_TYPE_ALPHABET` | Alphabetic characters |
+| `OSK_PANEL_TYPE_NUMERAL` | Numbers only |
+| `OSK_PANEL_TYPE_ENGLISH` | English keyboard |
+| `OSK_PANEL_TYPE_FRENCH` | French keyboard |
+| `OSK_PANEL_TYPE_GERMAN` | German keyboard |
+| `OSK_PANEL_TYPE_SPANISH` | Spanish keyboard |
+| `OSK_PANEL_TYPE_ITALIAN` | Italian keyboard |
+| `OSK_PANEL_TYPE_PORTUGUESE` | Portuguese keyboard |
+| `OSK_PANEL_TYPE_RUSSIAN` | Russian keyboard |
+| `OSK_PANEL_TYPE_JAPANESE` | Japanese keyboard |
+| `OSK_PANEL_TYPE_KOREAN` | Korean keyboard |
+| `OSK_PANEL_TYPE_SIMPLIFIED_CHINESE` | Simplified Chinese |
+| `OSK_PANEL_TYPE_TRADITIONAL_CHINESE` | Traditional Chinese |
+| `OSK_PANEL_TYPE_URL` | URL-optimized layout |
+| `OSK_PANEL_TYPE_PASSWORD` | Password input (masked) |
+
+## Layout Options
+
+Control the OSK's position and alignment on screen:
+
+<CodeGroup>
+
+```c Centered
+oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER | 
+                 OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER);
+```
+
+```c Top Left
+oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_LEFT | 
+                 OSK_LAYOUTMODE_VERTICAL_ALIGN_TOP);
+```
+
+```c Bottom Right
+oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_RIGHT | 
+                 OSK_LAYOUTMODE_VERTICAL_ALIGN_BOTTOM);
+```
+
+</CodeGroup>
+
+### Layout Flags
+
+**Horizontal Alignment:**
+- `OSK_LAYOUTMODE_HORIZONTAL_ALIGN_LEFT`
+- `OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER`
+- `OSK_LAYOUTMODE_HORIZONTAL_ALIGN_RIGHT`
+
+**Vertical Alignment:**
+- `OSK_LAYOUTMODE_VERTICAL_ALIGN_TOP`
+- `OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER`
+- `OSK_LAYOUTMODE_VERTICAL_ALIGN_BOTTOM`
+
+## Input Restrictions
+
+Restrict what users can input:
+
+```c
+// Prohibit spaces
+parameters.prohibitFlags = OSK_PROHIBIT_SPACE;
+
+// Prohibit newlines (single-line mode)
+parameters.prohibitFlags = OSK_PROHIBIT_RETURN;
+
+// Prohibit analog stick input
+parameters.prohibitFlags = OSK_PROHIBIT_INPUT_ANALOG;
+
+// Combine multiple restrictions
+parameters.prohibitFlags = OSK_PROHIBIT_SPACE | OSK_PROHIBIT_RETURN;
+```
+
+## Keyboard Layouts
+
+Choose between full keyboard and 10-key panel:
+
+```c
+// Full keyboard (QWERTY)
+oskSetKeyLayoutOption(OSK_FULLKEY_PANEL);
+
+// 10-key panel (phone-style)
+oskSetKeyLayoutOption(OSK_10KEY_PANEL);
+```
+
+<Note>
+The full keyboard is better for English text, while the 10-key panel works well for Japanese input and numeric entry.
+</Note>
+
+## UTF-16 Conversion
+
+The OSK uses UTF-16 encoding. Here are helper functions for conversion:
+
+<CodeGroup>
+
+```c UTF-16 to UTF-8
+static void utf16_to_utf8(const uint16_t *src, uint8_t *dst) {
+    int i;
+    for (i = 0; src[i]; i++) {
+        if ((src[i] & 0xFF80) == 0) {
+            *(dst++) = src[i] & 0xFF;
+        }
+        else if((src[i] & 0xF800) == 0) {
+            *(dst++) = ((src[i] >> 6) & 0xFF) | 0xC0;
+            *(dst++) = (src[i] & 0x3F) | 0x80;
+        }
+        else if((src[i] & 0xFC00) == 0xD800 && (src[i + 1] & 0xFC00) == 0xDC00) {
+            *(dst++) = (((src[i] + 64) >> 8) & 0x3) | 0xF0;
+            *(dst++) = (((src[i] >> 2) + 16) & 0x3F) | 0x80;
+            *(dst++) = ((src[i] >> 4) & 0x30) | 0x80 | ((src[i + 1] << 2) & 0xF);
+            *(dst++) = (src[i + 1] & 0x3F) | 0x80;
+            i += 1;
+        }
+        else {
+            *(dst++) = ((src[i] >> 12) & 0xF) | 0xE0;
+            *(dst++) = ((src[i] >> 6) & 0x3F) | 0x80;
+            *(dst++) = (src[i] & 0x3F) | 0x80;
+        }
+    }
+    *dst = '\0';
+}
+```
+
+```c UTF-8 to UTF-16
+static void utf8_to_utf16(const uint8_t *src, uint16_t *dst) {
+    int i;
+    for (i = 0; src[i];) {
+        if ((src[i] & 0xE0) == 0xE0) {
+            *(dst++) = ((src[i] & 0x0F) << 12) | 
+                      ((src[i + 1] & 0x3F) << 6) | 
+                      (src[i + 2] & 0x3F);
+            i += 3;
+        }
+        else if ((src[i] & 0xC0) == 0xC0) {
+            *(dst++) = ((src[i] & 0x1F) << 6) | (src[i + 1] & 0x3F);
+            i += 2;
+        }
+        else {
+            *(dst++) = src[i];
+            i += 1;
+        }
+    }
+    *dst = '\0';
+}
+```
+
+</CodeGroup>
+
+## Complete Example
+
+From `samples/sys/osk/source/main.cpp`:
+
+```c
+#include <sys/memory.h>
+#include <sysutil/osk.h>
+#include <sysutil/sysutil.h>
+
+#define TEXT_BUFFER_LENGTH 256
+
+uint8_t isRunningOSK = 0;
+oskInputFieldInfo inputFieldInfo;
+oskParam parameters;
+oskCallbackReturnParam outputParam;
+
+void sysutil_exit_callback(u64 status, u64 param, void *usrdata) {
+    switch(status) {
+        case SYSUTIL_OSK_LOADED:
+            printf("OSK loaded\n");
+            break;
+        case SYSUTIL_OSK_INPUT_CANCELED:
+            printf("OSK input canceled\n");
+            oskAbort();
+            // fall-through
+        case SYSUTIL_OSK_DONE:
+            if (status == SYSUTIL_OSK_DONE) {
+                printf("OSK done\n");
+            }
+            oskUnloadAsync(&outputParam);
+            if (outputParam.res == OSK_OK) {
+                printf("OSK result OK\n");
+            }
+            break;
+        case SYSUTIL_OSK_UNLOADED:
+            printf("OSK unloaded\n");
+            isRunningOSK = 0;
+            break;
+    }
+}
+
+int main() {
+    static uint16_t title_utf16[TEXT_BUFFER_LENGTH];
+    static uint16_t input_text_utf16[TEXT_BUFFER_LENGTH];
+    static uint16_t initial_text_utf16[TEXT_BUFFER_LENGTH];
+    static uint8_t input_text_utf8[TEXT_BUFFER_LENGTH];
+    
+    // Convert UTF8 to UTF16
+    memset(title_utf16, 0, sizeof(title_utf16));
+    memset(initial_text_utf16, 0, sizeof(initial_text_utf16));
+    utf8_to_utf16((uint8_t *)"Enter your name:", title_utf16);
+    utf8_to_utf16((uint8_t *)"Sergio", initial_text_utf16);
+    
+    // Configure input field
+    inputFieldInfo.message = title_utf16;
+    inputFieldInfo.startText = initial_text_utf16;
+    inputFieldInfo.maxLength = TEXT_BUFFER_LENGTH - 1;
+    
+    // Configure panel type
+    parameters.allowedPanels = OSK_PANEL_TYPE_DEFAULT;
+    parameters.firstViewPanel = OSK_PANEL_TYPE_DEFAULT;
+    parameters.controlPoint = (oskPoint){ 0, 0 };
+    parameters.prohibitFlags = OSK_PROHIBIT_RETURN;
+    
+    // Configure output
+    outputParam.res = OSK_OK;
+    outputParam.len = TEXT_BUFFER_LENGTH - 1;
+    outputParam.str = input_text_utf16;
+    
+    sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, sysutil_exit_callback, NULL);
+    
+    sys_mem_container_t containerid;
+    s32 res = sysMemContainerCreate(&containerid, 4 * 1024 * 1024);
+    if (res != 0) {
+        printf("Error sysMemContainerCreate: %08x\n", res);
+        return 0;
+    }
+    
+    oskSetInitialInputDevice(OSK_DEVICE_PAD);
+    oskSetKeyLayoutOption(OSK_FULLKEY_PANEL);
+    oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER | 
+                     OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER);
+    
+    res = oskLoadAsync(containerid, &parameters, &inputFieldInfo);
+    if (res != 0) {
+        printf("Error oskLoadAsync: %08x\n", res);
+        sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+        sysMemContainerDestroy(containerid);
+        return 0;
+    }
+    
+    isRunningOSK = 1;
+    while (isRunningOSK) {
+        sysUtilCheckCallback();
+        flip();
+    }
+    
+    sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+    sysMemContainerDestroy(containerid);
+    
+    if (outputParam.res != OSK_OK) {
+        printf("Keyboard cancelled\n");
+        return 0;
+    }
+    
+    // Convert UTF16 to UTF8
+    utf16_to_utf8(outputParam.str, input_text_utf8);
+    printf("Hello %s!\n", input_text_utf8);
+    
+    return 0;
+}
+```
+
+## Result Codes
+
+The `oskCallbackReturnParam.res` field contains:
+
+| Result | Description |
+|--------|-------------|
+| `OSK_OK` | Input completed successfully |
+| `OSK_CANCELED` | User canceled input |
+| `OSK_ABORT` | Input aborted |
+| `OSK_NO_TEXT` | No text entered |
+
+## API Reference
+
+### Initialization
+
+```c
+// Set initial input device (pad or keyboard)
+s32 oskSetInitialInputDevice(oskInputDevice input);
+
+// Set keyboard layout (10-key or full)
+s32 oskSetKeyLayoutOption(u32 flags);
+
+// Set initial layout style
+s32 oskSetInitialKeyLayout(oskKeyLayout layout);
+
+// Set screen position and alignment
+s32 oskSetLayoutMode(s32 mode);
+```
+
+### Loading and Unloading
+
+```c
+// Load OSK asynchronously
+s32 oskLoadAsync(
+    sys_mem_container_t container,
+    const oskParam *param,
+    const oskInputFieldInfo *inputInfo
+);
+
+// Unload OSK and get results
+s32 oskUnloadAsync(oskCallbackReturnParam *param);
+
+// Abort OSK immediately
+s32 oskAbort();
+```
+
+### Additional Options
+
+```c
+// Disable background dimmer
+s32 oskDisableDimmer();
+
+// Add supported language
+s32 oskAddSupportLanguage(u32 lang);
+
+// Get OSK panel size
+s32 oskGetSize(u16 *width, u16 *height, oskType type);
+```
+
+<Warning>
+Always create a memory container of at least 4MB for the OSK. Smaller containers may cause loading failures.
+</Warning>
+
+## Best Practices
+
+<Note>
+- Use UTF-16 for all text buffers
+- Allocate at least 4MB for the memory container
+- Always call `sysUtilCheckCallback()` every frame
+- Handle both `OSK_DONE` and `OSK_INPUT_CANCELED` events
+- Clean up with `oskUnloadAsync()` before destroying the container
+- Use `OSK_PROHIBIT_RETURN` for single-line input
+- Choose appropriate panel types for the input context
+</Note>

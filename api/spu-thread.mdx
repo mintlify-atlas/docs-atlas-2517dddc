@@ -1,0 +1,509 @@
+---
+title: SPU Thread Management
+description: API for creating and managing SPU threads and thread groups
+---
+
+## Overview
+
+The SPU thread management API provides functions for creating, running, and managing SPU threads on the PlayStation 3's Cell Broadband Engine. SPU threads are dedicated programs running on the Synergistic Processing Elements (SPEs).
+
+### Key Concepts
+
+- **SPU Thread Group**: A collection of SPU threads that run together
+- **SPU Image**: Binary code loaded from an ELF file to execute on an SPU
+- **Local Store**: 256 KB of memory private to each SPU
+- **Mailbox Communication**: Message passing between PPU and SPU threads
+
+The PS3 has 6 SPEs available to user programs. For optimal performance, avoid running more than 6 SPU threads simultaneously to prevent context switches.
+
+## SPU Image Management
+
+### sysSpuImageOpen
+
+Create a SPU image from an ELF file.
+
+```c
+s32 sysSpuImageOpen(sysSpuImage* image, const char* path)
+```
+
+<ParamField path="image" type="sysSpuImage*" required>
+  Pointer to the SPU image structure to be initialized
+</ParamField>
+
+<ParamField path="path" type="const char*" required>
+  Path to the SPU ELF file
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuImageImport
+
+Import a SPU image from an ELF file in memory.
+
+```c
+s32 sysSpuImageImport(sysSpuImage *image, const void *elf, u32 type)
+```
+
+<ParamField path="image" type="sysSpuImage*" required>
+  Pointer to the image structure to be updated
+</ParamField>
+
+<ParamField path="elf" type="const void*" required>
+  Pointer to ELF data in memory
+</ParamField>
+
+<ParamField path="type" type="u32">
+  Type of the image file (generally set to 0)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuImageClose
+
+Close an opened SPU image file.
+
+```c
+s32 sysSpuImageClose(sysSpuImage *image)
+```
+
+<ParamField path="image" type="sysSpuImage*" required>
+  Pointer to the SPU image structure
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+## Thread Group Management
+
+### sysSpuThreadGroupCreate
+
+Create a SPU thread group.
+
+```c
+s32 sysSpuThreadGroupCreate(sys_spu_group_t *group, u32 num, u32 prio, sysSpuThreadGroupAttribute *attr)
+```
+
+<ParamField path="group" type="sys_spu_group_t*" required>
+  Pointer to the returned thread group identifier
+</ParamField>
+
+<ParamField path="num" type="u32" required>
+  Number of SPU threads in the group (1-6)
+</ParamField>
+
+<ParamField path="prio" type="u32" required>
+  Priority of the thread group
+</ParamField>
+
+<ParamField path="attr" type="sysSpuThreadGroupAttribute*" required>
+  Pointer to a thread group attribute structure
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuThreadGroupStart
+
+Start execution of all threads in a SPU thread group.
+
+```c
+s32 sysSpuThreadGroupStart(sys_spu_group_t group)
+```
+
+<ParamField path="group" type="sys_spu_group_t" required>
+  Thread group identifier
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuThreadGroupJoin
+
+Wait for a SPU thread group to finish execution.
+
+```c
+s32 sysSpuThreadGroupJoin(sys_spu_group_t group, u32 *cause, u32 *status)
+```
+
+<ParamField path="group" type="sys_spu_group_t" required>
+  Thread group identifier
+</ParamField>
+
+<ParamField path="cause" type="u32*" required>
+  Pointer to returned termination cause
+</ParamField>
+
+<ParamField path="status" type="u32*" required>
+  Pointer to returned termination status
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuThreadGroupDestroy
+
+Destroy a SPU thread group.
+
+```c
+s32 sysSpuThreadGroupDestroy(sys_spu_group_t group)
+```
+
+<ParamField path="group" type="sys_spu_group_t" required>
+  Thread group identifier
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+## Thread Management
+
+### sysSpuThreadInitialize
+
+Initialize a SPU thread within a thread group.
+
+```c
+s32 sysSpuThreadInitialize(sys_spu_thread_t* thread, sys_spu_group_t group, u32 spu,
+                           sysSpuImage* image, sysSpuThreadAttribute* attributes,
+                           sysSpuThreadArgument* arguments)
+```
+
+<ParamField path="thread" type="sys_spu_thread_t*" required>
+  Pointer to the returned thread identifier
+</ParamField>
+
+<ParamField path="group" type="sys_spu_group_t" required>
+  Thread group identifier
+</ParamField>
+
+<ParamField path="spu" type="u32" required>
+  Index of thread in group (0 to group size - 1)
+</ParamField>
+
+<ParamField path="image" type="sysSpuImage*" required>
+  Pointer to the SPU image structure
+</ParamField>
+
+<ParamField path="attributes" type="sysSpuThreadAttribute*" required>
+  Pointer to thread attributes
+</ParamField>
+
+<ParamField path="arguments" type="sysSpuThreadArgument*" required>
+  Pointer to arguments for the thread's main function
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuThreadSetArguments
+
+Set or update SPU thread arguments.
+
+```c
+s32 sysSpuThreadSetArguments(sys_spu_thread_t thread, sysSpuThreadArgument* arguments)
+```
+
+<ParamField path="thread" type="sys_spu_thread_t" required>
+  Thread identifier
+</ParamField>
+
+<ParamField path="arguments" type="sysSpuThreadArgument*" required>
+  Pointer to the arguments list
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuThreadGetExitStatus
+
+Get the exit status of a terminated SPU thread.
+
+```c
+s32 sysSpuThreadGetExitStatus(sys_spu_thread_t thread, s32* status)
+```
+
+<ParamField path="thread" type="sys_spu_thread_t" required>
+  Thread identifier
+</ParamField>
+
+<ParamField path="status" type="s32*" required>
+  Pointer to the returned exit status
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+## Mailbox Communication
+
+### sysSpuThreadWriteMb
+
+Write to a SPU thread's inbound mailbox.
+
+```c
+s32 sysSpuThreadWriteMb(sys_spu_thread_t thread, u32 value)
+```
+
+<ParamField path="thread" type="sys_spu_thread_t" required>
+  Thread identifier
+</ParamField>
+
+<ParamField path="value" type="u32" required>
+  32-bit value to write to mailbox
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuThreadWriteSignal
+
+Write to a SPU thread's signal notification register.
+
+```c
+s32 sysSpuThreadWriteSignal(sys_spu_thread_t thread, u32 signal, u32 value)
+```
+
+<ParamField path="thread" type="sys_spu_thread_t" required>
+  Thread identifier
+</ParamField>
+
+<ParamField path="signal" type="u32" required>
+  Signal register number (0 for register 1, 1 for register 2)
+</ParamField>
+
+<ParamField path="value" type="u32" required>
+  Value to write to the signal register
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+## Local Store Access
+
+### sysSpuThreadWriteLocalStorage
+
+Write a value to a SPU thread's local store memory.
+
+```c
+s32 sysSpuThreadWriteLocalStorage(sys_spu_thread_t thread, u32 address, u64 value, u32 type)
+```
+
+<ParamField path="thread" type="sys_spu_thread_t" required>
+  Thread identifier
+</ParamField>
+
+<ParamField path="address" type="u32" required>
+  Address in local store (0-262143)
+</ParamField>
+
+<ParamField path="value" type="u64" required>
+  Value to write
+</ParamField>
+
+<ParamField path="type" type="u32" required>
+  Data type size
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+### sysSpuThreadReadLocalStorage
+
+Read a value from a SPU thread's local store memory.
+
+```c
+s32 sysSpuThreadReadLocalStorage(sys_spu_thread_t thread, u32 address, u64* value, u32 type)
+```
+
+<ParamField path="thread" type="sys_spu_thread_t" required>
+  Thread identifier
+</ParamField>
+
+<ParamField path="address" type="u32" required>
+  Address in local store
+</ParamField>
+
+<ParamField path="value" type="u64*" required>
+  Pointer to store the read value
+</ParamField>
+
+<ParamField path="type" type="u32" required>
+  Data type size
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if successful, nonzero on error
+</ResponseField>
+
+## SPU-Side Functions
+
+These functions are called from within SPU code:
+
+### spu_thread_exit
+
+Terminate the running SPU thread.
+
+```c
+void spu_thread_exit(int status)
+```
+
+<ParamField path="status" type="int" required>
+  Exit status value returned to PPU
+</ParamField>
+
+### spu_thread_group_exit
+
+Terminate the entire SPU thread group.
+
+```c
+void spu_thread_group_exit(int status)
+```
+
+<ParamField path="status" type="int" required>
+  Thread group exit status
+</ParamField>
+
+### spu_thread_group_yield
+
+Voluntarily yield execution to allow thread group scheduling.
+
+```c
+void spu_thread_group_yield(void)
+```
+
+## Example Usage
+
+### Basic SPU Thread Creation
+
+```c
+#include <ppu/include/sys/spu.h>
+#include <ppu/include/lv2/spu.h>
+
+sys_spu_group_t group;
+sys_spu_thread_t thread;
+sysSpuImage image;
+sysSpuThreadGroupAttribute groupAttr;
+sysSpuThreadAttribute threadAttr;
+sysSpuThreadArgument args;
+
+// Initialize attributes
+sysSpuThreadGroupAttributeInitialize(groupAttr);
+sysSpuThreadGroupAttributeName(groupAttr, "MySpuGroup");
+
+sysSpuThreadAttributeInitialize(threadAttr);
+sysSpuThreadAttributeName(threadAttr, "MySpuThread");
+
+sysSpuThreadArgumentInitialize(args);
+args.arg0 = 0x1234;
+args.arg1 = 0x5678;
+
+// Load SPU image
+if (sysSpuImageOpen(&image, "/app_home/spu_program.elf") != 0) {
+    printf("Failed to load SPU image\n");
+    return -1;
+}
+
+// Create thread group
+if (sysSpuThreadGroupCreate(&group, 1, 100, &groupAttr) != 0) {
+    printf("Failed to create thread group\n");
+    sysSpuImageClose(&image);
+    return -1;
+}
+
+// Initialize thread
+if (sysSpuThreadInitialize(&thread, group, 0, &image, &threadAttr, &args) != 0) {
+    printf("Failed to initialize thread\n");
+    sysSpuThreadGroupDestroy(group);
+    sysSpuImageClose(&image);
+    return -1;
+}
+
+// Start thread group
+if (sysSpuThreadGroupStart(group) != 0) {
+    printf("Failed to start thread group\n");
+    sysSpuThreadGroupDestroy(group);
+    sysSpuImageClose(&image);
+    return -1;
+}
+
+// Wait for completion
+u32 cause, status;
+sysSpuThreadGroupJoin(group, &cause, &status);
+
+// Cleanup
+sysSpuThreadGroupDestroy(group);
+sysSpuImageClose(&image);
+```
+
+### Mailbox Communication Example
+
+```c
+// PPU side - send message to SPU
+u32 message = 0xDEADBEEF;
+sysSpuThreadWriteMb(thread, message);
+
+// SPU side - receive message
+#include <spu_mfcio.h>
+
+u32 received = spu_read_in_mbox();
+printf("SPU received: 0x%08x\n", received);
+
+// SPU side - send response
+spu_write_out_mbox(0xCAFEBABE);
+
+// PPU side - read response (using problem storage)
+u32 response = sysSpuThreadReadProblemStorage(thread, SPU_Out_MBox);
+```
+
+## Constants
+
+### Thread Attributes
+
+- `SPU_THREAD_ATTR_NONE` - No special attributes
+- `SPU_THREAD_ATTR_ASYNC_INT_ENABLE` - Enable asynchronous interrupts
+- `SPU_THREAD_ATTR_DEC_SYNC_TB_ENABLE` - Synchronize decrementer with PPU time base
+
+### Thread Group Types
+
+- `SPU_THREAD_GROUP_TYPE_NORMAL` - Normal thread group
+- `SPU_THREAD_GROUP_TYPE_SEQUENTIAL` - Sequential execution
+- `SPU_THREAD_GROUP_TYPE_SYSTEM` - System thread group
+- `SPU_THREAD_GROUP_TYPE_MEMORY_FROM_CONTAINER` - Use memory container
+
+### Signal Configuration
+
+- `SPU_SIGNAL1_OVERWRITE` - Signal 1 in overwrite mode
+- `SPU_SIGNAL1_OR` - Signal 1 in OR mode
+- `SPU_SIGNAL2_OVERWRITE` - Signal 2 in overwrite mode
+- `SPU_SIGNAL2_OR` - Signal 2 in OR mode
+
+## Memory-Mapped Addresses
+
+SPU thread resources are memory-mapped starting at `0xF0000000`:
+
+```c
+#define SPU_THREAD_BASE         0xF0000000ULL
+#define SPU_THREAD_OFFSET       0x00100000ULL
+
+// Get base address for SPU thread N
+uint64_t addr = SPU_THREAD_BASE + (N * SPU_THREAD_OFFSET);
+
+// Access local storage
+uint64_t ls_addr = addr + SPU_LOCAL_OFFSET;  // +0x00000000
+
+// Access problem storage (registers)
+uint64_t ps_addr = addr + SPU_PROBLEM_OFFSET;  // +0x00040000
+```

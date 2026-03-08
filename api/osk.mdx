@@ -1,0 +1,520 @@
+---
+title: "On-Screen Keyboard"
+description: "On-screen keyboard for text input on PlayStation 3"
+---
+
+The On-Screen Keyboard (OSK) API provides text input functionality through the PS3's virtual keyboard interface.
+
+## Core Functions
+
+### oskLoadAsync
+
+Open the on-screen keyboard.
+
+```c
+s32 oskLoadAsync(sys_mem_container_t container, const oskParam *param, const oskInputFieldInfo *inputInfo);
+```
+
+<ParamField path="container" type="sys_mem_container_t">
+  Memory container ID. Typical size is 4 MB.
+</ParamField>
+
+<ParamField path="param" type="const oskParam*">
+  Pointer to OSK parameters structure defining keyboard appearance and behavior.
+</ParamField>
+
+<ParamField path="inputInfo" type="const oskInputFieldInfo*">
+  Pointer to input field information structure.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskUnloadAsync
+
+Close the on-screen keyboard.
+
+```c
+s32 oskUnloadAsync(oskCallbackReturnParam *param);
+```
+
+<ParamField path="param" type="oskCallbackReturnParam*">
+  Pointer to structure receiving the keyboard results.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskGetInputText
+
+Get the current input text from the keyboard.
+
+```c
+s32 oskGetInputText(oskCallbackReturnParam *info);
+```
+
+<ParamField path="info" type="oskCallbackReturnParam*">
+  Pointer to structure receiving the input text and status.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskAbort
+
+Abort the currently opened keyboard.
+
+```c
+s32 oskAbort();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+## Configuration Functions
+
+### oskSetInitialInputDevice
+
+Set the initial input device for the keyboard.
+
+```c
+s32 oskSetInitialInputDevice(oskInputDevice input);
+```
+
+<ParamField path="input" type="oskInputDevice">
+  Initial input device:
+  - `OSK_DEVICE_PAD` - PS3 controller
+  - `OSK_DEVICE_KB` - USB keyboard
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskSetInitialKeyLayout
+
+Set the initial keyboard layout.
+
+```c
+s32 oskSetInitialKeyLayout(oskKeyLayout layout);
+```
+
+<ParamField path="layout" type="oskKeyLayout">
+  Initial keyboard layout:
+  - `OSK_INITIAL_SYSTEM_PANEL` - System default panel
+  - `OSK_INITIAL_10KEY_PANEL` - 10-key keypad panel
+  - `OSK_INITIAL_FULLKEY_PANEL` - Full keyboard panel
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskSetLayoutMode
+
+Set the layout mode for keyboard positioning.
+
+```c
+s32 oskSetLayoutMode(s32 mode);
+```
+
+<ParamField path="mode" type="s32">
+  Layout mode flags (OR'ed combination):
+  
+  **Horizontal Alignment:**
+  - `OSK_LAYOUTMODE_HORIZONTAL_ALIGN_LEFT` (0x00000800)
+  - `OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER` (0x00000400)
+  - `OSK_LAYOUTMODE_HORIZONTAL_ALIGN_RIGHT` (0x00000200)
+  
+  **Vertical Alignment:**
+  - `OSK_LAYOUTMODE_VERTICAL_ALIGN_TOP` (0x00004000)
+  - `OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER` (0x00002000)
+  - `OSK_LAYOUTMODE_VERTICAL_ALIGN_BOTTOM` (0x00001000)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskSetKeyLayoutOption
+
+Set keyboard key layout options.
+
+```c
+s32 oskSetKeyLayoutOption(u32 flags);
+```
+
+<ParamField path="flags" type="u32">
+  Key layout flags:
+  - `OSK_10KEY_PANEL` (1) - 10-key keypad
+  - `OSK_FULLKEY_PANEL` (2) - Full keyboard
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskSetDeviceMask
+
+Set allowed input devices.
+
+```c
+s32 oskSetDeviceMask(u32 mask);
+```
+
+<ParamField path="mask" type="u32">
+  Device mask:
+  - `0` - All devices allowed
+  - `OSK_DEVICE_MASK_PAD` (0xff) - Only controller allowed
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskDisableDimmer
+
+Disable the background dimmer filter.
+
+```c
+s32 oskDisableDimmer();
+```
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskSetSeparateWindowOption
+
+Set options for separate window mode.
+
+```c
+s32 oskSetSeparateWindowOption(oskSeparateWindowOption *option);
+```
+
+<ParamField path="option" type="oskSeparateWindowOption*">
+  Pointer to separate window options structure.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskAddSupportLanguage
+
+Add a supported language to the keyboard.
+
+```c
+s32 oskAddSupportLanguage(u32 lang);
+```
+
+<ParamField path="lang" type="u32">
+  Language panel type (see Panel Types below).
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+### oskGetSize
+
+Get the size of the keyboard panel.
+
+```c
+s32 oskGetSize(u16 *width, u16 *height, oskType type);
+```
+
+<ParamField path="width" type="u16*">
+  Pointer to store panel width in pixels.
+</ParamField>
+
+<ParamField path="height" type="u16*">
+  Pointer to store panel height in pixels.
+</ParamField>
+
+<ParamField path="type" type="oskType">
+  OSK type to query size for.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, nonzero on error.
+</ResponseField>
+
+## Data Structures
+
+### oskParam
+
+Keyboard parameters structure.
+
+```c
+typedef struct _osk_param {
+    u32 allowedPanels;
+    u32 firstViewPanel;
+    oskPoint controlPoint;
+    s32 prohibitFlags;
+} oskParam;
+```
+
+<ParamField path="allowedPanels" type="u32">
+  OR'ed combination of allowed panel types.
+</ParamField>
+
+<ParamField path="firstViewPanel" type="u32">
+  Initial panel type to display.
+</ParamField>
+
+<ParamField path="controlPoint" type="oskPoint">
+  Panel origin control point.
+</ParamField>
+
+<ParamField path="prohibitFlags" type="s32">
+  Prohibited input flags:
+  - `OSK_PROHIBIT_SPACE` (0x00000001) - Prohibit space
+  - `OSK_PROHIBIT_RETURN` (0x00000002) - Prohibit return/enter
+  - `OSK_PROHIBIT_INPUT_ANALOG` (0x00000008) - Prohibit analog input
+</ParamField>
+
+### oskInputFieldInfo
+
+Input field information.
+
+```c
+typedef struct _osk_input_field_info {
+    u16 *message;
+    u16 *startText;
+    s32 maxLength;
+} oskInputFieldInfo;
+```
+
+<ParamField path="message" type="u16*">
+  Buffer for message text (UTF-16).
+</ParamField>
+
+<ParamField path="startText" type="u16*">
+  Initial text to display (UTF-16).
+</ParamField>
+
+<ParamField path="maxLength" type="s32">
+  Maximum number of characters allowed.
+</ParamField>
+
+### oskCallbackReturnParam
+
+Return parameters from keyboard.
+
+```c
+typedef struct _osk_cb_return_param {
+    oskInputFieldResult res;
+    s32 len;
+    u16 *str;
+} oskCallbackReturnParam;
+```
+
+<ParamField path="res" type="oskInputFieldResult">
+  Result status:
+  - `OSK_OK` - Input success
+  - `OSK_CANCELED` - Input canceled
+  - `OSK_ABORT` - Input aborted
+  - `OSK_NO_TEXT` - No text entered
+</ParamField>
+
+<ParamField path="len" type="s32">
+  Number of characters entered.
+</ParamField>
+
+<ParamField path="str" type="u16*">
+  Array of characters entered (UTF-16).
+</ParamField>
+
+### oskSeparateWindowOption
+
+Separate window options.
+
+```c
+typedef struct _osk_separate_window_option {
+    oskContinuousMode continuous;
+    s32 mask;
+    s32 inputWidth;
+    f32 inputFieldTransparency;
+    oskLayoutInfo *inputFieldLayoutInfo;
+    oskLayoutInfo *inputPanelLayoutInfo;
+    u32 reserved;
+} oskSeparateWindowOption;
+```
+
+<ParamField path="continuous" type="oskContinuousMode">
+  Continuous mode:
+  - `OSK_CONTINUOUS_MODE_NONE` - No continuous mode
+  - `OSK_CONTINUOUS_MODE_REMAIN_OPEN` - Keep panel open
+  - `OSK_CONTINUOUS_MODE_HIDE` - Hide panel by default
+  - `OSK_CONTINUOUS_MODE_SHOW` - Show panel by default
+</ParamField>
+
+<ParamField path="mask" type="s32">
+  Device mask (0 or `OSK_DEVICE_MASK_PAD`).
+</ParamField>
+
+<ParamField path="inputWidth" type="s32">
+  Input field width.
+</ParamField>
+
+<ParamField path="inputFieldTransparency" type="f32">
+  Input field transparency (0.0 - 1.0).
+</ParamField>
+
+### oskPoint
+
+Point structure for positioning.
+
+```c
+typedef struct _osk_pnt {
+    f32 x;
+    f32 y;
+} oskPoint;
+```
+
+### oskLayoutInfo
+
+Layout information.
+
+```c
+typedef struct _osk_layout_info {
+    s32 layoutMode;
+    oskPoint position;
+} oskLayoutInfo;
+```
+
+## Panel Types
+
+<Expandable title="Available Panel Types">
+- `OSK_PANEL_TYPE_DEFAULT` (0x00000000)
+- `OSK_PANEL_TYPE_DEFAULT_NO_JAPANESE` (0x00000200)
+- `OSK_PANEL_TYPE_ALPHABET_FULL_WIDTH` (0x00800000)
+- `OSK_PANEL_TYPE_ALPHABET` (0x01000000)
+- `OSK_PANEL_TYPE_NUMERAL_FULL_WIDTH` (0x04000000)
+- `OSK_PANEL_TYPE_NUMERAL` (0x08000000)
+- `OSK_PANEL_TYPE_JAPANESE` (0x00000100)
+- `OSK_PANEL_TYPE_JAPANESE_HIRAGANA` (0x00200000)
+- `OSK_PANEL_TYPE_JAPANESE_KATAKANA` (0x00400000)
+- `OSK_PANEL_TYPE_ENGLISH` (0x00000002)
+- `OSK_PANEL_TYPE_FRENCH` (0x00000008)
+- `OSK_PANEL_TYPE_SPANISH` (0x00000004)
+- `OSK_PANEL_TYPE_DUTCH` (0x00000020)
+- `OSK_PANEL_TYPE_GERMAN` (0x00000001)
+- `OSK_PANEL_TYPE_RUSSIAN` (0x00000080)
+- `OSK_PANEL_TYPE_ITALIAN` (0x00000010)
+- `OSK_PANEL_TYPE_PORTUGUESE` (0x00000040)
+- `OSK_PANEL_TYPE_KOREAN` (0x00001000)
+- `OSK_PANEL_TYPE_DANISH` (0x00020000)
+- `OSK_PANEL_TYPE_SWEDISH` (0x00040000)
+- `OSK_PANEL_TYPE_NORWEGIAN` (0x00080000)
+- `OSK_PANEL_TYPE_FINNISH` (0x00100000)
+- `OSK_PANEL_TYPE_TRADITIONAL_CHINESE` (0x00004000)
+- `OSK_PANEL_TYPE_SIMPLIFIED_CHINESE` (0x00008000)
+- `OSK_PANEL_TYPE_LATIN` (0x02000000)
+- `OSK_PANEL_TYPE_URL` (0x10000000)
+- `OSK_PANEL_TYPE_PASSWORD` (0x20000000)
+</Expandable>
+
+## Keyboard Types
+
+```c
+typedef enum {
+    OSK_SINGLELINE,
+    OSK_MULTILINE,
+    OSK_FULLKB_SINGLELINE,
+    OSK_FULLKB_MULTILINE,
+    OSK_SEPARATE_SINGLELINE_WINDOWED,
+    OSK_SEPARATE_MULTILINE_WINDOWED,
+    OSK_SEPARATE_INPUT_PANEL_WINDOWED,
+    OSK_SEPARATE_FULLKB_INPUT_PANEL_WINDOWED,
+    OSK_SEPARATE_CANDIDATE_WINDOWED
+} oskType;
+```
+
+## Example Usage
+
+```c
+#include <sysutil/osk.h>
+#include <sysutil/sysutil.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+
+#define INPUT_MAX_LENGTH 128
+
+static u16 inputBuffer[INPUT_MAX_LENGTH + 1];
+static u16 messageBuffer[INPUT_MAX_LENGTH + 1];
+static u16 initialText[INPUT_MAX_LENGTH + 1];
+
+void sysutil_callback(u64 status, u64 param, void *usrdata) {
+    switch(status) {
+        case SYSUTIL_OSK_LOADED:
+            printf("OSK loaded\n");
+            break;
+        case SYSUTIL_OSK_DONE:
+            printf("OSK input done\n");
+            break;
+        case SYSUTIL_OSK_UNLOADED:
+            printf("OSK unloaded\n");
+            break;
+    }
+}
+
+int main() {
+    sys_mem_container_t container;
+    oskParam param;
+    oskInputFieldInfo inputInfo;
+    oskCallbackReturnParam result;
+    
+    // Register system callback
+    sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, sysutil_callback, NULL);
+    
+    // Set up initial text
+    memset(initialText, 0, sizeof(initialText));
+    wcscpy((wchar_t*)initialText, L"Enter your name");
+    
+    // Set up input field info
+    inputInfo.message = messageBuffer;
+    inputInfo.startText = initialText;
+    inputInfo.maxLength = INPUT_MAX_LENGTH;
+    
+    // Set up OSK parameters
+    param.allowedPanels = OSK_PANEL_TYPE_ALPHABET;
+    param.firstViewPanel = OSK_PANEL_TYPE_ALPHABET;
+    param.controlPoint.x = 0.0f;
+    param.controlPoint.y = 0.0f;
+    param.prohibitFlags = 0;
+    
+    // Load the keyboard
+    oskLoadAsync(container, &param, &inputInfo);
+    
+    // Main loop - wait for keyboard events
+    int running = 1;
+    while(running) {
+        sysUtilCheckCallback();
+        
+        // Check if keyboard is done
+        if(oskGetInputText(&result) == 0) {
+            if(result.res == OSK_OK) {
+                // User entered text
+                wprintf(L"User entered: %ls\n", result.str);
+                running = 0;
+            } else if(result.res == OSK_CANCELED) {
+                printf("User canceled input\n");
+                running = 0;
+            }
+        }
+    }
+    
+    // Cleanup
+    oskUnloadAsync(&result);
+    sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+    
+    return 0;
+}
+```

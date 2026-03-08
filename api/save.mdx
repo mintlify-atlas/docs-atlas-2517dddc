@@ -1,0 +1,616 @@
+---
+title: "Save Data"
+description: "Save data management functions for loading and saving game data"
+---
+
+The Save Data API provides comprehensive functions for managing game save data on the PlayStation 3.
+
+## Main Save Functions
+
+### sysSaveListLoad2
+
+Load save data with list selection dialog.
+
+```c
+s32 sysSaveListLoad2(u32 version,
+    sysSaveListSettings *listSettings,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveListCallback listCb,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+<ParamField path="version" type="u32">
+  Version number, use `SYS_SAVE_CURRENT_VERSION` (0).
+</ParamField>
+
+<ParamField path="listSettings" type="sysSaveListSettings*">
+  List display settings (sorting, filtering).
+</ParamField>
+
+<ParamField path="bufferSettings" type="sysSaveBufferSettings*">
+  Buffer configuration for save data.
+</ParamField>
+
+<ParamField path="listCb" type="sysSaveListCallback">
+  Callback for list operations.
+</ParamField>
+
+<ParamField path="statusCb" type="sysSaveStatusCallback">
+  Callback for status operations.
+</ParamField>
+
+<ParamField path="fileCb" type="sysSaveFileCallback">
+  Callback for file operations.
+</ParamField>
+
+<ParamField path="container" type="sys_mem_container_t">
+  Memory container ID.
+</ParamField>
+
+<ParamField path="user_data" type="void*">
+  User data passed to callbacks.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns:
+  - `SYS_SAVE_RETURN_DONE` (0) - Success
+  - `SYS_SAVE_RETURN_CANCELED` (1) - User canceled
+  - `SYS_SAVE_RETURN_ERROR_*` - Various error codes
+</ResponseField>
+
+### sysSaveListSave2
+
+Save data with list selection dialog.
+
+```c
+s32 sysSaveListSave2(u32 version,
+    sysSaveListSettings *listSettings,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveListCallback listCb,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+Parameters are identical to `sysSaveListLoad2`. Opens a save dialog allowing the user to select where to save.
+
+### sysSaveAutoLoad2
+
+Automatically load from a specific save directory.
+
+```c
+s32 sysSaveAutoLoad2(s32 version,
+    const char *directoryName,
+    sysSaveErrorDialogMode errorDialogMode,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+<ParamField path="version" type="s32">
+  Version number, use `SYS_SAVE_CURRENT_VERSION` (0).
+</ParamField>
+
+<ParamField path="directoryName" type="const char*">
+  Save directory name (max 32 characters).
+</ParamField>
+
+<ParamField path="errorDialogMode" type="sysSaveErrorDialogMode">
+  Error dialog display mode:
+  - `SYS_SAVE_ERROR_DIALOG_NONE` (0) - No error dialog
+  - `SYS_SAVE_ERROR_DIALOG_SHOW` (1) - Show error dialog
+  - `SYS_SAVE_ERROR_DIALOG_SHOW_ONCE` (2) - Show error dialog once
+</ParamField>
+
+<ParamField path="bufferSettings" type="sysSaveBufferSettings*">
+  Buffer configuration.
+</ParamField>
+
+<ParamField path="statusCb" type="sysSaveStatusCallback">
+  Status callback function.
+</ParamField>
+
+<ParamField path="fileCb" type="sysSaveFileCallback">
+  File operation callback.
+</ParamField>
+
+<ParamField path="container" type="sys_mem_container_t">
+  Memory container ID.
+</ParamField>
+
+<ParamField path="user_data" type="void*">
+  User data for callbacks.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns status code.
+</ResponseField>
+
+### sysSaveAutoSave2
+
+Automatically save to a specific directory.
+
+```c
+s32 sysSaveAutoSave2(s32 version,
+    const char *directoryName,
+    sysSaveErrorDialogMode errorDialogMode,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+Parameters are identical to `sysSaveAutoLoad2`. Saves without showing a dialog.
+
+### sysSaveFixedLoad2
+
+Load from a fixed save location.
+
+```c
+s32 sysSaveFixedLoad2(u32 version,
+    sysSaveListSettings *listSettings,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveFixedCallback fixedCb,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+### sysSaveFixedSave2
+
+Save to a fixed location.
+
+```c
+s32 sysSaveFixedSave2(u32 version,
+    sysSaveListSettings *listSettings,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveFixedCallback fixedCb,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+### sysSaveListAutoLoad
+
+Load with automatic list handling.
+
+```c
+s32 sysSaveListAutoLoad(u32 version,
+    sysSaveErrorDialogMode errorDialogMode,
+    sysSaveListSettings *listSettings,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveFixedCallback fixedCb,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+### sysSaveListAutoSave
+
+Save with automatic list handling.
+
+```c
+s32 sysSaveListAutoSave(u32 version,
+    sysSaveErrorDialogMode errorDialogMode,
+    sysSaveListSettings *listSettings,
+    sysSaveBufferSettings *bufferSettings,
+    sysSaveFixedCallback fixedCb,
+    sysSaveStatusCallback statusCb,
+    sysSaveFileCallback fileCb,
+    sys_mem_container_t container,
+    void *user_data);
+```
+
+### sysSaveDelete2
+
+Delete save data.
+
+```c
+s32 sysSaveDelete2(sys_mem_container_t container);
+```
+
+<ParamField path="container" type="sys_mem_container_t">
+  Memory container ID.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns status code.
+</ResponseField>
+
+## Data Structures
+
+### sysSaveListSettings
+
+List display settings.
+
+```c
+typedef struct {
+    sysSaveSortType sortType;
+    sysSaveSortOrder sortOrder;
+    char *pathPrefix;
+    void *reserved;
+} sysSaveListSettings;
+```
+
+<ParamField path="sortType" type="sysSaveSortType">
+  Sort type:
+  - `SYS_SAVE_SORT_TYPE_TIMESTAMP` (0) - Sort by timestamp
+  - `SYS_SAVE_SORT_TYPE_TITLE` (1) - Sort by title
+</ParamField>
+
+<ParamField path="sortOrder" type="sysSaveSortOrder">
+  Sort order:
+  - `SYS_SAVE_SORT_ORDER_DESCENDING` (0) - Descending order
+  - `SYS_SAVE_SORT_ORDER_ASCENDING` (1) - Ascending order
+</ParamField>
+
+<ParamField path="pathPrefix" type="char*">
+  Path prefix filter for save directories.
+</ParamField>
+
+### sysSaveBufferSettings
+
+Buffer configuration.
+
+```c
+typedef struct {
+    u32 maxDirectories;
+    u32 maxFiles;
+    u32 reserved[6];
+    u32 bufferSize;
+    void *buffer;
+} sysSaveBufferSettings;
+```
+
+<ParamField path="maxDirectories" type="u32">
+  Maximum number of save directories.
+</ParamField>
+
+<ParamField path="maxFiles" type="u32">
+  Maximum number of files per save.
+</ParamField>
+
+<ParamField path="bufferSize" type="u32">
+  Size of the buffer in bytes.
+</ParamField>
+
+<ParamField path="buffer" type="void*">
+  Pointer to buffer memory.
+</ParamField>
+
+### sysSaveCallbackResult
+
+Callback result structure.
+
+```c
+typedef struct {
+    s32 result;
+    u32 incrementProgress;
+    s32 missingSpaceKB;
+    char *customErrorMessage;
+    void *user_data;
+} sysSaveCallbackResult;
+```
+
+<ParamField path="result" type="s32">
+  Result code:
+  - `SYS_SAVE_CALLBACK_RESULT_DONE` (1) - Operation complete
+  - `SYS_SAVE_CALLBACK_RESULT_CONTINUE` (0) - Continue processing
+  - `SYS_SAVE_CALLBACK_RESULT_NO_SPACE_LEFT` (-1) - No space
+  - `SYS_SAVE_CALLBACK_RESULT_ERROR` (-2) - Error
+  - `SYS_SAVE_CALLBACK_RESULT_CORRUPTED` (-3) - Data corrupted
+  - `SYS_SAVE_CALLBACK_RESULT_NOT_FOUND` (-4) - Not found
+  - `SYS_SAVE_CALLBACK_RESULT_ERROR_CUSTOM` (-5) - Custom error
+</ParamField>
+
+<ParamField path="incrementProgress" type="u32">
+  Progress bar increment value.
+</ParamField>
+
+<ParamField path="missingSpaceKB" type="s32">
+  Missing space in kilobytes (for no space errors).
+</ParamField>
+
+<ParamField path="customErrorMessage" type="char*">
+  Custom error message to display (max 256 chars).
+</ParamField>
+
+### sysSaveSystemFileParam
+
+Save data metadata.
+
+```c
+typedef struct {
+    char title[SYS_SAVE_MAX_TITLE];
+    char subtitle[SYS_SAVE_MAX_SUBTITLE];
+    char detail[SYS_SAVE_MAX_DETAIL];
+    u32 copyProtected;
+    u32 parentalLevel;
+    char listParameter[SYS_SAVE_MAX_LIST_PARAMETER];
+    u8 reserved[256];
+} sysSaveSystemFileParam;
+```
+
+<ParamField path="title" type="char[128]">
+  Save data title.
+</ParamField>
+
+<ParamField path="subtitle" type="char[128]">
+  Save data subtitle.
+</ParamField>
+
+<ParamField path="detail" type="char[1024]">
+  Detailed description.
+</ParamField>
+
+<ParamField path="copyProtected" type="u32">
+  Copy protection flag.
+</ParamField>
+
+<ParamField path="parentalLevel" type="u32">
+  Parental control level.
+</ParamField>
+
+### sysSaveStatusIn
+
+Input parameters for status callback.
+
+```c
+typedef struct {
+    s32 freeSpaceKB;
+    u32 isNew;
+    sysSaveDirectoryStatus directoryStatus;
+    sysSaveSystemFileParam getParam;
+    u32 bindingInformation;
+    s32 sizeKB;
+    s32 systemSizeKB;
+    u32 totalFiles;
+    u32 numFiles;
+    sysSaveFileStatus *fileList;
+    u8 reserved[64];
+} sysSaveStatusIn;
+```
+
+<ParamField path="freeSpaceKB" type="s32">
+  Free space available in kilobytes.
+</ParamField>
+
+<ParamField path="isNew" type="u32">
+  Whether this is a new save (1) or existing (0).
+</ParamField>
+
+<ParamField path="bindingInformation" type="u32">
+  Binding information flags:
+  - `SYS_SAVE_BIND_NO_ERROR` (0x00)
+  - `SYS_SAVE_BIND_ANOTHER_CONSOLE` (0x01)
+  - `SYS_SAVE_BIND_ANOTHER_DISC` (0x02)
+  - `SYS_SAVE_BIND_ANOTHER_APP` (0x04)
+  - `SYS_SAVE_BIND_NO_USER_INFO` (0x08)
+  - `SYS_SAVE_BIND_OTHER_USER` (0x10)
+</ParamField>
+
+<ParamField path="sizeKB" type="s32">
+  Total save data size in kilobytes.
+</ParamField>
+
+<ParamField path="totalFiles" type="u32">
+  Total number of files in save data.
+</ParamField>
+
+### sysSaveStatusOut
+
+Output parameters for status callback.
+
+```c
+typedef struct {
+    sysSaveSystemFileParam *setParam;
+    sysSaveRecreateMode recreateMode;
+    void *reserved;
+} sysSaveStatusOut;
+```
+
+<ParamField path="setParam" type="sysSaveSystemFileParam*">
+  Metadata to write to save data.
+</ParamField>
+
+<ParamField path="recreateMode" type="sysSaveRecreateMode">
+  Recreate mode if corrupted:
+  - `SYS_SAVE_RECREATE_MODE_OVERWRITE_CORRUPTED` (0)
+  - `SYS_SAVE_RECREATE_MODE_OVERWRITE_NOT_CORRUPTED` (1)
+  - `SYS_SAVE_RECREATE_MODE_DELETE` (2)
+</ParamField>
+
+### sysSaveFileOut
+
+File operation parameters.
+
+```c
+typedef struct {
+    sysSaveFileOperation fileOperation;
+    void *reserved;
+    sysSaveFileType fileType;
+    u8 protectedFileID[SYS_SAVE_MAX_PROTECTED_FILE_ID];
+    char *filename;
+    u32 offset;
+    u32 size;
+    u32 bufferSize;
+    void *buffer;
+} sysSaveFileOut;
+```
+
+<ParamField path="fileOperation" type="sysSaveFileOperation">
+  Operation to perform:
+  - `SYS_SAVE_FILE_OPERATION_READ` (0) - Read file
+  - `SYS_SAVE_FILE_OPERATION_WRITE` (1) - Write file
+  - `SYS_SAVE_FILE_OPERATION_DELETE` (2) - Delete file
+</ParamField>
+
+<ParamField path="fileType" type="sysSaveFileType">
+  Type of file:
+  - `SYS_SAVE_FILETYPE_PROTECTED_FILE` (0) - Protected file
+  - `SYS_SAVE_FILETYPE_STANDARD_FILE` (1) - Standard file
+  - `SYS_SAVE_FILETYPE_CONTENT_ICON0` (2) - Icon 0
+  - `SYS_SAVE_FILETYPE_CONTENT_ICON1` (3) - Icon 1
+  - `SYS_SAVE_FILETYPE_CONTENT_PIC1` (4) - Picture 1
+  - `SYS_SAVE_FILETYPE_CONTENT_SND0` (5) - Sound 0
+</ParamField>
+
+<ParamField path="filename" type="char*">
+  Filename (max 13 characters).
+</ParamField>
+
+<ParamField path="offset" type="u32">
+  File offset for read/write.
+</ParamField>
+
+<ParamField path="size" type="u32">
+  Number of bytes to read/write.
+</ParamField>
+
+<ParamField path="buffer" type="void*">
+  Data buffer.
+</ParamField>
+
+## Callback Types
+
+### sysSaveListCallback
+
+```c
+typedef void (*sysSaveListCallback)(
+    sysSaveCallbackResult *result,
+    sysSaveListIn *in,
+    sysSaveListOut *out
+);
+```
+
+### sysSaveStatusCallback
+
+```c
+typedef void (*sysSaveStatusCallback)(
+    sysSaveCallbackResult *result,
+    sysSaveStatusIn *in,
+    sysSaveStatusOut *out
+);
+```
+
+### sysSaveFileCallback
+
+```c
+typedef void (*sysSaveFileCallback)(
+    sysSaveCallbackResult *result,
+    sysSaveFileIn *in,
+    sysSaveFileOut *out
+);
+```
+
+### sysSaveFixedCallback
+
+```c
+typedef void (*sysSaveFixedCallback)(
+    sysSaveCallbackResult *result,
+    sysSaveListIn *in,
+    sysSaveFixedOut *out
+);
+```
+
+## Constants
+
+<Expandable title="Size Limits">
+- `SYS_SAVE_MAX_DIRECTORY_NAME` (32) - Max directory name length
+- `SYS_SAVE_MAX_FILE_NAME` (13) - Max filename length
+- `SYS_SAVE_DIRECTORY_LIST_MAX` (2048) - Max directories in list
+- `SYS_SAVE_CUSTOM_ERROR_MESSAGE_MAX` (256) - Max custom error message
+- `SYS_SAVE_MAX_LIST_PARAMETER` (8) - Max list parameter size
+- `SYS_SAVE_MAX_TITLE` (128) - Max title length
+- `SYS_SAVE_MAX_SUBTITLE` (128) - Max subtitle length
+- `SYS_SAVE_MAX_DETAIL` (1024) - Max detail length
+- `SYS_SAVE_MAX_PROTECTED_FILE_ID` (16) - Max protected file ID size
+</Expandable>
+
+## Example Usage
+
+```c
+#include <sysutil/save.h>
+#include <string.h>
+
+#define SAVE_DIR "SAVEDATA01"
+#define BUFFER_SIZE (512 * 1024)  // 512 KB
+
+static u8 saveBuffer[BUFFER_SIZE];
+static u8 fileBuffer[32 * 1024];  // 32 KB for game data
+
+void statusCallback(sysSaveCallbackResult *result,
+                    sysSaveStatusIn *in,
+                    sysSaveStatusOut *out) {
+    // Set save metadata
+    static sysSaveSystemFileParam param;
+    strcpy(param.title, "My Game Save");
+    strcpy(param.subtitle, "Level 5");
+    strcpy(param.detail, "Saved at checkpoint");
+    param.copyProtected = 0;
+    param.parentalLevel = 0;
+    
+    out->setParam = &param;
+    out->recreateMode = SYS_SAVE_RECREATE_MODE_OVERWRITE_CORRUPTED;
+    
+    result->result = SYS_SAVE_CALLBACK_RESULT_CONTINUE;
+}
+
+void fileCallback(sysSaveCallbackResult *result,
+                  sysSaveFileIn *in,
+                  sysSaveFileOut *out) {
+    // Write game data
+    out->fileOperation = SYS_SAVE_FILE_OPERATION_WRITE;
+    out->fileType = SYS_SAVE_FILETYPE_STANDARD_FILE;
+    out->filename = "GAMEDATA.BIN";
+    out->offset = 0;
+    out->size = sizeof(fileBuffer);
+    out->buffer = fileBuffer;
+    out->bufferSize = sizeof(fileBuffer);
+    
+    result->result = SYS_SAVE_CALLBACK_RESULT_DONE;
+}
+
+int main() {
+    sys_mem_container_t container;
+    sysSaveBufferSettings bufferSettings;
+    
+    // Configure buffer
+    bufferSettings.maxDirectories = 10;
+    bufferSettings.maxFiles = 5;
+    bufferSettings.bufferSize = BUFFER_SIZE;
+    bufferSettings.buffer = saveBuffer;
+    
+    // Save game data
+    s32 ret = sysSaveAutoSave2(
+        SYS_SAVE_CURRENT_VERSION,
+        SAVE_DIR,
+        SYS_SAVE_ERROR_DIALOG_SHOW,
+        &bufferSettings,
+        statusCallback,
+        fileCallback,
+        container,
+        NULL
+    );
+    
+    if (ret == SYS_SAVE_RETURN_DONE) {
+        printf("Save successful!\n");
+    } else if (ret == SYS_SAVE_RETURN_CANCELED) {
+        printf("Save canceled\n");
+    } else {
+        printf("Save error: 0x%x\n", ret);
+    }
+    
+    return 0;
+}
+```

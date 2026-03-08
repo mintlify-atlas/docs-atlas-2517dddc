@@ -1,0 +1,690 @@
+---
+title: PlayStation Move
+description: PlayStation Move motion controller support with camera tracking
+---
+
+## Overview
+
+The PSL1GHT SDK provides comprehensive PlayStation Move support through the `io/move.h` API (also known as libgem). The Move controller combines motion sensing, button input, and visual tracking via the PlayStation Eye camera to deliver precise 3D position and orientation data.
+
+<Note>
+PlayStation Move requires a PlayStation Eye camera for visual tracking. Up to 4 Move controllers can be tracked simultaneously.
+</Note>
+
+## Features
+
+<Card title="Motion Tracking" icon="location-arrow">
+  3D position, velocity, and acceleration in world coordinates
+</Card>
+
+<Card title="Orientation" icon="compass">
+  Quaternion-based orientation with angular velocity and acceleration
+</Card>
+
+<Card title="Inertial Sensors" icon="gauge">
+  Accelerometer and gyroscope data for precise motion detection
+</Card>
+
+<Card title="Button Input" icon="hand-pointer">
+  Move button, trigger, face buttons, and navigation controller support
+</Card>
+
+<Card title="Sphere Tracking" icon="circle">
+  Visual tracking of the illuminated sphere with color calibration
+</Card>
+
+<Card title="Haptic Feedback" icon="mobile-vibrate">
+  Rumble motor control
+</Card>
+
+## Initialization
+
+### Load Required Modules
+
+```c
+#include <io/move.h>
+#include <io/camera.h>
+#include <spurs/spurs.h>
+#include <sysmodule/sysmodule.h>
+
+// Load modules
+sysModuleLoad(SYSMODULE_CAM);
+sysModuleLoad(SYSMODULE_GEM);
+```
+
+### Initialize SPURS
+
+Move requires SPURS for SPU processing:
+
+```c
+Spurs *spurs;
+spurs = (Spurs *)memalign(SPURS_ALIGN, sizeof(Spurs));
+
+SpursAttribute attributeSpurs;
+spursAttributeInitialize(&attributeSpurs, 5, 250, ppu_prio - 1, true);
+
+const char *prefix = "gemsample";
+spursAttributeSetNamePrefix(&attributeSpurs, prefix, strlen(prefix));
+
+spursInitializeWithAttribute(spurs, &attributeSpurs);
+```
+
+### Initialize Move Library
+
+```c
+// Get required memory size
+s32 mem_size = gemGetMemorySize(1);  // 1 Move controller
+void *gem_memory = malloc(mem_size);
+
+// Setup gem attribute
+gemAttribute gem_attr;
+gem_attr.version = 2;
+gem_attr.max = 1;  // Max Move controllers
+gem_attr.spurs = spurs;
+gem_attr.memory = gem_memory;
+
+// Set SPU priorities
+u8 spu_priorities[8] = {1, 1, 1, 1, 1, 0, 0, 0};
+for (int i = 0; i < 8; i++) {
+    gem_attr.spu_priorities[i] = spu_priorities[i];
+}
+
+// Initialize
+s32 ret = gemInit(&gem_attr);
+if (ret != 0) {
+    printf("gemInit failed: %X\n", ret);
+}
+```
+
+<ParamField path="version" type="u32">
+  Version (use 2 for current SDK)
+</ParamField>
+
+<ParamField path="max" type="u32">
+  Maximum Move controllers to support (1-4)
+</ParamField>
+
+<ParamField path="memory" type="void*">
+  Allocated memory for libgem (NULL for auto-allocation)
+</ParamField>
+
+<ParamField path="spurs" type="Spurs*">
+  Pointer to initialized SPURS object
+</ParamField>
+
+<ParamField path="spu_priorities" type="u8[8]">
+  Priority for each SPU thread
+</ParamField>
+
+### Setup Camera
+
+Initialize the PlayStation Eye:
+
+```c
+#include <io/camera.h>
+
+sys_mem_container_t container;
+sysMemContainerCreate(&container, 0x200000);
+
+cameraInit();
+
+cameraInfoEx camInfo;
+camInfo.format = CAM_FORM_YUV422;
+camInfo.framerate = 60;  // 60 FPS recommended for Move
+camInfo.resolution = CAM_RESO_VGA;
+camInfo.info_ver = 0x0200;
+camInfo.container = container;
+
+cameraOpenEx(0, &camInfo);
+
+// Prepare camera for Move
+gemPrepareCamera(500, 0.5);  // exposure, quality
+
+cameraReset(0);
+cameraStart(0);
+```
+
+### Prepare Video Conversion
+
+Setup video format conversion:
+
+```c
+gemVideoConvertAttribute gem_video_convert;
+gem_video_convert.version = 2;
+gem_video_convert.format = GEM_RGBA_640x480;
+gem_video_convert.conversion = 
+    GEM_AUTO_WHITE_BALANCE | 
+    GEM_COMBINE_PREVIOUS_INPUT_FRAME |
+    GEM_FILTER_OUTLIER_PIXELS | 
+    GEM_GAMMA_BOOST;
+gem_video_convert.gain = 1.0f;
+gem_video_convert.red_gain = 1.0f;
+gem_video_convert.green_gain = 1.0f;
+gem_video_convert.blue_gain = 1.0f;
+gem_video_convert.buffer_memory = memalign(128, 640 * 480);
+gem_video_convert.video_data_out = malloc(640 * 480 * 4);
+gem_video_convert.alpha = 255;
+
+gemPrepareVideoConvert(&gem_video_convert);
+```
+
+## Calibration
+
+Calibrate the Move controller:
+
+```c
+gemInfo gem_info;
+gemGetInfo(&gem_info);
+
+printf("Max Move controllers: %u\n", gem_info.max);
+printf("Connected: %u\n", gem_info.connected);
+
+// Start calibration
+gemCalibrate(0);  // Controller 0
+
+// Track hues (let system choose optimal color)
+u32 hues[4] = {4 << 24, 4 << 24, 4 << 24, 4 << 24};
+gemTrackHues(hues, NULL);
+```
+
+### Calibration States
+
+Check calibration status with `gemGetState()`:
+
+| Return | Status | Action |
+|--------|--------|--------|
+| 0 | Ready | Move is calibrated and ready |
+| 1 | Not connected | No Move device connected |
+| 2 | Need calibration | Call `gemCalibrate()` |
+| 3 | Calibrating | Calibration in progress |
+| 4 | Computing colors | Color computation |
+| 5 | Need hue tracking | Call `gemTrackHues()` |
+| 6 | No video | Camera not working |
+| 7 | No state | No state available |
+
+```c
+gemState gem_state;
+while (1) {
+    s32 status = gemGetState(0, STATE_CURRENT_TIME, 0, &gem_state);
+    
+    switch (status) {
+        case 0:
+            printf("Move ready!\n");
+            goto calibrated;
+        case 2:
+            gemCalibrate(0);
+            printf("Starting calibration...\n");
+            break;
+        case 5:
+            gemTrackHues(hues, NULL);
+            printf("Tracking hues...\n");
+            break;
+    }
+}
+calibrated:
+```
+
+## Reading Camera Frames
+
+Update Move tracking with camera frames:
+
+```c
+cameraReadInfo readex;
+
+while (running) {
+    // Read camera frame
+    if (cameraReadEx(0, &readex) == 0 && readex.readcount != 0) {
+        // Update Move tracking
+        gemUpdateStart((void*)(u64)readex.buffer, readex.timestamp);
+        
+        // Convert video (optional)
+        gemConvertVideoStart((void*)(u64)readex.buffer);
+        
+        // Finish update
+        gemUpdateFinish();
+        
+        // Finish conversion
+        gemConvertVideoFinish();
+    }
+}
+```
+
+## Reading Move State
+
+Get complete Move controller state:
+
+```c
+gemState gem_state;
+s32 ret = gemGetState(0, STATE_CURRENT_TIME, 0, &gem_state);
+
+if (ret == 0) {
+    // Position (millimeters)
+    float x = vec_array(gem_state.pos, 0);
+    float y = vec_array(gem_state.pos, 1);
+    float z = vec_array(gem_state.pos, 2);
+    printf("Position: (%.2f, %.2f, %.2f) mm\n", x, y, z);
+    
+    // Velocity
+    float vx = vec_array(gem_state.vel, 0);
+    float vy = vec_array(gem_state.vel, 1);
+    float vz = vec_array(gem_state.vel, 2);
+    
+    // Orientation (quaternion)
+    float qw = vec_array(gem_state.quat, 0);
+    float qx = vec_array(gem_state.quat, 1);
+    float qy = vec_array(gem_state.quat, 2);
+    float qz = vec_array(gem_state.quat, 3);
+    
+    // Tracking status
+    if (gem_state.tracking & GEM_TRACKING_POSITION_TRACKED) {
+        printf("Position tracked\n");
+    }
+    if (gem_state.tracking & GEM_TRACKING_VISIBLE) {
+        printf("Sphere visible\n");
+    }
+    
+    // Temperature
+    printf("Temperature: %.2f\n", gem_state.temperature);
+    
+    // Camera pitch angle
+    printf("Camera pitch: %.2f degrees\n", gem_state.camera_pitch_angle);
+}
+```
+
+### gemState Structure
+
+<ParamField path="pos" type="vec_float4">
+  Position in millimeters (X, Y, Z, W)
+</ParamField>
+
+<ParamField path="vel" type="vec_float4">
+  Velocity in mm/s
+</ParamField>
+
+<ParamField path="accel" type="vec_float4">
+  Acceleration in mm/s²
+</ParamField>
+
+<ParamField path="quat" type="vec_float4">
+  Orientation quaternion (W, X, Y, Z)
+</ParamField>
+
+<ParamField path="angvel" type="vec_float4">
+  Angular velocity
+</ParamField>
+
+<ParamField path="angaccel" type="vec_float4">
+  Angular acceleration
+</ParamField>
+
+<ParamField path="handle_pos" type="vec_float4">
+  Handle position
+</ParamField>
+
+<ParamField path="paddata" type="gemPadData">
+  Button and trigger data
+</ParamField>
+
+<ParamField path="extportdata" type="gemExtPortData">
+  Navigation controller data
+</ParamField>
+
+<ParamField path="time" type="system_time_t">
+  Timestamp
+</ParamField>
+
+<ParamField path="temperature" type="f32">
+  Controller temperature
+</ParamField>
+
+<ParamField path="camera_pitch_angle" type="f32">
+  Camera pitch angle in degrees
+</ParamField>
+
+<ParamField path="tracking" type="u32">
+  Tracking flags (POSITION_TRACKED | VISIBLE)
+</ParamField>
+
+## Button Input
+
+Read Move buttons:
+
+```c
+gemState gem_state;
+gemGetState(0, 0, 0, &gem_state);
+
+// Move button (top button)
+if (gem_state.paddata.buttons & 0x0004) {
+    printf("Move button pressed\n");
+}
+
+// Trigger
+u16 trigger_value = gem_state.paddata.ANA_T;  // 0-255
+if (gem_state.paddata.buttons & 0x0002) {
+    printf("Trigger pressed: %d\n", trigger_value);
+}
+
+// Start button
+if (gem_state.paddata.buttons & 0x0008) {
+    printf("Start pressed\n");
+}
+
+// Select button  
+if (gem_state.paddata.buttons & 0x0001) {
+    printf("Select pressed\n");
+}
+
+// Face buttons (same as DualShock 3)
+if (gem_state.paddata.buttons & 0x0010) printf("Triangle\n");
+if (gem_state.paddata.buttons & 0x0020) printf("Circle\n");
+if (gem_state.paddata.buttons & 0x0040) printf("Cross\n");
+if (gem_state.paddata.buttons & 0x0080) printf("Square\n");
+```
+
+### Move Button Layout
+
+| Bit | Button |
+|-----|--------|
+| 0x0001 | Select |
+| 0x0002 | Trigger (T button) |
+| 0x0004 | Move (top sphere button) |
+| 0x0008 | Start |
+| 0x0010 | Triangle |
+| 0x0020 | Circle |
+| 0x0040 | Cross |
+| 0x0080 | Square |
+
+## Inertial Sensor Data
+
+Get raw accelerometer and gyroscope data:
+
+```c
+gemInertialState gem_inertial;
+gemGetInertialState(0, GEM_INERTIAL_LATEST, 0, &gem_inertial);
+
+// Accelerometer (m/s²)
+float acc_x = vec_array(gem_inertial.accelerometer, 0);
+float acc_y = vec_array(gem_inertial.accelerometer, 1);
+float acc_z = vec_array(gem_inertial.accelerometer, 2);
+printf("Accel: (%.3f, %.3f, %.3f)\n", acc_x, acc_y, acc_z);
+
+// Gyroscope (rad/s)
+float gyro_x = vec_array(gem_inertial.gyro, 0);
+float gyro_y = vec_array(gem_inertial.gyro, 1);
+float gyro_z = vec_array(gem_inertial.gyro, 2);
+printf("Gyro: (%.3f, %.3f, %.3f)\n", gyro_x, gyro_y, gyro_z);
+
+// Sensor bias
+float bias_x = vec_array(gem_inertial.accelerometer_bias, 0);
+float bias_y = vec_array(gem_inertial.accelerometer_bias, 1);
+float bias_z = vec_array(gem_inertial.accelerometer_bias, 2);
+
+// Temperature and counter
+printf("Temperature: %.2f\n", gem_inertial.temperature);
+printf("Counter: %d\n", gem_inertial.counter);
+```
+
+## Image State (2D Tracking)
+
+Get sphere position in camera image:
+
+```c
+gemImageState image_state;
+gemGetImageState(0, &image_state);
+
+if (image_state.visible) {
+    printf("Sphere visible in camera\n");
+    printf("  U: %.2f\n", image_state.u);  // X in image
+    printf("  V: %.2f\n", image_state.v);  // Y in image
+    printf("  R: %.2f\n", image_state.r);  // Radius
+    printf("  Distance: %.2f mm\n", image_state.distance);
+    printf("  Projection: (%.2f, %.2f)\n",
+           image_state.projectionx, image_state.projectiony);
+}
+```
+
+## Sphere Color Control
+
+Control the Move sphere LED:
+
+```c
+// Get current color
+float r, g, b;
+gemGetRGB(0, &r, &g, &b);
+printf("Current color: RGB(%.2f, %.2f, %.2f)\n", r, g, b);
+
+// Force specific color
+gemForceRGB(0, 1.0f, 0.0f, 0.0f);  // Red
+gemForceRGB(0, 0.0f, 1.0f, 0.0f);  // Green
+gemForceRGB(0, 0.0f, 0.0f, 1.0f);  // Blue
+
+// Let system auto-select color for tracking
+gemForceRGB(0, 0.5f, 0.5f, 0.5f);
+
+// Get tracked hue
+u32 hue;
+gemGetTrackerHue(0, &hue);
+printf("Tracking hue: 0x%08X\n", hue);
+```
+
+## Rumble (Vibration)
+
+Control the rumble motor:
+
+```c
+// Get current rumble intensity
+u8 intensity;
+gemGetRumble(0, &intensity);
+
+// Set rumble (0-255)
+gemSetRumble(0, 255);  // Maximum
+usleep(500000);
+gemSetRumble(0, 128);  // Medium
+usleep(500000);
+gemSetRumble(0, 0);    // Off
+```
+
+## Navigation Controller
+
+Read attached navigation controller:
+
+```c
+gemState gem_state;
+gemGetState(0, 0, 0, &gem_state);
+
+if (gem_state.extportdata.isconnected) {
+    printf("Navigation controller connected\n");
+    
+    // Digital buttons
+    if (gem_state.extportdata.BTN_CROSS) printf("X\n");
+    if (gem_state.extportdata.BTN_CIRCLE) printf("O\n");
+    if (gem_state.extportdata.BTN_L1) printf("L1\n");
+    if (gem_state.extportdata.BTN_L2) printf("L2\n");
+    if (gem_state.extportdata.BTN_L3) printf("L3\n");
+    
+    // D-pad
+    if (gem_state.extportdata.BTN_UP) printf("Up\n");
+    if (gem_state.extportdata.BTN_DOWN) printf("Down\n");
+    if (gem_state.extportdata.BTN_LEFT) printf("Left\n");
+    if (gem_state.extportdata.BTN_RIGHT) printf("Right\n");
+    
+    // Analog stick
+    u16 stick_x = gem_state.extportdata.ANA_L_H;
+    u16 stick_y = gem_state.extportdata.ANA_L_V;
+    printf("Analog: (%d, %d)\n", stick_x, stick_y);
+}
+```
+
+## Utility Functions
+
+### Get Accelerometer Position
+
+```c
+vec_float4 position;
+gemGetAccelerometerPositionInDevice(0, &position);
+printf("Accelerometer position in device: (%.2f, %.2f, %.2f)\n",
+       vec_array(position, 0),
+       vec_array(position, 1),
+       vec_array(position, 2));
+```
+
+### Reset Controller
+
+```c
+gemReset(0);
+```
+
+### Enable Magnetometer
+
+```c
+gemEnableMagnetometer(0, 1);  // Enable
+```
+
+### Enable Camera Pitch Correction
+
+```c
+gemEnableCameraPitchAngleCorrection(1);
+```
+
+## Cleanup
+
+```c
+gemEnd();
+cameraStop(0);
+cameraClose(0);
+cameraEnd();
+sysMemContainerDestroy(container);
+spursFinalize(spurs);
+sysModuleUnload(SYSMODULE_GEM);
+sysModuleUnload(SYSMODULE_CAM);
+```
+
+## Complete Example
+
+Based on `samples/input/gemtest/` and `gemsample/`:
+
+```c
+#include <io/move.h>
+#include <io/camera.h>
+#include <spurs/spurs.h>
+
+int main() {
+    // Initialize SPURS
+    Spurs *spurs = memalign(SPURS_ALIGN, sizeof(Spurs));
+    // ... (SPURS setup)
+    
+    // Initialize Move
+    s32 mem_size = gemGetMemorySize(1);
+    void *gem_memory = malloc(mem_size);
+    
+    gemAttribute gem_attr;
+    gem_attr.version = 2;
+    gem_attr.max = 1;
+    gem_attr.spurs = spurs;
+    gem_attr.memory = gem_memory;
+    gemInit(&gem_attr);
+    
+    // Setup camera
+    cameraInit();
+    // ... (camera setup)
+    gemPrepareCamera(500, 0.5);
+    cameraStart(0);
+    
+    // Calibrate
+    u32 hues[4] = {4 << 24, 4 << 24, 4 << 24, 4 << 24};
+    gemCalibrate(0);
+    
+    // Main loop
+    cameraReadInfo readex;
+    gemState gem_state;
+    
+    while (running) {
+        // Read camera
+        if (cameraReadEx(0, &readex) == 0) {
+            gemUpdateStart((void*)(u64)readex.buffer, 
+                          readex.timestamp);
+            gemUpdateFinish();
+            
+            // Get Move state
+            if (gemGetState(0, 0, 0, &gem_state) == 0) {
+                // Read position
+                float x = vec_array(gem_state.pos, 0);
+                float y = vec_array(gem_state.pos, 1);
+                float z = vec_array(gem_state.pos, 2);
+                
+                // Read buttons
+                if (gem_state.paddata.buttons & 0x0040) {
+                    printf("Cross button pressed\n");
+                }
+            }
+        }
+    }
+    
+    // Cleanup
+    gemEnd();
+    cameraStop(0);
+    cameraEnd();
+    
+    return 0;
+}
+```
+
+## API Reference
+
+<ParamField path="gemInit" type="s32 gemInit(const gemAttribute* attr)">
+  Initialize Move library
+</ParamField>
+
+<ParamField path="gemEnd" type="s32 gemEnd()">
+  Shutdown Move library
+</ParamField>
+
+<ParamField path="gemGetMemorySize" type="s32 gemGetMemorySize(s32 max)">
+  Get required memory size for max controllers
+</ParamField>
+
+<ParamField path="gemGetState" type="s32 gemGetState(u32 num, u32 timeflag, system_time_t time, gemState* state)">
+  Get complete Move controller state
+</ParamField>
+
+<ParamField path="gemGetInertialState" type="s32 gemGetInertialState(u32 num, u32 flag, system_time_t time, gemInertialState* inertial)">
+  Get inertial sensor data
+</ParamField>
+
+<ParamField path="gemGetImageState" type="s32 gemGetImageState(u32 num, gemImageState* state)">
+  Get sphere position in camera image
+</ParamField>
+
+<ParamField path="gemCalibrate" type="s32 gemCalibrate(u32 num)">
+  Start calibration process
+</ParamField>
+
+<ParamField path="gemTrackHues" type="s32 gemTrackHues(const u32* req_hues, u32* res_hues)">
+  Set sphere color hues to track
+</ParamField>
+
+<ParamField path="gemUpdateStart" type="s32 gemUpdateStart(const void* camera_frame, system_time_t timestamp)">
+  Start tracking update with camera frame
+</ParamField>
+
+<ParamField path="gemUpdateFinish" type="s32 gemUpdateFinish()">
+  Finish tracking update
+</ParamField>
+
+<ParamField path="gemSetRumble" type="s32 gemSetRumble(u32 num, u8 intensity)">
+  Set rumble intensity (0-255)
+</ParamField>
+
+<ParamField path="gemForceRGB" type="s32 gemForceRGB(u32 num, f32 r, f32 g, f32 b)">
+  Set sphere LED color (0.0-1.0)
+</ParamField>
+
+<ParamField path="gemReset" type="s32 gemReset(u32 num)">
+  Reset Move controller
+</ParamField>
+
+## See Also
+
+- [Controllers](/input/controllers) - DualShock 3 controller
+- [Camera](/input/camera) - PlayStation Eye camera setup
+- [Keyboard & Mouse](/input/keyboard-mouse) - USB input devices

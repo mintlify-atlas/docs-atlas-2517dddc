@@ -1,0 +1,464 @@
+---
+title: Network Control API
+description: Network control and configuration API for PS3
+---
+
+The Network Control library manages network interface configuration, connection state, and network information on PlayStation 3.
+
+## Overview
+
+The netctl library provides functions to:
+- Initialize and manage network connections
+- Query network configuration and status
+- Get network interface information (IP address, DNS, etc.)
+- Monitor network state changes
+
+## Initialization
+
+### netCtlInit
+
+```c
+s32 netCtlInit(void);
+```
+
+Initialize the network control library.
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure.
+</ResponseField>
+
+### netCtlTerm
+
+```c
+void netCtlTerm(void);
+```
+
+Terminate the network control library.
+
+## Network State
+
+### netCtlGetState
+
+```c
+s32 netCtlGetState(s32 *state);
+```
+
+Get the current network connection state.
+
+<ParamField path="state" type="s32*" required>
+  Pointer to receive the network state:
+  - `NET_CTL_STATE_Disconnected` (0) - Not connected
+  - `NET_CTL_STATE_Connecting` (1) - Connection in progress
+  - `NET_CTL_STATE_IPObtaining` (2) - Obtaining IP address
+  - `NET_CTL_STATE_IPObtained` (3) - IP address obtained, ready for use
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure.
+</ResponseField>
+
+## Network Information
+
+### netCtlGetInfo
+
+```c
+s32 netCtlGetInfo(s32 code, union net_ctl_info *info);
+```
+
+Retrieve network configuration information.
+
+<ParamField path="code" type="s32" required>
+  Information code to retrieve:
+  - `NET_CTL_INFO_DEVICE` (1) - Device type (wired/wireless)
+  - `NET_CTL_INFO_ETHER_ADDR` (2) - MAC address
+  - `NET_CTL_INFO_MTU` (3) - Maximum transmission unit
+  - `NET_CTL_INFO_LINK` (4) - Link status
+  - `NET_CTL_INFO_LINK_TYPE` (5) - Link type (10/100/1000 Mbps)
+  - `NET_CTL_INFO_BSSID` (6) - Wireless BSSID
+  - `NET_CTL_INFO_SSID` (7) - Wireless SSID
+  - `NET_CTL_INFO_WLAN_SECURITY` (8) - Wireless security type
+  - `NET_CTL_INFO_IP_ADDRESS` (16) - IP address string
+  - `NET_CTL_INFO_NETMASK` (17) - Netmask string
+  - `NET_CTL_INFO_DEFAULT_ROUTE` (18) - Default gateway
+  - `NET_CTL_INFO_PRIMARY_DNS` (19) - Primary DNS server
+  - `NET_CTL_INFO_SECONDARY_DNS` (20) - Secondary DNS server
+  - `NET_CTL_INFO_HTTP_PROXY_CONFIG` (21) - HTTP proxy config
+  - `NET_CTL_INFO_HTTP_PROXY_SERVER` (22) - HTTP proxy server
+  - `NET_CTL_INFO_HTTP_PROXY_PORT` (23) - HTTP proxy port
+</ParamField>
+
+<ParamField path="info" type="union net_ctl_info*" required>
+  Pointer to union to receive the information. The union contains fields corresponding to each info code.
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure.
+</ResponseField>
+
+## NAT Information
+
+### netCtlGetNatInfo
+
+```c
+s32 netCtlGetNatInfo(struct net_ctl_nat_info *natinfo);
+```
+
+Get NAT (Network Address Translation) information.
+
+<ParamField path="natinfo" type="struct net_ctl_nat_info*" required>
+  Pointer to NAT info structure to be filled:
+  - `size` - Size of structure
+  - `upnp_status` - UPnP status
+  - `stun_status` - STUN status  
+  - `nat_type` - NAT type (1, 2, or 3)
+  - `mapped_addr` - Mapped external address
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure.
+</ResponseField>
+
+## Data Structures
+
+### net_ctl_info
+
+Union containing various network information types:
+
+<ResponseField name="device" type="u32">
+  Network device type:
+  - `NET_CTL_DEVICE_WIRED` (0) - Wired Ethernet
+  - `NET_CTL_DEVICE_WIRELESS` (1) - Wireless LAN
+</ResponseField>
+
+<ResponseField name="ether_addr" type="struct net_ctl_ether_addr">
+  Ethernet MAC address (6 bytes).
+</ResponseField>
+
+<ResponseField name="mtu" type="u32">
+  Maximum Transmission Unit size.
+</ResponseField>
+
+<ResponseField name="link" type="u32">
+  Link status:
+  - `NET_CTL_LINK_DISCONNECTED` (0) - Cable disconnected
+  - `NET_CTL_LINK_CONNECTED` (1) - Cable connected
+</ResponseField>
+
+<ResponseField name="link_type" type="u32">
+  Link speed and duplex:
+  - `NET_CTL_LINK_TYPE_AUTO` (0) - Auto-negotiate
+  - `NET_CTL_LINK_TYPE_10BASE_HALF` (1) - 10Mbps half-duplex
+  - `NET_CTL_LINK_TYPE_10BASE_FULL` (2) - 10Mbps full-duplex
+  - `NET_CTL_LINK_TYPE_100BASE_HALF` (3) - 100Mbps half-duplex
+  - `NET_CTL_LINK_TYPE_100BASE_FULL` (4) - 100Mbps full-duplex
+  - `NET_CTL_LINK_TYPE_1000BASE_HALF` (5) - 1000Mbps half-duplex
+  - `NET_CTL_LINK_TYPE_1000BASE_FULL` (6) - 1000Mbps full-duplex
+</ResponseField>
+
+<ResponseField name="bssid" type="struct net_ctl_ether_addr">
+  Wireless access point BSSID.
+</ResponseField>
+
+<ResponseField name="ssid" type="struct net_ctl_SSID">
+  Wireless network SSID (up to 32 bytes).
+</ResponseField>
+
+<ResponseField name="wlan_security" type="u32">
+  Wireless security type:
+  - `NET_CTL_WLAN_SECURITY_NOAUTH` (0) - No authentication
+  - `NET_CTL_WLAN_SECURITY_WEP` (1) - WEP
+  - `NET_CTL_WLAN_SECURITY_WPAPSK_TKIP` (2) - WPA-PSK (TKIP)
+  - `NET_CTL_WLAN_SECURITY_WPAPSK_AES` (3) - WPA-PSK (AES)
+  - `NET_CTL_WLAN_SECURITY_WPA2PSK_TKIP` (5) - WPA2-PSK (TKIP)
+  - `NET_CTL_WLAN_SECURITY_WPA2PSK_AES` (6) - WPA2-PSK (AES)
+  - `NET_CTL_WLAN_SECURITY_WPAPSK_WPA2PSK` (7) - Mixed mode
+</ResponseField>
+
+<ResponseField name="ip_config" type="u32">
+  IP configuration method:
+  - `NET_CTL_IP_DHCP` (0) - DHCP
+  - `NET_CTL_IP_STATIC` (1) - Static IP
+  - `NET_CTL_IP_PPPOE` (2) - PPPoE
+</ResponseField>
+
+<ResponseField name="ip_address" type="char[16]">
+  IP address as string (e.g., "192.168.1.100").
+</ResponseField>
+
+<ResponseField name="netmask" type="char[16]">
+  Network mask as string (e.g., "255.255.255.0").
+</ResponseField>
+
+<ResponseField name="default_route" type="char[16]">
+  Default gateway as string.
+</ResponseField>
+
+<ResponseField name="primary_dns" type="char[16]">
+  Primary DNS server as string.
+</ResponseField>
+
+<ResponseField name="secondary_dns" type="char[16]">
+  Secondary DNS server as string.
+</ResponseField>
+
+<ResponseField name="http_proxy_config" type="u32">
+  HTTP proxy configuration:
+  - `NET_CTL_HTTP_PROXY_OFF` (0) - Proxy disabled
+  - `NET_CTL_HTTP_PROXY_ON` (1) - Proxy enabled
+</ResponseField>
+
+<ResponseField name="http_proxy_server" type="char[256]">
+  HTTP proxy server hostname.
+</ResponseField>
+
+<ResponseField name="http_proxy_port" type="u16">
+  HTTP proxy server port.
+</ResponseField>
+
+### net_ctl_nat_info
+
+NAT information structure:
+
+<ResponseField name="size" type="size_t">
+  Size of structure (set before calling).
+</ResponseField>
+
+<ResponseField name="upnp_status" type="int">
+  UPnP status:
+  - `NET_CTL_NATINFO_UPNP_UNCHECKED` (0)
+  - `NET_CTL_NATINFO_UPNP_NO` (1)
+  - `NET_CTL_NATINFO_UPNP_USED` (2)
+</ResponseField>
+
+<ResponseField name="stun_status" type="int">
+  STUN status:
+  - `NET_CTL_NATINFO_STUN_UNCHECKED` (0)
+  - `NET_CTL_NATINFO_STUN_FAILED` (1)
+  - `NET_CTL_NATINFO_STUN_OK` (2)
+</ResponseField>
+
+<ResponseField name="nat_type" type="int">
+  NAT type:
+  - `NET_CTL_NATINFO_NAT_TYPE_1` (1) - Type 1 (Open)
+  - `NET_CTL_NATINFO_NAT_TYPE_2` (2) - Type 2 (Moderate)
+  - `NET_CTL_NATINFO_NAT_TYPE_3` (3) - Type 3 (Strict)
+</ResponseField>
+
+<ResponseField name="mapped_addr" type="struct in_addr">
+  External mapped IP address.
+</ResponseField>
+
+## Error Codes
+
+Common error codes returned by netctl functions:
+
+- `NET_CTL_ERROR_NOT_INITIALIZED` (0x80130101) - Library not initialized
+- `NET_CTL_ERROR_NOT_TERMINATED` (0x80130102) - Not terminated
+- `NET_CTL_ERROR_INVALID_ID` (0x80130105) - Invalid ID
+- `NET_CTL_ERROR_INVALID_CODE` (0x80130106) - Invalid info code
+- `NET_CTL_ERROR_NOT_CONNECTED` (0x80130108) - Not connected to network
+- `NET_CTL_ERROR_NOT_AVAIL` (0x80130109) - Information not available
+- `NET_CTL_ERROR_NET_DISABLED` (0x80130181) - Network disabled
+- `NET_CTL_ERROR_NET_NOT_CONNECTED` (0x80130182) - No IP address
+- `NET_CTL_ERROR_NET_CABLE_NOT_CONNECTED` (0x80130186) - Cable not connected
+
+## Example: Get Network Information
+
+```c
+#include <net/netctl.h>
+#include <stdio.h>
+#include <string.h>
+
+void print_network_info() {
+    s32 ret;
+    s32 state;
+    union net_ctl_info info;
+    
+    // Initialize netctl
+    ret = netCtlInit();
+    if (ret < 0) {
+        printf("netCtlInit failed: 0x%x\n", ret);
+        return;
+    }
+    
+    // Get connection state
+    ret = netCtlGetState(&state);
+    if (ret == 0) {
+        printf("Network State: ");
+        switch (state) {
+            case NET_CTL_STATE_Disconnected:
+                printf("Disconnected\n");
+                break;
+            case NET_CTL_STATE_Connecting:
+                printf("Connecting\n");
+                break;
+            case NET_CTL_STATE_IPObtaining:
+                printf("Obtaining IP\n");
+                break;
+            case NET_CTL_STATE_IPObtained:
+                printf("Connected\n");
+                break;
+        }
+    }
+    
+    // Only get detailed info if connected
+    if (state != NET_CTL_STATE_IPObtained) {
+        netCtlTerm();
+        return;
+    }
+    
+    // Get device type
+    ret = netCtlGetInfo(NET_CTL_INFO_DEVICE, &info);
+    if (ret == 0) {
+        printf("Device: %s\n", 
+               info.device == NET_CTL_DEVICE_WIRED ? "Wired" : "Wireless");
+    }
+    
+    // Get IP address
+    ret = netCtlGetInfo(NET_CTL_INFO_IP_ADDRESS, &info);
+    if (ret == 0) {
+        printf("IP Address: %s\n", info.ip_address);
+    }
+    
+    // Get netmask
+    ret = netCtlGetInfo(NET_CTL_INFO_NETMASK, &info);
+    if (ret == 0) {
+        printf("Netmask: %s\n", info.netmask);
+    }
+    
+    // Get default gateway
+    ret = netCtlGetInfo(NET_CTL_INFO_DEFAULT_ROUTE, &info);
+    if (ret == 0) {
+        printf("Gateway: %s\n", info.default_route);
+    }
+    
+    // Get DNS servers
+    ret = netCtlGetInfo(NET_CTL_INFO_PRIMARY_DNS, &info);
+    if (ret == 0) {
+        printf("Primary DNS: %s\n", info.primary_dns);
+    }
+    
+    ret = netCtlGetInfo(NET_CTL_INFO_SECONDARY_DNS, &info);
+    if (ret == 0) {
+        printf("Secondary DNS: %s\n", info.secondary_dns);
+    }
+    
+    // Get MTU
+    ret = netCtlGetInfo(NET_CTL_INFO_MTU, &info);
+    if (ret == 0) {
+        printf("MTU: %u\n", info.mtu);
+    }
+    
+    // Cleanup
+    netCtlTerm();
+}
+
+int main() {
+    print_network_info();
+    return 0;
+}
+```
+
+## Example: Get Wireless Info
+
+```c
+#include <net/netctl.h>
+#include <stdio.h>
+
+void print_wireless_info() {
+    s32 ret;
+    union net_ctl_info info;
+    
+    netCtlInit();
+    
+    // Check if wireless
+    ret = netCtlGetInfo(NET_CTL_INFO_DEVICE, &info);
+    if (ret != 0 || info.device != NET_CTL_DEVICE_WIRELESS) {
+        printf("Not using wireless connection\n");
+        netCtlTerm();
+        return;
+    }
+    
+    // Get SSID
+    ret = netCtlGetInfo(NET_CTL_INFO_SSID, &info);
+    if (ret == 0) {
+        printf("SSID: %s\n", info.ssid.data);
+    }
+    
+    // Get signal strength
+    ret = netCtlGetInfo(NET_CTL_INFO_RSSI, &info);
+    if (ret == 0) {
+        printf("Signal Strength: %u%%\n", info.rssi);
+    }
+    
+    // Get channel
+    ret = netCtlGetInfo(NET_CTL_INFO_CHANNEL, &info);
+    if (ret == 0) {
+        printf("Channel: %u\n", info.channel);
+    }
+    
+    // Get security type
+    ret = netCtlGetInfo(NET_CTL_INFO_WLAN_SECURITY, &info);
+    if (ret == 0) {
+        printf("Security: ");
+        switch (info.wlan_security) {
+            case NET_CTL_WLAN_SECURITY_NOAUTH:
+                printf("None\n");
+                break;
+            case NET_CTL_WLAN_SECURITY_WEP:
+                printf("WEP\n");
+                break;
+            case NET_CTL_WLAN_SECURITY_WPAPSK_TKIP:
+                printf("WPA-PSK (TKIP)\n");
+                break;
+            case NET_CTL_WLAN_SECURITY_WPAPSK_AES:
+                printf("WPA-PSK (AES)\n");
+                break;
+            case NET_CTL_WLAN_SECURITY_WPA2PSK_AES:
+                printf("WPA2-PSK (AES)\n");
+                break;
+            default:
+                printf("Unknown\n");
+        }
+    }
+    
+    netCtlTerm();
+}
+```
+
+## Example: Check NAT Type
+
+```c
+#include <net/netctl.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <string.h>
+
+void check_nat_type() {
+    s32 ret;
+    struct net_ctl_nat_info natinfo;
+    
+    netCtlInit();
+    
+    // Initialize structure
+    memset(&natinfo, 0, sizeof(natinfo));
+    natinfo.size = sizeof(natinfo);
+    
+    // Get NAT info
+    ret = netCtlGetNatInfo(&natinfo);
+    if (ret == 0) {
+        printf("NAT Type: %d\n", natinfo.nat_type);
+        
+        char addr_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &natinfo.mapped_addr, addr_str, sizeof(addr_str));
+        printf("External IP: %s\n", addr_str);
+        
+        printf("UPnP Status: %d\n", natinfo.upnp_status);
+        printf("STUN Status: %d\n", natinfo.stun_status);
+    } else {
+        printf("Failed to get NAT info: 0x%x\n", ret);
+    }
+    
+    netCtlTerm();
+}
+```

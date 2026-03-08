@@ -1,0 +1,451 @@
+---
+title: 'Thread Management'
+description: 'PPU thread creation and synchronization primitives'
+---
+
+## Overview
+
+The thread API provides functions for creating and managing PPU threads, along with synchronization primitives like mutexes and condition variables.
+
+## Thread Management
+
+### sysThreadCreate
+
+Create a new PPU thread.
+
+```c
+s32 sysThreadCreate(sys_ppu_thread_t *threadid,
+                    void (*entry)(void *),
+                    void *arg,
+                    s32 priority,
+                    u64 stacksize,
+                    u64 flags,
+                    char *threadname);
+```
+
+<ParamField path="threadid" type="sys_ppu_thread_t*" required>
+  Pointer to storage for the thread ID
+</ParamField>
+
+<ParamField path="entry" type="void (*)(void*)" required>
+  Thread entry point function
+</ParamField>
+
+<ParamField path="arg" type="void*">
+  Argument passed to entry function
+</ParamField>
+
+<ParamField path="priority" type="s32" required>
+  Thread priority (0 = highest, higher values = lower priority)
+</ParamField>
+
+<ParamField path="stacksize" type="u64" required>
+  Stack size in bytes
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Thread flags: `THREAD_JOINABLE` (1) or 0
+</ParamField>
+
+<ParamField path="threadname" type="char*">
+  Thread name for debugging
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+void thread_func(void *arg) {
+    printf("Thread running: %s\n", (char*)arg);
+    sysThreadExit(0);
+}
+
+int main() {
+    sys_ppu_thread_t thread;
+    s32 ret = sysThreadCreate(&thread, thread_func, "Hello",
+                              1000, 0x1000, THREAD_JOINABLE,
+                              "MyThread");
+    if (ret == 0) {
+        u64 retval;
+        sysThreadJoin(thread, &retval);
+    }
+    return 0;
+}
+```
+
+### sysThreadJoin
+
+Wait for a joinable thread to terminate.
+
+```c
+s32 sysThreadJoin(sys_ppu_thread_t threadid, u64 *retval);
+```
+
+<ParamField path="threadid" type="sys_ppu_thread_t" required>
+  Thread ID returned by sysThreadCreate
+</ParamField>
+
+<ParamField path="retval" type="u64*">
+  Pointer to storage for thread return value
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysThreadExit
+
+Terminate the current thread.
+
+```c
+void sysThreadExit(u64 ret_val);
+```
+
+<ParamField path="ret_val" type="u64" required>
+  Return value for sysThreadJoin
+</ParamField>
+
+### sysThreadYield
+
+Voluntarily yield the CPU to another thread.
+
+```c
+s32 sysThreadYield(void);
+```
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysThreadDetach
+
+Make a thread non-joinable (detached).
+
+```c
+s32 sysThreadDetach(sys_ppu_thread_t threadid);
+```
+
+<ParamField path="threadid" type="sys_ppu_thread_t" required>
+  Thread ID to detach
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysThreadGetId
+
+Get the current thread's ID.
+
+```c
+s32 sysThreadGetId(sys_ppu_thread_t *threadid);
+```
+
+<ParamField path="threadid" type="sys_ppu_thread_t*" required>
+  Pointer to storage for current thread ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysThreadSetPriority
+
+Change thread priority.
+
+```c
+s32 sysThreadSetPriority(sys_ppu_thread_t threadid, s32 prio);
+```
+
+<ParamField path="threadid" type="sys_ppu_thread_t" required>
+  Thread ID
+</ParamField>
+
+<ParamField path="prio" type="s32" required>
+  New priority value
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysThreadGetPriority
+
+Get thread priority.
+
+```c
+s32 sysThreadGetPriority(sys_ppu_thread_t threadid, s32 *prio);
+```
+
+<ParamField path="threadid" type="sys_ppu_thread_t" required>
+  Thread ID
+</ParamField>
+
+<ParamField path="prio" type="s32*" required>
+  Pointer to storage for priority value
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Mutex
+
+### sysMutexCreate
+
+Create a mutex for mutual exclusion.
+
+```c
+s32 sysMutexCreate(sys_mutex_t *mutex, const sys_mutex_attr_t *attr);
+```
+
+<ParamField path="mutex" type="sys_mutex_t*" required>
+  Pointer to storage for mutex ID
+</ParamField>
+
+<ParamField path="attr" type="const sys_mutex_attr_t*" required>
+  Pointer to mutex attributes
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+sys_mutex_t mutex;
+sys_mutex_attr_t attr;
+sysMutexAttrInitialize(attr);
+attr.attr_protocol = SYS_MUTEX_PROTOCOL_PRIO;
+attr.attr_recursive = SYS_MUTEX_ATTR_NOT_RECURSIVE;
+
+s32 ret = sysMutexCreate(&mutex, &attr);
+if (ret == 0) {
+    sysMutexLock(mutex, 0);
+    // Critical section
+    sysMutexUnlock(mutex);
+    sysMutexDestroy(mutex);
+}
+```
+
+### sysMutexDestroy
+
+Destroy a mutex.
+
+```c
+s32 sysMutexDestroy(sys_mutex_t mutex);
+```
+
+<ParamField path="mutex" type="sys_mutex_t" required>
+  Mutex ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMutexLock
+
+Lock a mutex (blocking).
+
+```c
+s32 sysMutexLock(sys_mutex_t mutex, u64 timeout_usec);
+```
+
+<ParamField path="mutex" type="sys_mutex_t" required>
+  Mutex ID
+</ParamField>
+
+<ParamField path="timeout_usec" type="u64">
+  Timeout in microseconds, or 0 for no timeout
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code on timeout or error
+</ResponseField>
+
+### sysMutexTryLock
+
+Attempt to lock a mutex without blocking.
+
+```c
+s32 sysMutexTryLock(sys_mutex_t mutex);
+```
+
+<ParamField path="mutex" type="sys_mutex_t" required>
+  Mutex ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero if locked successfully, nonzero if already locked or error
+</ResponseField>
+
+### sysMutexUnlock
+
+Unlock a previously locked mutex.
+
+```c
+s32 sysMutexUnlock(sys_mutex_t mutex);
+```
+
+<ParamField path="mutex" type="sys_mutex_t" required>
+  Mutex ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Condition Variables
+
+### sysCondCreate
+
+Create a condition variable.
+
+```c
+s32 sysCondCreate(sys_cond_t *cond,
+                  sys_mutex_t mutex,
+                  const sys_cond_attr_t *attr);
+```
+
+<ParamField path="cond" type="sys_cond_t*" required>
+  Pointer to storage for condition variable ID
+</ParamField>
+
+<ParamField path="mutex" type="sys_mutex_t" required>
+  Associated mutex ID
+</ParamField>
+
+<ParamField path="attr" type="const sys_cond_attr_t*" required>
+  Pointer to condition variable attributes
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+sys_mutex_t mutex;
+sys_cond_t cond;
+sys_mutex_attr_t mutex_attr;
+sys_cond_attr_t cond_attr;
+
+sysMutexAttrInitialize(mutex_attr);
+sysCondAttrInitialize(cond_attr);
+
+sysMutexCreate(&mutex, &mutex_attr);
+sysCondCreate(&cond, mutex, &cond_attr);
+
+// Wait for condition
+sysMutexLock(mutex, 0);
+while (!condition_met) {
+    sysCondWait(cond, 0);
+}
+sysMutexUnlock(mutex);
+
+// Signal condition
+sysMutexLock(mutex, 0);
+condition_met = true;
+sysCondSignal(cond);
+sysMutexUnlock(mutex);
+```
+
+### sysCondDestroy
+
+Destroy a condition variable.
+
+```c
+s32 sysCondDestroy(sys_cond_t cond);
+```
+
+<ParamField path="cond" type="sys_cond_t" required>
+  Condition variable ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysCondWait
+
+Wait for a condition variable to be signaled.
+
+```c
+s32 sysCondWait(sys_cond_t cond, u64 timeout_usec);
+```
+
+<ParamField path="cond" type="sys_cond_t" required>
+  Condition variable ID
+</ParamField>
+
+<ParamField path="timeout_usec" type="u64">
+  Timeout in microseconds, or 0 for no timeout
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code on timeout or error
+</ResponseField>
+
+### sysCondSignal
+
+Signal one waiting thread.
+
+```c
+s32 sysCondSignal(sys_cond_t cond);
+```
+
+<ParamField path="cond" type="sys_cond_t" required>
+  Condition variable ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysCondBroadcast
+
+Signal all waiting threads.
+
+```c
+s32 sysCondBroadcast(sys_cond_t cond);
+```
+
+<ParamField path="cond" type="sys_cond_t" required>
+  Condition variable ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Constants
+
+### Thread Flags
+
+- `THREAD_JOINABLE` (1) - Thread can be joined
+- `THREAD_INTERRUPT` (2) - Thread triggered by interrupt
+
+### Mutex Protocols
+
+- `SYS_MUTEX_PROTOCOL_FIFO` (1) - FIFO scheduling
+- `SYS_MUTEX_PROTOCOL_PRIO` (2) - Priority-based scheduling
+- `SYS_MUTEX_PROTOCOL_PRIO_INHERIT` (3) - Priority inheritance
+
+### Mutex Attributes
+
+- `SYS_MUTEX_ATTR_RECURSIVE` (0x0010) - Allow recursive locking
+- `SYS_MUTEX_ATTR_NOT_RECURSIVE` (0x0020) - Disallow recursive locking
+- `SYS_MUTEX_ATTR_ADAPTIVE` (0x1000) - Adaptive mutex
+- `SYS_MUTEX_ATTR_NOT_ADAPTIVE` (0x2000) - Non-adaptive mutex
+
+## Header Files
+
+```c
+#include <sys/thread.h>  // Thread functions
+#include <sys/mutex.h>   // Mutex functions
+#include <sys/cond.h>    // Condition variable functions
+#include <lv2/thread.h>  // Additional thread utilities
+```

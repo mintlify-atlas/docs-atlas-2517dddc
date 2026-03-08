@@ -1,0 +1,672 @@
+---
+title: 'System Samples'
+description: 'System utilities including dialogs, keyboard, save data, and threading'
+---
+
+The system samples demonstrate PS3 system utilities and services including message dialogs, on-screen keyboard, save data management, and threading.
+
+## Available System Samples
+
+<CardGroup cols={2}>
+  <Card title="msgdialog" icon="message">
+    System message dialogs and user prompts
+  </Card>
+  
+  <Card title="osk" icon="keyboard">
+    On-screen keyboard for text input
+  </Card>
+  
+  <Card title="save" icon="floppy-disk">
+    Save data creation and management
+  </Card>
+  
+  <Card title="threadtest" icon="gears">
+    PPU threading and synchronization
+  </Card>
+</CardGroup>
+
+## System Utilities Overview
+
+PS3 system utilities provide:
+
+- **User interface dialogs** for errors, confirmations, and progress
+- **On-screen keyboard** for text input without USB keyboard
+- **Save data system** for game saves with XMB integration
+- **Threading support** for multi-threaded PPU programs
+- **Callback system** for system events (exit requests, etc.)
+
+## msgdialog - Message Dialogs
+
+**Location:** `samples/sys/msgdialog/`
+
+Demonstrates displaying system dialogs for user interaction.
+
+### What It Demonstrates
+
+- Opening error code dialogs
+- Yes/No confirmation dialogs
+- OK dialogs
+- Dialog callbacks
+- Timed dialog closing
+- Integration with sysutil callbacks
+
+### Implementation
+
+```cpp samples/sys/msgdialog/source/main.cpp
+#include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <malloc.h>
+#include <io/pad.h>
+#include <sysutil/msg.h>
+#include <sysutil/sysutil.h>
+#include "rsxutil.h"
+
+static vs32 dialog_action = 0;
+
+extern "C" {
+    // Dialog button callback
+    static void dialog_handler(msgButton button, void *usrData)
+    {
+        switch(button) {
+            case MSG_DIALOG_BTN_OK:
+                dialog_action = 1;
+                break;
+            case MSG_DIALOG_BTN_NO:
+            case MSG_DIALOG_BTN_ESCAPE:
+                dialog_action = 2;
+                break;
+            case MSG_DIALOG_BTN_NONE:
+                dialog_action = -1;
+                break;
+            default:
+                break;
+        }
+    }
+
+    // System utility callback
+    static void sysutil_exit_callback(u64 status, u64 param, void *usrdata)
+    {
+        switch(status) {
+            case SYSUTIL_EXIT_GAME:
+                // Handle exit request
+                break;
+            case SYSUTIL_DRAW_BEGIN:
+            case SYSUTIL_DRAW_END:
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+static void do_flip()
+{
+    sysUtilCheckCallback();
+    flip();
+}
+
+int main(int argc, char *argv[])
+{
+    msgType dialogType;
+    void *host_addr = memalign(1024*1024, HOST_SIZE);
+
+    printf("msgdialog test...\n");
+
+    init_screen(host_addr, HOST_SIZE);
+    ioPadInit(7);
+
+    atexit(program_exit_callback);
+    sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0,
+                           sysutil_exit_callback, NULL);
+
+    // Error code dialog
+    msgDialogOpenErrorCode(0xBADC0FFE, dialog_handler, NULL, NULL);
+    msgDialogClose(3000.0f);  // Auto-close after 3 seconds
+
+    dialog_action = 0;
+    while(dialog_action != -1)
+        do_flip();
+
+    msgDialogAbort();
+
+    // Yes/No dialog
+    dialogType = (msgType)(MSG_DIALOG_NORMAL |
+                          MSG_DIALOG_BTN_TYPE_YESNO |
+                          MSG_DIALOG_DISABLE_CANCEL_ON |
+                          MSG_DIALOG_DEFAULT_CURSOR_NO);
+    msgDialogOpen2(dialogType, "Do you want to continue?",
+                   dialog_handler, NULL, NULL);
+
+    dialog_action = 0;
+    while(!dialog_action)
+        do_flip();
+
+    msgDialogAbort();
+
+    // OK dialog based on previous answer
+    dialogType = (msgType)(MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_OK);
+    if(dialog_action == 1)
+        msgDialogOpen2(dialogType, "Your answer was YES",
+                      dialog_handler, NULL, NULL);
+    else
+        msgDialogOpen2(dialogType, "Your answer was NO",
+                      dialog_handler, NULL, NULL);
+
+    dialog_action = 0;
+    while(!dialog_action)
+        do_flip();
+
+    msgDialogAbort();
+
+    printf("msgdialog test done...\n");
+    return 0;
+}
+```
+
+### Dialog Types
+
+<AccordionGroup>
+  <Accordion title="Error Code Dialog">
+    ```cpp
+    msgDialogOpenErrorCode(0x80010001, callback, NULL, NULL);
+    msgDialogClose(5000.0f);  // Auto-close after 5 seconds
+    ```
+    
+    Displays a system error with the error code formatted.
+  </Accordion>
+  
+  <Accordion title="Simple Message">
+    ```cpp
+    msgType type = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_OK;
+    msgDialogOpen2(type, "Hello, World!", callback, NULL, NULL);
+    ```
+    
+    Shows a message with an OK button.
+  </Accordion>
+  
+  <Accordion title="Yes/No Dialog">
+    ```cpp
+    msgType type = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO;
+    msgDialogOpen2(type, "Continue?", callback, NULL, NULL);
+    ```
+    
+    Presents a yes/no choice to the user.
+  </Accordion>
+  
+  <Accordion title="Progress Bar">
+    ```cpp
+    msgType type = MSG_DIALOG_NORMAL | MSG_DIALOG_PROGRESSBAR;
+    msgDialogOpen2(type, "Loading...", callback, NULL, NULL);
+    
+    // Update progress
+    msgDialogProgressBarSetMsg(MSG_PROGRESSBAR_INDEX0, "Processing...");
+    msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, 10);
+    ```
+    
+    Shows a progress bar dialog.
+  </Accordion>
+</AccordionGroup>
+
+### Dialog Button Flags
+
+```cpp
+// Button types
+MSG_DIALOG_BTN_OK          // OK button
+MSG_DIALOG_BTN_TYPE_YESNO  // Yes and No buttons
+
+// Button responses in callback
+MSG_DIALOG_BTN_OK       // User pressed OK
+MSG_DIALOG_BTN_YES      // User pressed Yes  
+MSG_DIALOG_BTN_NO       // User pressed No
+MSG_DIALOG_BTN_ESCAPE   // User pressed Cancel/Back
+MSG_DIALOG_BTN_NONE     // Dialog closed without button press
+
+// Additional flags
+MSG_DIALOG_DISABLE_CANCEL_ON    // Disable cancel button
+MSG_DIALOG_DEFAULT_CURSOR_YES   // Default to Yes
+MSG_DIALOG_DEFAULT_CURSOR_NO    // Default to No
+```
+
+## System Callback Integration
+
+### Callback Pattern
+
+<Steps>
+  <Step title="Register callback">
+    ```cpp
+    sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0,
+                           callback_function, user_data);
+    ```
+  </Step>
+  
+  <Step title="Check callbacks in main loop">
+    ```cpp
+    while(running) {
+        sysUtilCheckCallback();
+        // ... render frame ...
+        flip();
+    }
+    ```
+    
+    Must be called regularly (every frame)
+  </Step>
+  
+  <Step title="Handle events">
+    ```cpp
+    void callback(u64 status, u64 param, void *userdata) {
+        switch(status) {
+            case SYSUTIL_EXIT_GAME:
+                running = 0;
+                break;
+            case SYSUTIL_DRAW_BEGIN:
+                // Pause rendering
+                break;
+            case SYSUTIL_DRAW_END:
+                // Resume rendering
+                break;
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="Unregister on exit">
+    ```cpp
+    sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
+    ```
+  </Step>
+</Steps>
+
+### Important Events
+
+```cpp
+SYSUTIL_EXIT_GAME       // User pressed PS button -> Quit Game
+SYSUTIL_DRAW_BEGIN      // System UI appearing (pause rendering)
+SYSUTIL_DRAW_END        // System UI closed (resume rendering)
+SYSUTIL_MENU_OPEN       // XMB menu opened
+SYSUTIL_MENU_CLOSE      // XMB menu closed
+```
+
+## osk - On-Screen Keyboard
+
+**Location:** `samples/sys/osk/`
+
+Demonstrates the system on-screen keyboard for text input.
+
+### What It Demonstrates
+
+- Opening the OSK
+- Configuring keyboard type
+- Reading entered text
+- Handling keyboard events
+
+### OSK Usage Pattern
+
+```cpp
+#include <sysutil/osk.h>
+
+// Setup OSK parameters
+oskDialog osk;
+oskCallbackReturnParam result;
+oskParam params;
+
+// Initialize OSK parameters
+oskSetInitialInputDevice(&params, OSK_DEVICE_PAD);
+oskSetKeyLayout(&params, OSK_LAYOUT_QWERTY);
+oskSetLayoutMode(&params, OSK_LAYOUTMODE_HORIZONTAL);
+oskSetInitialKeyLayout(&params, OSK_INITIAL_PANEL_DEFAULT);
+
+// Set text limits
+oskSetLimitLength(&params, 64);  // Max 64 characters
+
+// Open OSK
+oskLoadAsync(&osk, &params, NULL);
+
+// Wait for OSK to load and run
+while(osk_status != OSK_DONE) {
+    sysUtilCheckCallback();
+    oskUpdate(&osk);
+    flip();
+}
+
+// Get entered text
+oskGetInputText(&result);
+printf("User entered: %s\n", result.pResultString);
+
+// Cleanup
+oskUnloadAsync(&osk);
+```
+
+### OSK Configuration Options
+
+<AccordionGroup>
+  <Accordion title="Keyboard layouts">
+    ```cpp
+    OSK_LAYOUT_QWERTY       // Standard QWERTY
+    OSK_LAYOUT_AZERTY       // AZERTY (French)
+    OSK_LAYOUT_GERMAN       // QWERTZ (German)
+    OSK_LAYOUT_RUSSIAN      // Cyrillic
+    OSK_LAYOUT_JAPANESE     // Japanese
+    ```
+  </Accordion>
+  
+  <Accordion title="Input modes">
+    ```cpp
+    OSK_INPUT_MODE_FULL          // All characters
+    OSK_INPUT_MODE_ALPHABET      // Letters only
+    OSK_INPUT_MODE_NUMERIC       // Numbers only
+    OSK_INPUT_MODE_URL           // URL format
+    OSK_INPUT_MODE_PASSWORD      // Password (masked)
+    ```
+  </Accordion>
+  
+  <Accordion title="Panel types">
+    ```cpp
+    OSK_PANEL_DEFAULT           // Default panel
+    OSK_PANEL_ALPHABET          // Alphabet
+    OSK_PANEL_NUMERAL           // Numbers
+    OSK_PANEL_SYMBOL            // Symbols
+    OSK_PANEL_FULL_WIDTH        // Full-width characters
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## save - Save Data Management
+
+**Location:** `samples/sys/save/`
+
+Demonstrates creating and managing save data.
+
+### What It Demonstrates
+
+- Creating save directories
+- Writing save files
+- Reading save data
+- Save data metadata
+- XMB integration
+
+### Save Data Structure
+
+PS3 save data is organized as:
+
+```
+/dev_hdd0/home/<user>/savedata/<GAMECODE>/
+├── PARAM.SFO        # Save metadata
+├── ICON0.PNG        # Save icon (320x176)
+├── PIC1.PNG         # Background image (optional)
+└── <datafiles>      # Your save files
+```
+
+### Save Data Pattern
+
+```cpp
+#include <sysutil/save.h>
+
+// Save data parameters
+sysSaveListSettings listSettings;
+sysSaveStatParams statParams;
+sysSaveSetBuffer setBuffer;
+
+// Create save directory
+char dirName[] = "GAMEDATA01";
+char title[] = "My Game Save";
+char subtitle[] = "Level 5 - Castle";
+
+sysSaveAutoLoad2(
+    SYS_SAVEDATA_VERSION_CURRENT,
+    dirName,
+    SYS_SAVEDATA_ERRDIALOG_ALWAYS,
+    &setBuffer,
+    save_data_callback,
+    &statParams,
+    NULL
+);
+
+// Save callback handles actual I/O
+void save_data_callback(
+    sysSaveResult *result,
+    sysSaveStatParams *stat,
+    void *userdata
+)
+{
+    // Write save data
+    FILE *f = fopen(stat->filePath, "w");
+    fwrite(my_save_data, size, 1, f);
+    fclose(f);
+    
+    result->result = SYS_SAVEDATA_CBRESULT_OK_NEXT;
+}
+```
+
+## threadtest - PPU Threading
+
+**Location:** `samples/sys/threadtest/`
+
+Demonstrates PPU thread creation and synchronization.
+
+### What It Demonstrates
+
+- Creating PPU threads
+- Thread synchronization
+- Mutexes
+- Condition variables
+- Thread priorities
+
+### Threading Pattern
+
+```c
+#include <ppu-types.h>
+#include <sys/thread.h>
+#include <sys/synchronization.h>
+
+// Thread entry point
+void thread_func(u64 arg)
+{
+    printf("Thread started with arg: %llu\n", arg);
+    
+    // Do work
+    
+    sysThreadExit(0);
+}
+
+int main()
+{
+    sys_ppu_thread_t thread_id;
+    u64 arg = 123;
+    
+    // Create thread
+    sysThreadCreate(
+        &thread_id,
+        thread_func,
+        arg,
+        1000,              // Priority (lower = higher priority)
+        16*1024,           // Stack size
+        THREAD_JOINABLE,   // Flags
+        "my_thread"
+    );
+    
+    // Wait for thread to complete
+    u64 exit_code;
+    sysThreadJoin(thread_id, &exit_code);
+    
+    printf("Thread exited with code: %llu\n", exit_code);
+    return 0;
+}
+```
+
+### Mutex Synchronization
+
+```c
+sys_mutex_t mutex;
+sys_mutex_attribute_t mutex_attr;
+
+// Create mutex
+sysMutexAttributeInitialize(&mutex_attr);
+sysMutexCreate(&mutex, &mutex_attr);
+
+// Use mutex
+sysMutexLock(mutex, 0);  // 0 = wait forever
+// ... critical section ...
+sysMutexUnlock(mutex);
+
+// Cleanup
+sysMutexDestroy(mutex);
+```
+
+### Condition Variables
+
+```c
+sys_cond_t cond;
+sys_cond_attribute_t cond_attr;
+
+// Create condition variable
+sysCondAttributeInitialize(&cond_attr);
+sysCondCreate(&cond, mutex, &cond_attr);
+
+// Wait for condition
+sysMutexLock(mutex, 0);
+while(!condition_met) {
+    sysCondWait(cond, 0);  // Releases mutex while waiting
+}
+sysMutexUnlock(mutex);
+
+// Signal condition
+sysMutexLock(mutex, 0);
+condition_met = 1;
+sysCondSignal(cond);  // Wake one waiter
+// or
+sysCondBroadcast(cond);  // Wake all waiters
+sysMutexUnlock(mutex);
+
+// Cleanup
+sysCondDestroy(cond);
+```
+
+## Building System Samples
+
+### Build All System Samples
+
+```bash
+cd samples/sys
+make
+```
+
+### Build Individual Sample
+
+```bash
+cd samples/sys/msgdialog
+make
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Always Check Callbacks" icon="sync">
+    Call `sysUtilCheckCallback()` every frame in your main loop
+  </Card>
+  
+  <Card title="Handle EXIT_GAME" icon="door-open">
+    Always handle SYSUTIL_EXIT_GAME to save and exit cleanly
+  </Card>
+  
+  <Card title="Dialog Integration" icon="message">
+    Keep rendering and checking callbacks while dialogs are open
+  </Card>
+  
+  <Card title="Thread Safety" icon="lock">
+    Use mutexes when accessing shared data from multiple threads
+  </Card>
+  
+  <Card title="Save Data Icons" icon="image">
+    Always provide ICON0.PNG for save data (320x176, PNG format)
+  </Card>
+  
+  <Card title="OSK State" icon="keyboard">
+    Poll OSK state regularly with `oskUpdate()` while keyboard is open
+  </Card>
+</CardGroup>
+
+## Common System Patterns
+
+<AccordionGroup>
+  <Accordion title="Confirm exit dialog">
+    ```cpp
+    void request_exit() {
+        msgType type = MSG_DIALOG_NORMAL | MSG_DIALOG_BTN_TYPE_YESNO;
+        msgDialogOpen2(type, "Quit game?", exit_callback, NULL, NULL);
+    }
+    
+    void exit_callback(msgButton button, void *userdata) {
+        if(button == MSG_DIALOG_BTN_YES) {
+            running = 0;
+        }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Progress dialog for loading">
+    ```cpp
+    msgType type = MSG_DIALOG_NORMAL | MSG_DIALOG_PROGRESSBAR;
+    msgDialogOpen2(type, "Loading...", NULL, NULL, NULL);
+    
+    for(int i = 0; i <= 100; i += 10) {
+        load_some_data();
+        msgDialogProgressBarInc(MSG_PROGRESSBAR_INDEX0, 10);
+        sysUtilCheckCallback();
+    }
+    
+    msgDialogAbort();
+    ```
+  </Accordion>
+  
+  <Accordion title="Worker thread pattern">
+    ```c
+    sys_ppu_thread_t worker;
+    volatile int work_done = 0;
+    
+    void worker_func(u64 arg) {
+        // Do heavy processing
+        process_data();
+        work_done = 1;
+        sysThreadExit(0);
+    }
+    
+    // Start background work
+    sysThreadCreate(&worker, worker_func, 0, 1000, 64*1024,
+                    THREAD_JOINABLE, "worker");
+    
+    // Continue with other tasks
+    while(!work_done) {
+        render_frame();
+        sysUtilCheckCallback();
+    }
+    
+    sysThreadJoin(worker, NULL);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="System Utility API" icon="book" href="/api/sysutil">
+    Complete sysutil API reference
+  </Card>
+  
+  <Card title="Dialog API" icon="message" href="/api/msg-dialog">
+    Message dialog API documentation
+  </Card>
+  
+  <Card title="OSK API" icon="keyboard" href="/api/osk">
+    On-screen keyboard reference
+  </Card>
+  
+  <Card title="Threading API" icon="gears" href="/api/thread">
+    PPU threading and synchronization
+  </Card>
+  
+  <Card title="Save Data API" icon="floppy-disk" href="/api/save">
+    Save data management reference
+  </Card>
+</CardGroup>

@@ -1,0 +1,401 @@
+---
+title: 'Memory Management'
+description: 'Memory allocation and virtual memory mapping'
+---
+
+## Overview
+
+The memory API provides functions for allocating and managing memory on the PlayStation 3. It includes direct memory allocation, virtual memory mapping, and memory containers for resource management.
+
+## Direct Memory Allocation
+
+### sysMemoryAllocate
+
+Allocate a block of memory.
+
+```c
+s32 sysMemoryAllocate(size_t size, u64 flags, sys_mem_addr_t *alloc_addr);
+```
+
+<ParamField path="size" type="size_t" required>
+  Size of memory block in bytes
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Page size and access rights flags (OR combination):
+  - `SYS_MEMORY_PAGE_SIZE_1M` or `SYS_MEMORY_PAGE_SIZE_64K`
+  - `SYS_MEMORY_ACCESS_RIGHT_PPU_THR`, `SYS_MEMORY_ACCESS_RIGHT_SPU_THR`, etc.
+</ParamField>
+
+<ParamField path="alloc_addr" type="sys_mem_addr_t*" required>
+  Pointer to storage for allocated memory address
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+sys_mem_addr_t addr;
+u64 flags = SYS_MEMORY_PAGE_SIZE_1M | SYS_MEMORY_ACCESS_RIGHT_ANY;
+
+s32 ret = sysMemoryAllocate(1024 * 1024, flags, &addr);
+if (ret == 0) {
+    // Use memory at addr
+    sysMemoryFree(addr);
+}
+```
+
+### sysMemoryFree
+
+Free previously allocated memory.
+
+```c
+s32 sysMemoryFree(sys_mem_addr_t start_addr);
+```
+
+<ParamField path="start_addr" type="sys_mem_addr_t" required>
+  Address returned by sysMemoryAllocate
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Virtual Memory Mapping
+
+### sysMMapperAllocateAddress
+
+Allocate a virtual address range.
+
+```c
+s32 sysMMapperAllocateAddress(size_t size,
+                               u64 flags,
+                               size_t alignment,
+                               sys_mem_addr_t *alloc_addr);
+```
+
+<ParamField path="size" type="size_t" required>
+  Size of virtual address range
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Page size flags
+</ParamField>
+
+<ParamField path="alignment" type="size_t" required>
+  Address alignment requirement
+</ParamField>
+
+<ParamField path="alloc_addr" type="sys_mem_addr_t*" required>
+  Pointer to storage for allocated virtual address
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMMapperFreeAddress
+
+Free a virtual address range.
+
+```c
+s32 sysMMapperFreeAddress(sys_mem_addr_t start_addr);
+```
+
+<ParamField path="start_addr" type="sys_mem_addr_t" required>
+  Virtual address to free
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMMapperSearchAndMap
+
+Search for and map a memory region to a virtual address.
+
+```c
+s32 sysMMapperSearchAndMap(sys_mem_addr_t start_addr,
+                            sys_mem_id_t mem_id,
+                            u64 flags,
+                            sys_mem_addr_t *alloc_addr);
+```
+
+<ParamField path="start_addr" type="sys_mem_addr_t" required>
+  Starting virtual address for search
+</ParamField>
+
+<ParamField path="mem_id" type="sys_mem_id_t" required>
+  Memory object ID to map
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Access rights and protection flags
+</ParamField>
+
+<ParamField path="alloc_addr" type="sys_mem_addr_t*" required>
+  Pointer to storage for mapped address
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMMapperAllocateMemory
+
+Allocate a memory object for mapping.
+
+```c
+s32 sysMMapperAllocateMemory(size_t size, u64 flags, sys_mem_id_t *mem_id);
+```
+
+<ParamField path="size" type="size_t" required>
+  Size of memory object
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Page size flags
+</ParamField>
+
+<ParamField path="mem_id" type="sys_mem_id_t*" required>
+  Pointer to storage for memory object ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMMapperFreeMemory
+
+Free a memory object.
+
+```c
+s32 sysMMapperFreeMemory(sys_mem_id_t mem_id);
+```
+
+<ParamField path="mem_id" type="sys_mem_id_t" required>
+  Memory object ID to free
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMMapperMapMemory
+
+Map a memory object to a virtual address.
+
+```c
+s32 sysMMapperMapMemory(sys_mem_addr_t start_addr,
+                        sys_mem_id_t mem_id,
+                        u64 flags);
+```
+
+<ParamField path="start_addr" type="sys_mem_addr_t" required>
+  Virtual address where memory should be mapped
+</ParamField>
+
+<ParamField path="mem_id" type="sys_mem_id_t" required>
+  Memory object ID
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Access rights flags
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMMapperUnmapMemory
+
+Unmap memory from a virtual address.
+
+```c
+s32 sysMMapperUnmapMemory(sys_mem_addr_t start_addr, sys_mem_id_t *mem_id);
+```
+
+<ParamField path="start_addr" type="sys_mem_addr_t" required>
+  Virtual address to unmap
+</ParamField>
+
+<ParamField path="mem_id" type="sys_mem_id_t*">
+  Pointer to storage for unmapped memory object ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Memory Containers
+
+Memory containers are used for resource management and limiting memory usage.
+
+### sysMemContainerCreate
+
+Create a memory container.
+
+```c
+s32 sysMemContainerCreate(sys_mem_container_t *container, size_t size);
+```
+
+<ParamField path="container" type="sys_mem_container_t*" required>
+  Pointer to storage for container ID
+</ParamField>
+
+<ParamField path="size" type="size_t" required>
+  Maximum size of container in bytes
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+sys_mem_container_t container;
+s32 ret = sysMemContainerCreate(&container, 10 * 1024 * 1024); // 10MB limit
+if (ret == 0) {
+    sys_mem_addr_t addr;
+    u64 flags = SYS_MEMORY_PAGE_SIZE_1M | SYS_MEMORY_ACCESS_RIGHT_ANY;
+    
+    // Allocate from container
+    sysMemAllocateFromContainer(1024 * 1024, container, flags, &addr);
+    
+    // Use memory...
+    
+    sysMemoryFree(addr);
+    sysMemContainerDestroy(container);
+}
+```
+
+### sysMemContainerDestroy
+
+Destroy a memory container.
+
+```c
+s32 sysMemContainerDestroy(sys_mem_container_t container);
+```
+
+<ParamField path="container" type="sys_mem_container_t" required>
+  Container ID to destroy
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMemAllocateFromContainer
+
+Allocate memory from a container.
+
+```c
+s32 sysMemAllocateFromContainer(size_t size,
+                                 sys_mem_container_t container,
+                                 u64 flags,
+                                 sys_mem_addr_t *alloc_addr);
+```
+
+<ParamField path="size" type="size_t" required>
+  Size to allocate
+</ParamField>
+
+<ParamField path="container" type="sys_mem_container_t" required>
+  Container ID
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Page size and access rights flags
+</ParamField>
+
+<ParamField path="alloc_addr" type="sys_mem_addr_t*" required>
+  Pointer to storage for allocated address
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+### sysMMapperAllocateMemoryFromContainer
+
+Allocate a memory object from a container.
+
+```c
+s32 sysMMapperAllocateMemoryFromContainer(size_t size,
+                                           sys_mem_container_t container,
+                                           u64 flags,
+                                           sys_mem_id_t *mem_id);
+```
+
+<ParamField path="size" type="size_t" required>
+  Size of memory object
+</ParamField>
+
+<ParamField path="container" type="sys_mem_container_t" required>
+  Container ID
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Page size flags
+</ParamField>
+
+<ParamField path="mem_id" type="sys_mem_id_t*" required>
+  Pointer to storage for memory object ID
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+## Constants
+
+### Page Size Flags
+
+<ParamField path="SYS_MEMORY_PAGE_SIZE_1M" type="u64">
+  Use 1MB page size (0x0000000000000400ULL)
+</ParamField>
+
+<ParamField path="SYS_MEMORY_PAGE_SIZE_64K" type="u64">
+  Use 64KB page size (0x0000000000000200ULL)
+</ParamField>
+
+### Access Rights Flags
+
+<ParamField path="SYS_MEMORY_ACCESS_RIGHT_PPU_THR" type="u64">
+  PPU thread access (0x0000000000000008ULL)
+</ParamField>
+
+<ParamField path="SYS_MEMORY_ACCESS_RIGHT_SPU_THR" type="u64">
+  SPU thread access (0x0000000000000002ULL)
+</ParamField>
+
+<ParamField path="SYS_MEMORY_ACCESS_RIGHT_HANDLER" type="u64">
+  Handler access (0x0000000000000004ULL)
+</ParamField>
+
+<ParamField path="SYS_MEMORY_ACCESS_RIGHT_RAW_SPU" type="u64">
+  Raw SPU access (0x0000000000000001ULL)
+</ParamField>
+
+<ParamField path="SYS_MEMORY_ACCESS_RIGHT_ANY" type="u64">
+  All access rights (OR of all above)
+</ParamField>
+
+### Protection Flags
+
+<ParamField path="SYS_MEMORY_PROT_READ_ONLY" type="u64">
+  Read-only access (0x0000000000080000ULL)
+</ParamField>
+
+<ParamField path="SYS_MEMORY_PROT_READ_WRITE" type="u64">
+  Read-write access (0x0000000000040000ULL)
+</ParamField>
+
+## Header Files
+
+```c
+#include <sys/memory.h>  // Memory allocation functions
+#include <lv2/memory.h>  // Memory mapping functions
+```

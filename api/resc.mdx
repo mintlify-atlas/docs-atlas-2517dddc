@@ -1,0 +1,623 @@
+---
+title: RESC
+description: Resolution scaling and conversion library for adaptive display output
+---
+
+The RESC (Resolution Scaling) library provides hardware-accelerated resolution conversion and scaling for PlayStation 3 applications. It enables rendering at one resolution and outputting at another, supporting multiple display modes with minimal performance impact.
+
+## Overview
+
+RESC allows you to:
+- Render at lower resolutions (e.g., 720p) and upscale to higher resolutions (1080p)
+- Support multiple display modes simultaneously (480p, 720p, 1080i, 1080p)
+- Apply convolution filters for improved image quality
+- Handle PAL temporal conversion modes
+- Manage aspect ratio conversion (letterbox, pan-scan)
+
+## Initialization
+
+### rescInit
+
+Initialize the RESC library.
+
+```c
+s32 rescInit(const rescInitConfig* const initConfig);
+```
+
+<ParamField path="initConfig" type="const rescInitConfig*" required>
+  Pointer to initialization configuration structure
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+<Accordion title="rescInitConfig Structure">
+```c
+typedef struct _resc_init_config {
+    u32 size;              // Size of this structure
+    u32 resourcePolicy;    // RESC_CONSTANT_VRAM or RESC_MINIMUM_VRAM
+    u32 supportModes;      // OR'd combination of RESC_720x480, RESC_720x576, etc.
+    u32 ratioMode;         // RESC_FULLSCREEN, RESC_LETTERBOX, or RESC_PANSCAN
+    u32 palTemporalMode;   // PAL temporal conversion mode
+    u32 interlaceMode;     // Interlace mode
+    u32 flipMode;          // RESC_DISPLAY_VSYNC or RESC_DISPLAY_HSYNC
+} rescInitConfig;
+```
+</Accordion>
+
+```c Example
+rescInitConfig config;
+config.size = sizeof(rescInitConfig);
+config.resourcePolicy = RESC_MINIMUM_VRAM;
+config.supportModes = RESC_720x480 | RESC_1280x720 | RESC_1920x1080;
+config.ratioMode = RESC_FULLSCREEN;
+config.palTemporalMode = RESC_PAL_50;
+config.interlaceMode = RESC_INTERLACE_FILTER;
+config.flipMode = RESC_DISPLAY_VSYNC;
+
+if (rescInit(&config) != 0) {
+    // Handle initialization error
+}
+```
+
+### rescExit
+
+Shutdown and cleanup the RESC library.
+
+```c
+void rescExit();
+```
+
+Call this before exiting your application to free RESC resources.
+
+## Configuration
+
+### rescSetDsts
+
+Set destination buffer configuration.
+
+```c
+s32 rescSetDsts(u32 dstsMode, rescDsts *dsts);
+```
+
+<ParamField path="dstsMode" type="u32" required>
+  Destination mode: RESC_720x480, RESC_720x576, RESC_1280x720, or RESC_1920x1080
+</ParamField>
+
+<ParamField path="dsts" type="rescDsts*" required>
+  Pointer to destination configuration structure
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+<Accordion title="rescDsts Structure">
+```c
+typedef struct _resc_dsts {
+    u32 format;        // RESC_SURFACE_A8R8G8B8 or RESC_SURFACE_F_W16Z16Y16X16
+    u32 pitch;         // Pitch in bytes
+    u32 heightAlign;   // Height alignment
+} rescDsts;
+```
+</Accordion>
+
+```c Example
+rescDsts dsts;
+dsts.format = RESC_SURFACE_A8R8G8B8;
+dsts.pitch = 1920 * 4;  // 1920 pixels * 4 bytes per pixel
+dsts.heightAlign = 1;
+rescSetDsts(RESC_1920x1080, &dsts);
+```
+
+### rescSetDisplayMode
+
+Set the current display mode.
+
+```c
+s32 rescSetDisplayMode(u32 bufferMode);
+```
+
+<ParamField path="bufferMode" type="u32" required>
+  Display mode: RESC_720x480, RESC_720x576, RESC_1280x720, or RESC_1920x1080
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+### rescSetSrc
+
+Set source buffer for rendering.
+
+```c
+s32 rescSetSrc(s32 idx, rescSrc *src);
+```
+
+<ParamField path="idx" type="s32" required>
+  Source buffer index
+</ParamField>
+
+<ParamField path="src" type="rescSrc*" required>
+  Pointer to source configuration structure
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+<Accordion title="rescSrc Structure">
+```c
+typedef struct _resc_src {
+    u32 format;   // Surface format
+    u32 pitch;    // Pitch in bytes
+    u16 width;    // Width in pixels
+    u16 height;   // Height in pixels
+    u32 offset;   // Buffer offset
+} rescSrc;
+```
+</Accordion>
+
+```c Example
+// Set 720p source buffer
+rescSrc src;
+src.format = GCM_SURFACE_A8R8G8B8;
+src.pitch = 1280 * 4;
+src.width = 1280;
+src.height = 720;
+rsxAddressToOffset(render_buffer, &src.offset);
+rescSetSrc(0, &src);
+```
+
+## Buffer Management
+
+### rescGetNumColorBuffers
+
+Get the number of color buffers required.
+
+```c
+s32 rescGetNumColorBuffers(u32 dstsMode, u32 palTemporalMode, u32 reserved);
+```
+
+<ParamField path="dstsMode" type="u32" required>
+  Destination mode
+</ParamField>
+
+<ParamField path="palTemporalMode" type="u32" required>
+  PAL temporal mode
+</ParamField>
+
+<ParamField path="reserved" type="u32" required>
+  Reserved (set to 0)
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Number of color buffers required, or negative error code
+</ResponseField>
+
+### rescGetBufferSize
+
+Get required buffer sizes.
+
+```c
+s32 rescGetBufferSize(int *colorBuffers, int *vertexArray, int *fragmentShader);
+```
+
+<ParamField path="colorBuffers" type="int*" required>
+  Pointer to receive color buffer size
+</ParamField>
+
+<ParamField path="vertexArray" type="int*" required>
+  Pointer to receive vertex array size
+</ParamField>
+
+<ParamField path="fragmentShader" type="int*" required>
+  Pointer to receive fragment shader size
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+```c Example
+int color_size, vertex_size, fragment_size;
+rescGetBufferSize(&color_size, &vertex_size, &fragment_size);
+
+void *color_buffer = rsxMemalign(64, color_size);
+void *vertex_buffer = rsxMemalign(64, vertex_size);
+void *fragment_buffer = rsxMemalign(64, fragment_size);
+```
+
+### rescSetBufferAddress
+
+Set buffer addresses for RESC.
+
+```c
+s32 rescSetBufferAddress(void *colorBuffers, void *vertexArray, void *fragmentShader);
+```
+
+<ParamField path="colorBuffers" type="void*" required>
+  Pointer to color buffer memory
+</ParamField>
+
+<ParamField path="vertexArray" type="void*" required>
+  Pointer to vertex array memory
+</ParamField>
+
+<ParamField path="fragmentShader" type="void*" required>
+  Pointer to fragment shader memory
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+## Rendering and Display
+
+### rescSetConvertAndFlip
+
+Perform resolution conversion and flip the display.
+
+```c
+s32 rescSetConvertAndFlip(gcmContextData *context, s32 idx);
+```
+
+<ParamField path="context" type="gcmContextData*" required>
+  Pointer to GCM context
+</ParamField>
+
+<ParamField path="idx" type="s32" required>
+  Source buffer index
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+This function scales the source buffer to the destination resolution and flips the display.
+
+```c Example
+// Render to 720p buffer
+render_frame_720p();
+
+// Scale to 1080p and flip
+rescSetConvertAndFlip(context, current_buffer);
+```
+
+### rescSetWaitFlip
+
+Wait for flip to complete.
+
+```c
+void rescSetWaitFlip(gcmContextData *context);
+```
+
+<ParamField path="context" type="gcmContextData*" required>
+  Pointer to GCM context
+</ParamField>
+
+Equivalent to `gcmSetWaitFlip()` but used with RESC.
+
+### rescGetFlipStatus
+
+Get the current flip status.
+
+```c
+u32 rescGetFlipStatus();
+```
+
+<ResponseField name="return" type="u32">
+  Returns flip status
+</ResponseField>
+
+Equivalent to `gcmGetFlipStatus()`.
+
+### rescResetFlipStatus
+
+Reset the flip status.
+
+```c
+void rescResetFlipStatus();
+```
+
+Equivalent to `gcmResetFlipStatus()`.
+
+### rescGetLastFlipTime
+
+Get timestamp of last flip.
+
+```c
+s64 rescGetLastFlipTime();
+```
+
+<ResponseField name="return" type="s64">
+  Timestamp of last flip
+</ResponseField>
+
+Equivalent to `gcmGetLastFlipTime()`.
+
+## Event Handlers
+
+### rescSetVBlankHandler
+
+Register a VBlank callback handler.
+
+```c
+void rescSetVBlankHandler(void (*handler)(u32 head));
+```
+
+<ParamField path="handler" type="void (*)(u32 head)" required>
+  Callback function (NULL to cancel)
+</ParamField>
+
+Equivalent to `gcmSetVBlankHandler()`.
+
+### rescSetFlipHandler
+
+Register a flip callback handler.
+
+```c
+void rescSetFlipHandler(void (*handler)(u32 head));
+```
+
+<ParamField path="handler" type="void (*)(u32 head)" required>
+  Callback function (NULL to cancel)
+</ParamField>
+
+Equivalent to `gcmSetFlipHandler()`.
+
+## Advanced Configuration
+
+### rescAdjustAspectRatio
+
+Adjust aspect ratio for output.
+
+```c
+s32 rescAdjustAspectRatio(float horizontal, float vertical);
+```
+
+<ParamField path="horizontal" type="float" required>
+  Horizontal scale factor
+</ParamField>
+
+<ParamField path="vertical" type="float" required>
+  Vertical scale factor
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+```c Example
+// Adjust for 16:9 to 4:3 conversion
+rescAdjustAspectRatio(0.75f, 1.0f);
+```
+
+### rescSetPalInterpolateDropFlexRatio
+
+Set PAL interpolation drop flex ratio.
+
+```c
+s32 rescSetPalInterpolateDropFlexRatio(float ratio);
+```
+
+<ParamField path="ratio" type="float" required>
+  Flex ratio value
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+### rescCreateInterlaceTable
+
+Create an interlace conversion table.
+
+```c
+s32 rescCreateInterlaceTable(void *ea, float srcH, s32 depth, int length);
+```
+
+<ParamField path="ea" type="void*" required>
+  Effective address for table
+</ParamField>
+
+<ParamField path="srcH" type="float" required>
+  Source height
+</ParamField>
+
+<ParamField path="depth" type="s32" required>
+  Depth value
+</ParamField>
+
+<ParamField path="length" type="int" required>
+  Table length
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+### rescGetRegisterCount
+
+Get the current register count.
+
+```c
+s32 rescGetRegisterCount();
+```
+
+<ResponseField name="return" type="s32">
+  Current register count
+</ResponseField>
+
+### rescSetRegisterCount
+
+Set the register count.
+
+```c
+void rescSetRegisterCount(s32 count);
+```
+
+<ParamField path="count" type="s32" required>
+  Register count to set
+</ParamField>
+
+## Utility Functions
+
+### rescGcmSurface2RescSrc
+
+Convert a GCM surface to RESC source format.
+
+```c
+s32 rescGcmSurface2RescSrc(gcmSurface *surface, rescSrc *src);
+```
+
+<ParamField path="surface" type="gcmSurface*" required>
+  Pointer to GCM surface structure
+</ParamField>
+
+<ParamField path="src" type="rescSrc*" required>
+  Pointer to receive RESC source structure
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+This utility helps convert between GCM and RESC formats.
+
+### rescVideoResolution2RescBufferMode
+
+Convert video resolution ID to RESC buffer mode.
+
+```c
+s32 rescVideoResolution2RescBufferMode(u32 resolutionId, u32 *bufferMode);
+```
+
+<ParamField path="resolutionId" type="u32" required>
+  Video resolution ID
+</ParamField>
+
+<ParamField path="bufferMode" type="u32*" required>
+  Pointer to receive RESC buffer mode
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Returns 0 on success, error code on failure
+</ResponseField>
+
+## Constants
+
+### Resource Policies
+
+- `RESC_CONSTANT_VRAM` (0) - Use constant VRAM allocation
+- `RESC_MINIMUM_VRAM` (1) - Use minimum VRAM allocation
+- `RESC_CONSTANT_GPU_LOAD` (0) - Constant GPU load (deprecated)
+- `RESC_MINIMUM_GPU_LOAD` (2) - Minimum GPU load
+
+### Display Modes
+
+- `RESC_720x480` (1) - 480p SD resolution
+- `RESC_720x576` (2) - 576p PAL resolution
+- `RESC_1280x720` (4) - 720p HD resolution
+- `RESC_1920x1080` (8) - 1080p Full HD resolution
+
+### Ratio Modes
+
+- `RESC_FULLSCREEN` (0) - Stretch to fill screen
+- `RESC_LETTERBOX` (1) - Add black bars to maintain aspect ratio
+- `RESC_PANSCAN` (2) - Crop to fill screen
+
+### PAL Temporal Modes
+
+- `RESC_PAL_50` (0) - 50Hz PAL
+- `RESC_PAL_60_DROP` (1) - 60Hz with frame dropping
+- `RESC_PAL_60_INTERPOLATE` (2) - 60Hz with interpolation
+- `RESC_PAL_60_INTERPOLATE_30_DROP` (3) - 60Hz interpolated with 30fps drop
+- `RESC_PAL_60_INTERPOLATE_DROP_FLEXIBLE` (4) - Flexible interpolation
+- `RESC_PAL_60_FOR_HSYNC` (5) - 60Hz for HSync
+
+### Convolution Filters
+
+- `RESC_NORMAL_BILINEAR` (0) - Standard bilinear filtering
+- `RESC_INTERLACE_FILTER` (1) - Interlace filtering
+- `RESC_3X3_GAUSSIAN` (2) - 3x3 Gaussian blur
+- `RESC_2X3_QUINCUNX` (3) - 2x3 quincunx filtering
+- `RESC_2X3_QUINCUNX_ALT` (4) - Alternative 2x3 quincunx
+
+### Surface Formats
+
+- `RESC_SURFACE_A8R8G8B8` (8) - 32-bit ARGB
+- `RESC_SURFACE_F_W16Z16Y16X16` (11) - 64-bit float
+
+## Error Codes
+
+- `RESC_ERROR_NOT_INITIALIZED` (0x80210301) - RESC not initialized
+- `RESC_ERROR_REINITIALIZED` (0x80210302) - Already initialized
+- `RESC_ERROR_BAD_ALIGNMENT` (0x80210303) - Bad memory alignment
+- `RESC_ERROR_BAD_ARGUMENT` (0x80210304) - Invalid argument
+- `RESC_ERROR_LESS_MEMORY` (0x80210305) - Insufficient memory
+- `RESC_ERROR_GCM_FLIP_QUE_FULL` (0x80210306) - Flip queue full
+- `RESC_ERROR_BAD_COMBINATION` (0x80210307) - Invalid combination
+
+## Complete Example
+
+```c Full RESC Setup
+#include <rsx/resc.h>
+
+// Initialize RESC
+rescInitConfig config;
+config.size = sizeof(rescInitConfig);
+config.resourcePolicy = RESC_MINIMUM_VRAM;
+config.supportModes = RESC_1280x720 | RESC_1920x1080;
+config.ratioMode = RESC_FULLSCREEN;
+config.palTemporalMode = RESC_PAL_50;
+config.interlaceMode = RESC_INTERLACE_FILTER;
+config.flipMode = RESC_DISPLAY_VSYNC;
+rescInit(&config);
+
+// Configure destination (1080p output)
+rescDsts dsts;
+dsts.format = RESC_SURFACE_A8R8G8B8;
+dsts.pitch = 1920 * 4;
+dsts.heightAlign = 1;
+rescSetDsts(RESC_1920x1080, &dsts);
+rescSetDisplayMode(RESC_1920x1080);
+
+// Allocate buffers
+int color_size, vertex_size, fragment_size;
+rescGetBufferSize(&color_size, &vertex_size, &fragment_size);
+
+void *color_buffer = rsxMemalign(64, color_size);
+void *vertex_buffer = rsxMemalign(64, vertex_size);
+void *fragment_buffer = rsxMemalign(64, fragment_size);
+
+rescSetBufferAddress(color_buffer, vertex_buffer, fragment_buffer);
+
+// Set source (720p rendering)
+rescSrc src;
+src.format = GCM_SURFACE_A8R8G8B8;
+src.pitch = 1280 * 4;
+src.width = 1280;
+src.height = 720;
+rsxAddressToOffset(render_buffer, &src.offset);
+rescSetSrc(0, &src);
+
+// Main loop
+while (running) {
+    // Render to 720p buffer
+    render_frame();
+    
+    // Scale to 1080p and flip
+    rescSetConvertAndFlip(context, 0);
+    rescSetWaitFlip(context);
+}
+
+// Cleanup
+rescExit();
+```
+
+## See Also
+
+- [RSX](/api/rsx) - RSX initialization and management
+- [GCM System](/api/gcm) - Low-level command buffer operations

@@ -1,0 +1,273 @@
+---
+title: 'Process Management'
+description: 'Process control and information functions'
+---
+
+## Overview
+
+The process API provides functions for managing processes, retrieving process information, and controlling process execution on the PlayStation 3.
+
+## Process Information
+
+### sysProcessGetPid
+
+Get the current process ID.
+
+```c
+sys_pid_t sysProcessGetPid(void);
+```
+
+<ResponseField name="return" type="sys_pid_t">
+  Current process ID
+</ResponseField>
+
+**Example:**
+```c
+sys_pid_t pid = sysProcessGetPid();
+printf("Process ID: %u\n", pid);
+```
+
+### sysProcessGetPpid
+
+Get the parent process ID.
+
+```c
+sys_pid_t sysProcessGetPpid(void);
+```
+
+<ResponseField name="return" type="sys_pid_t">
+  Parent process ID
+</ResponseField>
+
+### sysProcessGetNumberOfObject
+
+Get the number of objects of a specific type.
+
+```c
+s32 sysProcessGetNumberOfObject(u32 object, size_t *numptr);
+```
+
+<ParamField path="object" type="u32" required>
+  Object type constant:
+  - `SYS_OBJECT_MEM` - Memory objects
+  - `SYS_OBJECT_MUTEX` - Mutexes
+  - `SYS_OBJECT_COND` - Condition variables
+  - `SYS_OBJECT_EVENT_QUEUE` - Event queues
+  - `SYS_OBJECT_SEMAPHORE` - Semaphores
+  - `SYS_OBJECT_FS_FD` - File descriptors
+  - And others (see constants below)
+</ParamField>
+
+<ParamField path="numptr" type="size_t*" required>
+  Pointer to storage for object count
+</ParamField>
+
+<ResponseField name="return" type="s32">
+  Zero on success, error code otherwise
+</ResponseField>
+
+**Example:**
+```c
+size_t mutex_count;
+s32 ret = sysProcessGetNumberOfObject(SYS_OBJECT_MUTEX, &mutex_count);
+if (ret == 0) {
+    printf("Active mutexes: %zu\n", mutex_count);
+}
+```
+
+### sysProcessGetPpuGuid
+
+Get PPU GUID information from the ELF.
+
+```c
+sys_addr_t sysProcessGetPpuGuid(void);
+```
+
+<ResponseField name="return" type="sys_addr_t">
+  Address of PPU GUID information
+</ResponseField>
+
+## Process Control
+
+### sysProcessExit
+
+Terminate the current process.
+
+```c
+void sysProcessExit(int status) __attribute__((noreturn));
+```
+
+<ParamField path="status" type="int" required>
+  Exit status code
+</ParamField>
+
+**Example:**
+```c
+if (critical_error) {
+    sysProcessExit(1);
+}
+```
+
+### sysProcessExitSpawn2
+
+Terminate the current process and execute another program.
+
+```c
+void sysProcessExitSpawn2(const char *path,
+                          const char *argv[],
+                          const char *envp[],
+                          void *data,
+                          size_t size,
+                          int priority,
+                          u64 flags);
+```
+
+<ParamField path="path" type="const char*" required>
+  Path to the new program to execute
+</ParamField>
+
+<ParamField path="argv" type="const char*[]" required>
+  Argument vector for the new program (NULL-terminated)
+</ParamField>
+
+<ParamField path="envp" type="const char*[]">
+  Environment variables (may be NULL)
+</ParamField>
+
+<ParamField path="data" type="void*">
+  Additional data to pass (may be NULL)
+</ParamField>
+
+<ParamField path="size" type="size_t">
+  Size of additional data
+</ParamField>
+
+<ParamField path="priority" type="int" required>
+  Priority for the new process (1000 = normal)
+</ParamField>
+
+<ParamField path="flags" type="u64" required>
+  Stack size flags (OR combination):
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_32K`
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_64K`
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_96K`
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_128K`
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_256K`
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_512K`
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_1M`
+</ParamField>
+
+**Example:**
+```c
+const char *argv[] = { "/dev_hdd0/game/GAME00001/USRDIR/EBOOT.BIN", NULL };
+sysProcessExitSpawn2("/dev_hdd0/game/GAME00001/USRDIR/EBOOT.BIN",
+                     argv, NULL, NULL, 0, 1000,
+                     SYS_PROCESS_SPAWN_STACK_SIZE_1M);
+```
+
+## Process Parameters
+
+Define process priority and stack size using the `SYS_PROCESS_PARAM` macro in your code.
+
+### SYS_PROCESS_PARAM
+
+Define process parameters (must be used outside functions).
+
+```c
+SYS_PROCESS_PARAM(priority, stacksize)
+```
+
+<ParamField path="priority" type="s32" required>
+  Process priority (1000 = normal)
+</ParamField>
+
+<ParamField path="stacksize" type="u32" required>
+  Main thread stack size constant:
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_32K` (0x10)
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_64K` (0x20)
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_96K` (0x30)
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_128K` (0x40)
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_256K` (0x50)
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_512K` (0x60)
+  - `SYS_PROCESS_SPAWN_STACK_SIZE_1M` (0x70)
+</ParamField>
+
+**Example:**
+```c
+#include <sys/process.h>
+
+SYS_PROCESS_PARAM(1000, SYS_PROCESS_SPAWN_STACK_SIZE_1M)
+
+int main(void) {
+    // Your code here
+    return 0;
+}
+```
+
+## Object Type Constants
+
+Constants for use with `sysProcessGetNumberOfObject()`:
+
+<Accordion title="Process Object Types">
+  | Constant | Value | Description |
+  |----------|-------|-------------|
+  | `SYS_OBJECT_MEM` | 0x08 | Memory objects |
+  | `SYS_OBJECT_MUTEX` | 0x85 | Mutexes |
+  | `SYS_OBJECT_COND` | 0x86 | Condition variables |
+  | `SYS_OBJECT_RWLOCK` | 0x88 | Read-write locks |
+  | `SYS_OBJECT_INTR_TAG` | 0x0A | Interrupt tags |
+  | `SYS_OBJECT_INTR_SERVICE_HANDLE` | 0x0B | Interrupt service handles |
+  | `SYS_OBJECT_EVENT_QUEUE` | 0x8D | Event queues |
+  | `SYS_OBJECT_EVENT_PORT` | 0x0E | Event ports |
+  | `SYS_OBJECT_TRACE` | 0x21 | Trace objects |
+  | `SYS_OBJECT_SPUIMAGE` | 0x22 | SPU images |
+  | `SYS_OBJECT_PRX` | 0x23 | PRX modules |
+  | `SYS_OBJECT_SPUPORT` | 0x24 | SPU ports |
+  | `SYS_OBJECT_LWMUTEX` | 0x95 | Lightweight mutexes |
+  | `SYS_OBJECT_TIMER` | 0x11 | Timers |
+  | `SYS_OBJECT_SEMAPHORE` | 0x96 | Semaphores |
+  | `SYS_OBJECT_FS_FD` | 0x73 | File descriptors |
+  | `SYS_OBJECT_LWCOND` | 0x97 | Lightweight condition variables |
+  | `SYS_OBJECT_EVENT_FLAG` | 0x98 | Event flags |
+</Accordion>
+
+## Stack Size Constants
+
+<Accordion title="Stack Size Values">
+  | Constant | Value | Size |
+  |----------|-------|------|
+  | `SYS_PROCESS_SPAWN_STACK_SIZE_32K` | 0x10 | 32 KB |
+  | `SYS_PROCESS_SPAWN_STACK_SIZE_64K` | 0x20 | 64 KB |
+  | `SYS_PROCESS_SPAWN_STACK_SIZE_96K` | 0x30 | 96 KB |
+  | `SYS_PROCESS_SPAWN_STACK_SIZE_128K` | 0x40 | 128 KB |
+  | `SYS_PROCESS_SPAWN_STACK_SIZE_256K` | 0x50 | 256 KB |
+  | `SYS_PROCESS_SPAWN_STACK_SIZE_512K` | 0x60 | 512 KB |
+  | `SYS_PROCESS_SPAWN_STACK_SIZE_1M` | 0x70 | 1 MB |
+</Accordion>
+
+## Process Parameter Structure
+
+```c
+typedef struct _sys_process_param {
+    u32 size;              // Structure size
+    u32 magic;             // Magic number (SYS_PROCESS_SPAWN_MAGIC)
+    u32 version;           // Version
+    u32 sdk_version;       // SDK version
+    s32 prio;              // Priority
+    u32 stacksize;         // Stack size
+    u32 malloc_pagesize;   // Malloc page size
+    u32 ppc_seg;           // PPC segment type
+} sys_process_param_t;
+```
+
+## Header Files
+
+```c
+#include <sys/process.h>  // Process management functions
+#include <lv2/process.h>  // Process control functions
+```
+
+## See Also
+
+- [Thread API](/api/thread)
+- [Memory API](/api/memory)
