@@ -1,0 +1,233 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "PSL1GHT",
+  "projectDescription": "A lightweight PlayStation 3 SDK for homebrew development using open-source toolchains",
+  "theme": "aspen",
+  "primaryColor": "#1E40AF",
+  "lightColor": "#3B82F6",
+  "darkColor": "#1E3A8A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart",
+              "project-structure"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/ppu-architecture",
+              "concepts/spu-programming",
+              "concepts/memory-management",
+              "concepts/build-system"
+            ]
+          },
+          {
+            "group": "Graphics",
+            "pages": [
+              "graphics/rsx-overview",
+              "graphics/gcm-system",
+              "graphics/vertex-shaders",
+              "graphics/rendering",
+              "graphics/font-rendering"
+            ]
+          },
+          {
+            "group": "Input",
+            "pages": [
+              "input/controllers",
+              "input/keyboard-mouse",
+              "input/camera",
+              "input/playstation-move"
+            ]
+          },
+          {
+            "group": "Audio",
+            "pages": [
+              "audio/audio-playback",
+              "audio/synchronization"
+            ]
+          },
+          {
+            "group": "Networking",
+            "pages": [
+              "networking/sockets",
+              "networking/http-client",
+              "networking/ssl"
+            ]
+          },
+          {
+            "group": "System",
+            "pages": [
+              "system/filesystem",
+              "system/threads",
+              "system/memory",
+              "system/processes"
+            ]
+          },
+          {
+            "group": "System Utilities",
+            "pages": [
+              "sysutil/dialogs",
+              "sysutil/on-screen-keyboard",
+              "sysutil/save-data",
+              "sysutil/video-output"
+            ]
+          },
+          {
+            "group": "SPU Development",
+            "pages": [
+              "spu/overview",
+              "spu/thread-management",
+              "spu/dma-transfers",
+              "spu/spurs"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "tools/fself",
+              "tools/pkg-creation",
+              "tools/sprxlinker",
+              "tools/cgcomp",
+              "tools/ps3load"
+            ]
+          },
+          {
+            "group": "Advanced Topics",
+            "pages": [
+              "advanced/sprx-libraries",
+              "advanced/debugging",
+              "advanced/optimization"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Graphics APIs",
+            "pages": [
+              "api/rsx",
+              "api/gcm",
+              "api/resc",
+              "api/font"
+            ]
+          },
+          {
+            "group": "Input APIs",
+            "pages": [
+              "api/pad",
+              "api/keyboard",
+              "api/mouse",
+              "api/camera",
+              "api/gem"
+            ]
+          },
+          {
+            "group": "Audio APIs",
+            "pages": [
+              "api/audio"
+            ]
+          },
+          {
+            "group": "Network APIs",
+            "pages": [
+              "api/net",
+              "api/netctl",
+              "api/http",
+              "api/ssl"
+            ]
+          },
+          {
+            "group": "System APIs",
+            "pages": [
+              "api/lv2",
+              "api/thread",
+              "api/memory",
+              "api/filesystem",
+              "api/process"
+            ]
+          },
+          {
+            "group": "System Utility APIs",
+            "pages": [
+              "api/sysutil",
+              "api/msg-dialog",
+              "api/osk",
+              "api/save",
+              "api/video"
+            ]
+          },
+          {
+            "group": "SPU APIs",
+            "pages": [
+              "api/spu-thread",
+              "api/spu-dma",
+              "api/spu-atomic",
+              "api/spurs"
+            ]
+          },
+          {
+            "group": "Math Libraries",
+            "pages": [
+              "api/vectormath",
+              "api/simdmath"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Sample Projects",
+            "pages": [
+              "examples/overview",
+              "examples/graphics-samples",
+              "examples/input-samples",
+              "examples/audio-samples",
+              "examples/network-samples",
+              "examples/spu-samples",
+              "examples/system-samples"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Hardware-accelerated 3D graphics with RSX",
+    "Full PS3 controller and peripheral support",
+    "SPU programming for Cell processor",
+    "Berkeley sockets networking",
+    "System utilities and dialogs",
+    "SPRX dynamic library linking",
+    "Build tools and packaging system"
+  ],
+  "publicApiSurface": [
+    "RSX Graphics Library",
+    "GCM System",
+    "Pad/Controller API",
+    "Audio API",
+    "Network Sockets",
+    "LV2 System Calls",
+    "SPU Thread Management",
+    "File System API",
+    "Memory Management",
+    "System Utilities (Dialogs, OSK, Save Data)",
+    "Font Rendering",
+    "HTTP Client",
+    "Camera/Move APIs",
+    "Vector Math Library",
+    "SIMD Math Library"
+  ]
+}
